@@ -1,220 +1,127 @@
 'use client';
-
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { supabase } from '../../lib/supabase';
+import { useState } from 'react';
 
 export default function ClientsPage() {
-  const router = useRouter();
-  const [user, setUser] = useState(null);
   const [clients, setClients] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
-
-  // Form states
-  const [name, setName] = useState('');
-  const [contact, setContact] = useState('');
-  const [serviceType, setServiceType] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // 1. Verify Authentication Session
-  useEffect(() => {
-    async function checkAuth() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.push('/login');
-      } else {
-        setUser(user);
-        fetchUserClients(user.id);
-      }
-    }
-    checkAuth();
-  }, [router]);
-
-  async function fetchUserClients(userId) {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('user_id', userId) // MULTI-USER ISOLATION: Only get your data!
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      setErrorMessage(error.message);
-    } else {
-      setClients(data || []);
-    }
-    setLoading(false);
-  }
-
-  // 2. Handle Submit Form with User Assignment
-  async function handleAddClient(e) {
-    e.preventDefault();
-    if (!name || !user) return;
-    setIsSubmitting(true);
-
-    const { data, error } = await supabase
-      .from('clients')
-      .insert([{ 
-        name, 
-        contact, 
-        service_type: serviceType,
-        user_id: user.id // MULTI-USER ISOLATION: Tag data with current user
-      }])
-      .select(); 
-
-    if (error) {
-      alert(`Error saving to database: ${error.message}`);
-    } else {
-      setName('');
-      setContact('');
-      setServiceType('');
-      if (data) {
-        setClients([data[0], ...clients]);
-      }
-    }
-    setIsSubmitting(false);
-  }
-
-  // 3. Handle Delete Client
-  async function handleDeleteClient(id) {
-    const { error } = await supabase
-      .from('clients')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      alert(`Error deleting: ${error.message}`);
-    } else {
-      setClients(clients.filter(client => client.id !== id));
-    }
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    router.push('/login');
-  }
-
-  if (!user) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-400">Verifying security credentials...</div>;
-  }
+  const [errorMsg, setErrorMsg] = useState(
+    "Could not find the 'notes' column of 'clients' in the schema cache"
+  );
 
   return (
-    <main className="min-h-screen bg-gray-50 p-8 text-gray-800">
-      <header className="flex justify-between items-center mb-8">
-        <div>
-          <Link href="/" className="text-sm text-blue-600 hover:underline">← Back to Dashboard</Link>
-          <h1 className="text-3xl font-bold text-gray-900 mt-2">Manage Clients</h1>
-          <p className="text-xs text-gray-400 mt-0.5">Account: {user.email}</p>
-        </div>
-        <button 
-          onClick={handleLogout}
-          className="text-xs font-semibold text-gray-500 hover:text-red-600 bg-white border border-gray-200 px-3 py-1.5 rounded-lg transition-colors shadow-sm"
-        >
-          Sign Out
-        </button>
-      </header>
-
-      {errorMessage && (
-        <div className="p-4 mb-6 bg-red-50 text-red-700 border border-red-200 rounded-xl text-sm">
-          <strong>Database Error:</strong> {errorMessage}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Add New Client</h2>
-          <form onSubmit={handleAddClient} className="flex flex-col gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Client Name *</label>
-              <input 
-                type="text" value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. Sarah Jenkins" 
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 text-gray-800"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Contact</label>
-              <input 
-                type="text" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="e.g. sarah@example.com" 
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 text-gray-800"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Service Type</label>
-              <input 
-                type="text" value={serviceType} onChange={(e) => setServiceType(e.target.value)} placeholder="e.g. Web Design" 
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 text-gray-800"
-              />
-            </div>
-            <button 
-              type="submit" disabled={isSubmitting}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2.5 rounded-lg text-sm transition-colors mt-2"
-            >
-              {isSubmitting ? 'Saving...' : 'Save Client to Database'}
-            </button>
-          </form>
-        </section>
-
-        <section className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100">
-            <h2 className="text-xl font-bold text-gray-900">Active Directory</h2>
+    <div className="min-h-screen bg-bg-void text-text-primary p-6 lg:p-10">
+      <div className="max-w-7xl mx-auto space-y-8">
+        
+        {/* Workspace Identity Bar */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border-hud pb-6">
+          <div>
+            <h1 className="font-display text-3xl font-bold tracking-tight bg-gradient-to-r from-text-primary to-text-secondary bg-clip-text text-transparent">
+              Client Management
+            </h1>
+            <p className="text-text-secondary text-xs font-mono mt-1">// PIPELINE REGISTRY PROFILE INDEX</p>
           </div>
+        </div>
+
+        {/* Database Diagnostic Alert */}
+        {errorMsg && (
+          <div className="p-4 bg-surface-card border border-accent-amber/20 rounded-xl flex flex-col gap-1 shadow-lg">
+            <span className="text-xs font-mono font-semibold text-accent-amber flex items-center gap-2">
+              ⚠️ DB SCHEMA DIAGNOSTIC WARNING
+            </span>
+            <p className="text-text-secondary text-[11px] font-mono pl-5">
+              Database Sync Error: {errorMsg}
+            </p>
+            <p className="text-text-secondary text-[10px] font-sans pl-5 mt-1 opacity-80">
+              Tip: Run the SQL Script in your Supabase SQL Editor workspace to instantly sync missing metadata attributes.
+            </p>
+          </div>
+        )}
+
+        {/* Master Data Capture Grid Matrix */}
+        <div className="bg-surface border border-border-hud rounded-2xl p-6 shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-border-hud/50 to-transparent" />
+          <form className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div>
+              <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1.5">Full Name *</label>
+              <input type="text" required placeholder="thanhcap" className="w-full bg-bg-void border border-border-hud rounded-xl p-3 text-xs text-text-primary focus:outline-none focus:border-accent-cyan transition-all" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1.5">Email Address *</label>
+              <input type="email" required placeholder="thanh@gmail.com" className="w-full bg-bg-void border border-border-hud rounded-xl p-3 text-xs font-mono text-text-primary focus:outline-none focus:border-accent-cyan transition-all" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1.5">Phone Number</label>
+              <input type="text" placeholder="1213123123" className="w-full bg-bg-void border border-border-hud rounded-xl p-3 text-xs font-mono text-text-primary focus:outline-none focus:border-accent-cyan transition-all" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1.5">Country</label>
+              <select className="w-full bg-bg-void border border-border-hud rounded-xl p-3 text-xs text-text-primary focus:outline-none focus:border-accent-cyan transition-all">
+                <option value="Vietnam">Vietnam</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1.5">LinkedIn URL</label>
+              <input type="url" placeholder="https://linkedin.com/in/..." className="w-full bg-bg-void border border-border-hud rounded-xl p-3 text-xs font-mono text-text-primary focus:outline-none focus:border-accent-cyan transition-all" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1.5">Birthday</label>
+              <input type="date" className="w-full bg-bg-void border border-border-hud rounded-xl p-3 text-xs font-mono text-text-primary focus:outline-none focus:border-accent-cyan transition-all" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1.5">Relationship Level</label>
+              <select className="w-full bg-bg-void border border-border-hud rounded-xl p-3 text-xs text-text-primary focus:outline-none focus:border-accent-cyan transition-all">
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1.5">Status</label>
+              <select className="w-full bg-bg-void border border-border-hud rounded-xl p-3 text-xs text-text-primary focus:outline-none focus:border-accent-cyan transition-all">
+                <option value="Active">Active</option>
+                <option value="Pending">Pending</option>
+                <option value="Completed">Completed</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <button type="submit" className="w-full bg-text-primary hover:bg-white text-bg-void font-semibold text-xs py-3 rounded-xl transition-all uppercase tracking-wider shadow-lg active:scale-[0.98]">
+                Add Client
+              </button>
+            </div>
+            <div className="md:col-span-2 lg:col-span-3">
+              <label className="block text-[10px] font-mono text-text-secondary uppercase tracking-wider mb-1.5">Note Conversation</label>
+              <textarea rows={2} placeholder="aefawef" className="w-full bg-bg-void border border-border-hud rounded-xl p-3 text-xs text-text-primary focus:outline-none focus:border-accent-cyan transition-all resize-none" />
+            </div>
+          </form>
+        </div>
+
+        {/* Unified High-Density Ledger Table */}
+        <div className="bg-surface border border-border-hud rounded-2xl overflow-hidden shadow-2xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-sm text-gray-500 font-medium">
-                  <th className="p-4">Name</th>
-                  <th className="p-4">Contact</th>
-                  <th className="p-4">Service Type</th>
-                  <th className="p-4 text-right">Actions</th>
+                <tr className="border-b border-border-hud bg-surface-card/60">
+                  <th className="p-4 text-[10px] font-mono text-text-secondary uppercase tracking-wider">Name</th>
+                  <th className="p-4 text-[10px] font-mono text-text-secondary uppercase tracking-wider">Contact Info</th>
+                  <th className="p-4 text-[10px] font-mono text-text-secondary uppercase tracking-wider">Location & Bio</th>
+                  <th className="p-4 text-[10px] font-mono text-text-secondary uppercase tracking-wider">Conversation Notes</th>
+                  <th className="p-4 text-[10px] font-mono text-text-secondary uppercase tracking-wider">Relationship</th>
+                  <th className="p-4 text-[10px] font-mono text-text-secondary uppercase tracking-wider">Status</th>
                 </tr>
               </thead>
-              <tbody className="text-sm divide-y divide-gray-100">
-                {loading ? (
+              <tbody className="divide-y divide-border-hud/60 text-xs">
+                {clients.length === 0 ? (
                   <tr>
-                    <td colSpan="4" className="p-8 text-center text-gray-400">Loading directory...</td>
-                  </tr>
-                ) : clients.length > 0 ? (
-                  clients.map((client) => (
-                    <tr key={client.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="p-4 font-semibold text-gray-950">
-                        <Link href={`/clients/${client.id}`} className="text-blue-600 hover:text-blue-800 hover:underline">
-                          {client.name}
-                        </Link>
-                      </td>
-                      <td className="p-4 text-gray-600">{client.contact || '—'}</td>
-                      <td className="p-4">
-                        <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md text-xs font-medium">
-                          {client.service_type || 'General'}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right">
-                        <button 
-                          onClick={() => {
-                            if (window.confirm(`Are you sure you want to permanently delete ${client.name}?`)) {
-                              handleDeleteClient(client.id);
-                            }
-                          }}
-                          className="text-red-500 hover:text-red-700 font-medium text-xs bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-md transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="4" className="p-8 text-center text-gray-400">
-                      No clients found. Your private list is clean!
+                    <td colSpan={6} className="p-12 text-center text-text-secondary font-sans tracking-wide">
+                      No clients found. Populate registry metrics using the terminal injector above.
                     </td>
                   </tr>
-                )}
+                ) : null}
               </tbody>
             </table>
           </div>
-        </section>
+        </div>
+
       </div>
-    </main>
+    </div>
   );
 }

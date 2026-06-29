@@ -1,26 +1,53 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  /* Restrained Premium SaaS Color Framework */
+  --color-bg-void: #060913;
+  --color-surface: #0B0F19;
+  --color-surface-card: #111625;
+  --color-border-hud: #1F2638;
+  --color-text-primary: #F3F5F9;
+  --color-text-secondary: #7E89A1;
+  
+  /* Status Color Matrix */
+  --color-accent-cyan: #4DE8FF;
+  --color-accent-violet: #BF7BFF;
+  --color-accent-amber: #FFB84D;
+  --color-accent-mint: #34D399;
+
+  /* Typographic Scaling */
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-display: var(--font-space-grotesk), sans-serif;
+  --font-mono: var(--font-jetbrains-mono), monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* Base DOM Configuration */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-bg-void);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}
+
+/* High-Contrast Interactive Keyboard Focus Focus Rings */
+*:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: 2px;
+}
+
+/* Premium Scrollbar Geometry */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-void);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-hud);
+  border-radius: 100px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
 }
