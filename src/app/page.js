@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import Papa from 'papaparse';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
 
@@ -23,8 +24,8 @@ function ConfirmDialog({ isOpen, title, message, confirmLabel, confirmVariant = 
 
   return (
     <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200 p-6 sm:p-8">
-        <h3 className="text-[15px] font-bold text-gray-900">{title}</h3>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 dark:border-gray-700 overflow-hidden animate-in zoom-in-95 duration-200 p-6 sm:p-8">
+        <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">{title}</h3>
         <p className="text-[13px] text-gray-500 mt-2 leading-relaxed">{message}</p>
         <div className="flex gap-3 pt-6 mt-6 border-t border-gray-100">
           <button
@@ -63,7 +64,7 @@ function Toast({ id, type, message, onClose }) {
     return () => clearTimeout(timer);
   }, [onClose]);
 
-  const bgColor = type === 'success' ? 'bg-green-50 border-green-100 text-green-800' : 'bg-red-50 border-red-100 text-red-800';
+  const bgColor = type === 'success' ? 'bg-green-50 dark:bg-green-900/40 border-green-100 dark:border-green-800 text-green-800 dark:text-green-200' : 'bg-red-50 dark:bg-red-900/40 border-red-100 dark:border-red-800 text-red-800 dark:text-red-200';
   const icon = type === 'success' ? (
     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -86,6 +87,71 @@ function Toast({ id, type, message, onClose }) {
 // MODULE-SCOPE CONSTANTS
 // ==========================================
 const PIPELINE_STAGES = ['New', 'Contacted', 'Engaged', 'Active', 'Inactive'];
+const DEAL_STAGES = ['Prospect', 'Proposal', 'Negotiation', 'Contract Sent', 'Won', 'Lost'];
+const TAG_COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#3B82F6', '#8B5CF6', '#EC4899', '#6B7280'];
+const CLIENT_SOURCES = ['LinkedIn', 'Referral', 'Website', 'Cold Outreach', 'Event', 'Other'];
+const WEBHOOK_EVENTS = [
+  { value: 'client.created', label: 'Client created' },
+  { value: 'client.updated', label: 'Client updated' },
+  { value: 'client.deleted', label: 'Client deleted' },
+  { value: 'deal.created', label: 'Deal created' },
+  { value: 'deal.won', label: 'Deal won' },
+  { value: 'deal.lost', label: 'Deal lost' },
+  { value: 'task.completed', label: 'Task completed' },
+  { value: 'activity.logged', label: 'Activity logged' },
+];
+const DEFAULT_ACTIVITY_TEMPLATES = [
+  { name: 'Quick call', type: 'Call', desc: 'Spoke for 15 minutes. Discussed next steps.', outcome: 'Positive' },
+  { name: 'Follow-up email', type: 'Email', desc: 'Sent follow-up email after last meeting.', outcome: 'Neutral' },
+  { name: 'Intro meeting', type: 'Meeting', desc: '30-minute intro meeting. Client is interested.', outcome: 'Positive' },
+  { name: 'Voicemail', type: 'Note', desc: 'Left voicemail. Will try again next week.', outcome: 'No response' },
+];
+
+// Lead score: 0-100, computed client-side (Feature 6)
+function computeLeadScore(client, clientActivities, clientTasks, clientDeals) {
+  let s = 0;
+  s += ({ New: 5, Contacted: 10, Engaged: 18, Active: 25, Inactive: 0 }[client.status] || 0);          // max 25
+  s += ({ High: 15, Medium: 8, Low: 3 }[client.relationship] || 0);                                     // max 15
+  if (clientActivities.length > 0) {
+    const days = Math.floor((Date.now() - new Date(clientActivities[0].activity_date)) / 86400000);
+    s += days <= 7 ? 20 : days <= 14 ? 15 : days <= 30 ? 10 : days <= 60 ? 5 : 0;                       // max 20
+  }
+  const c30 = new Date(); c30.setDate(c30.getDate() - 30);
+  s += Math.min(clientActivities.filter(a => new Date(a.activity_date) >= c30).length * 4, 20);         // max 20
+  s += Math.min(clientTasks.filter(t => t.status === 'pending').length * 3, 10);                        // max 10
+  if (clientDeals.length > 0) s += 5;
+  if (clientDeals.some(d => d.stage === 'Won')) s += 5;                                                 // max 10
+  return Math.min(Math.round(s), 100);
+}
+
+function ScoreBar({ score }) {
+  const col = score >= 75 ? 'bg-green-500' : score >= 50 ? 'bg-blue-500' : score >= 25 ? 'bg-yellow-400' : 'bg-gray-300';
+  return (
+    <div className="flex items-center gap-2 w-24">
+      <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+        <div className={`h-full rounded-full ${col}`} style={{ width: `${score}%` }} />
+      </div>
+      <span className="text-[11px] font-bold text-gray-500 w-5 text-right">{score}</span>
+    </div>
+  );
+}
+
+function TagPill({ tag, onRemove }) {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
+      style={{ backgroundColor: tag.color + '22', color: tag.color, border: `1px solid ${tag.color}44` }}>
+      {tag.name}
+      {onRemove && <button onClick={() => onRemove(tag.id)} className="hover:opacity-70 ml-0.5">Ã—</button>}
+    </span>
+  );
+}
+
+function formatFileSize(bytes) {
+  if (bytes == null) return 'â€”';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export default function App() {
   const router = useRouter();
@@ -204,6 +270,157 @@ export default function App() {
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', confirmLabel: '', confirmVariant: 'primary', isLoading: false, onConfirm: null });
   const [toasts, setToasts] = useState([]);
 
+  // FEATURE 1 â€” DEALS PIPELINE STATES
+  const [deals, setDeals] = useState([]);
+  const [showDealForm, setShowDealForm] = useState(false);
+  const [editingDeal, setEditingDeal] = useState(null);
+  const [dealTitle, setDealTitle] = useState('');
+  const [dealValue, setDealValue] = useState('');
+  const [dealStage, setDealStage] = useState('Proposal');
+  const [dealProbability, setDealProbability] = useState(50);
+  const [dealCloseDate, setDealCloseDate] = useState('');
+  const [dealNotes, setDealNotes] = useState('');
+  const [dealClientId, setDealClientId] = useState('');
+  const [dealSaving, setDealSaving] = useState(false);
+
+  // FEATURE 2 â€” AI SUMMARY STATES
+  const [aiSummary, setAiSummary] = useState('');
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  const [aiSummaryClientId, setAiSummaryClientId] = useState(null);
+
+  // FEATURE 3 â€” REPORTS STATE
+  const [reportRange, setReportRange] = useState('30');
+
+  // FEATURE 4 â€” EMAIL COMPOSER STATES
+  const [showEmailComposer, setShowEmailComposer] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailTemplates, setEmailTemplates] = useState([]);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [templateName, setTemplateName] = useState('');
+  const [templateSubject, setTemplateSubject] = useState('');
+  const [templateBody, setTemplateBody] = useState('');
+
+  // FEATURE 5 â€” AUTOMATION RULES STATES
+  const [automationRules, setAutomationRules] = useState([]);
+  const [showRuleForm, setShowRuleForm] = useState(false);
+  const [newRule, setNewRule] = useState({ name: '', triggerType: 'stage_change', triggerValue: '', actionType: 'create_task', actionValue: {} });
+
+  // FEATURE 7 â€” FILE ATTACHMENTS STATES
+  const [clientFiles, setClientFiles] = useState([]);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [activeProfileTab, setActiveProfileTab] = useState('activity');
+  const fileUploadRef = useRef(null);
+
+  // FEATURE 8 â€” CALENDAR STATES
+  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [calendarView, setCalendarView] = useState('month');
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
+
+  // FEATURE 9 â€” TAGS STATES
+  const [tags, setTags] = useState([]);
+  const [clientTagMap, setClientTagMap] = useState({});
+  const [filterTags, setFilterTags] = useState([]);
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagColor, setNewTagColor] = useState('#6366F1');
+
+  // FEATURE 10 â€” TEAM WORKSPACE STATES
+  const [workspace, setWorkspace] = useState(null);
+  const [workspaceMembers, setWorkspaceMembers] = useState([]);
+  const [myRole, setMyRole] = useState('owner');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+
+  // FEATURE 11 â€” WEBHOOKS STATES
+  const [webhooks, setWebhooks] = useState([]);
+  const [showWebhookForm, setShowWebhookForm] = useState(false);
+  const [newWebhook, setNewWebhook] = useState({ name: '', url: '', events: [], secret: '' });
+
+  // FEATURE 12 â€” MOBILE NAV STATE
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // FEATURE 13 â€” DARK MODE STATE
+  const [darkMode, setDarkMode] = useState(false);
+
+  // FEATURE 14 â€” DUPLICATE DETECTION STATE
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [forceSaveDuplicate, setForceSaveDuplicate] = useState(false);
+
+  // FEATURE 15 â€” QUICK NOTES STATES
+  const [quickNoteValue, setQuickNoteValue] = useState('');
+  const [quickNoteSaved, setQuickNoteSaved] = useState(false);
+  const [quickNoteSaving, setQuickNoteSaving] = useState(false);
+
+  // FEATURE 16 â€” IMPORT PREVIEW STATES
+  const [importPreviewData, setImportPreviewData] = useState([]);
+  const [showImportPreview, setShowImportPreview] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+
+  // FEATURE 17 â€” STREAK STATES
+  const [streakData, setStreakData] = useState({ current: 0, longest: 0, lastActive: null });
+
+  // FEATURE 18 â€” BULK EMAIL STATES
+  const [showBulkEmailModal, setShowBulkEmailModal] = useState(false);
+  const [bulkEmailSubject, setBulkEmailSubject] = useState('');
+  const [bulkEmailBody, setBulkEmailBody] = useState('');
+  const [bulkEmailSending, setBulkEmailSending] = useState(false);
+  const [bulkEmailProgress, setBulkEmailProgress] = useState('');
+
+  // FEATURE 19 â€” HEALTH FILTER STATE
+  const [filterHealth, setFilterHealth] = useState('');
+
+  // FEATURE 20 â€” RECURRING TASK FORM STATES
+  const [newTaskRecurrence, setNewTaskRecurrence] = useState('');
+  const [newTaskRecurrenceEnd, setNewTaskRecurrenceEnd] = useState('');
+
+  // FEATURE 22 â€” ACTIVITY TEMPLATES STATES
+  const [activityTemplates, setActivityTemplates] = useState(DEFAULT_ACTIVITY_TEMPLATES);
+  const [savingTemplateName, setSavingTemplateName] = useState(null); // null = hidden, '' = open input
+
+  // FEATURE 23 â€” FOLLOW-UP SUGGESTION STATES
+  const [followUpSuggestion, setFollowUpSuggestion] = useState('');
+  const [followUpLoading, setFollowUpLoading] = useState(false);
+
+  // FEATURE 24 â€” CLIENT TIMELINE STATE
+  const [timelineClient, setTimelineClient] = useState(null);
+
+  // FEATURE 25 â€” SOURCE FORM STATE
+  const [clientSource, setClientSource] = useState('');
+
+  // FEATURE 26 â€” GOALS STATES
+  const [goals, setGoals] = useState([]);
+  const [showGoalForm, setShowGoalForm] = useState(false);
+  const [goalType, setGoalType] = useState('new_clients');
+  const [goalTarget, setGoalTarget] = useState(10);
+
+  // FEATURE 27 â€” CLIENT MERGE STATES
+  const [showMergeTool, setShowMergeTool] = useState(false);
+  const [mergeSource, setMergeSource] = useState(null);
+  const [mergeTarget, setMergeTarget] = useState(null);
+  const [mergeStep, setMergeStep] = useState(1);
+  const [mergeSearch, setMergeSearch] = useState('');
+  const [mergeFieldChoices, setMergeFieldChoices] = useState({});
+  const [mergeLoading, setMergeLoading] = useState(false);
+
+  // FEATURE 28 â€” KEYBOARD SHORTCUTS STATE
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+
+  // FEATURE 29 â€” ADVANCED FILTERS & SAVED VIEWS STATES
+  const [filterDateAdded, setFilterDateAdded] = useState('');
+  const [filterHasDeals, setFilterHasDeals] = useState(false);
+  const [filterHasActivity, setFilterHasActivity] = useState('');
+  const [filterScore, setFilterScore] = useState('');
+  const [savedViews, setSavedViews] = useState([]);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [savingViewName, setSavingViewName] = useState(null); // null = hidden, '' = open input
+
+  // FEATURE 30 â€” ONBOARDING STATES
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
+  const [dashboardExplored, setDashboardExplored] = useState(false);
+
   // HELPER: Show Toast Notification
   function showToast(message, type = 'success') {
     const id = Date.now();
@@ -243,12 +460,6 @@ export default function App() {
     }
   }
 
-  // STUB: Email Sending primitive
-  function sendEmail(to, subject, body) {
-    // TODO: Wire this up to Resend, SendGrid, or Supabase Edge Functions
-    console.log(`[STUB EMAIL] To: ${to} | Subject: ${subject} | Body: ${body}`);
-  }
-
   // ==========================================
   // INITIALIZATION & EVENT LISTENERS
   // ==========================================
@@ -268,6 +479,147 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // FEATURE 13 â€” Dark mode: init from localStorage, toggle root class
+  useEffect(() => {
+    const saved = localStorage.getItem('crm_dark_mode') === 'true';
+    setDarkMode(saved);
+    document.documentElement.classList.toggle('dark', saved);
+  }, []);
+
+  function toggleDarkMode() {
+    const next = !darkMode;
+    setDarkMode(next);
+    document.documentElement.classList.toggle('dark', next);
+    localStorage.setItem('crm_dark_mode', String(next));
+  }
+
+  // FEATURE 22 â€” Load saved activity templates, merge with defaults (dedupe by name)
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('crm_activity_templates') || '[]');
+      if (Array.isArray(saved) && saved.length > 0) {
+        setActivityTemplates(prev => {
+          const merged = [...prev];
+          saved.forEach(t => { if (t.name && !merged.some(m => m.name === t.name)) merged.push(t); });
+          return merged;
+        });
+      }
+    } catch { /* corrupt localStorage â€” ignore */ }
+  }, []);
+
+  // FEATURE 30 â€” Onboarding: dismissed flag + "explored dashboard" step
+  useEffect(() => {
+    setOnboardingDismissed(localStorage.getItem('crm_onboarding_dismissed') === 'true');
+    setDashboardExplored(localStorage.getItem('crm_dashboard_explored') === 'true');
+  }, []);
+
+  useEffect(() => {
+    if (appStep !== 'DASHBOARD' || dashboardExplored) return;
+    const timer = setTimeout(() => {
+      setDashboardExplored(true);
+      localStorage.setItem('crm_dashboard_explored', 'true');
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, [appStep, dashboardExplored]);
+
+  // FEATURE 14 â€” Duplicate email detection (debounced 500ms)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!clientEmail) { setDuplicateWarning(null); setForceSaveDuplicate(false); return; }
+      const existing = clients.find(c =>
+        (c.email || '').toLowerCase() === clientEmail.toLowerCase() && c.id !== editingClient?.id
+      );
+      setDuplicateWarning(existing || null);
+      if (!existing) setForceSaveDuplicate(false);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [clientEmail, clients, editingClient]);
+
+  // FEATURE 15 â€” Quick note: sync value on client open, debounced auto-save (800ms)
+  useEffect(() => {
+    if (viewingClient) {
+      setQuickNoteValue(viewingClient.quick_note || '');
+      setQuickNoteSaved(false);
+      setActiveProfileTab('activity');
+      fetchClientFiles(viewingClient.id);
+      setAiSummary(prev => (aiSummaryClientId === viewingClient.id ? prev : ''));
+      setFollowUpSuggestion('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingClient?.id]);
+
+  useEffect(() => {
+    if (!viewingClient) return;
+    if (quickNoteValue === (viewingClient.quick_note || '')) return;
+    const t = setTimeout(async () => {
+      setQuickNoteSaving(true);
+      const { error } = await supabase.from('clients').update({ quick_note: quickNoteValue }).eq('id', viewingClient.id);
+      setQuickNoteSaving(false);
+      if (!error) {
+        setClients(prev => prev.map(c => c.id === viewingClient.id ? { ...c, quick_note: quickNoteValue } : c));
+        setViewingClient(prev => prev ? { ...prev, quick_note: quickNoteValue } : prev);
+        setQuickNoteSaved(true);
+        setTimeout(() => setQuickNoteSaved(false), 2000);
+      }
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickNoteValue]);
+
+  // FEATURE 23 â€” Smart follow-up suggestion (only when last activity >14 days or none)
+  useEffect(() => {
+    if (!viewingClient) return;
+    const clientActs = activities.filter(a => a.client_id === viewingClient.id);
+    const lastAct = clientActs[0];
+    const daysSince = lastAct
+      ? Math.floor((Date.now() - new Date(lastAct.activity_date)) / 86400000)
+      : 999;
+    if (daysSince < 14) return;
+    generateFollowUpSuggestion(viewingClient, clientActs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingClient?.id]);
+
+  // FEATURE 28 â€” Keyboard shortcuts. Refs keep user/appStep current inside the
+  // stable listener (the empty-dep effect would otherwise close over stale values).
+  const userRef = useRef(user);
+  const appStepRef = useRef(appStep);
+  useEffect(() => { userRef.current = user; }, [user]);
+  useEffect(() => { appStepRef.current = appStep; }, [appStep]);
+
+  useEffect(() => {
+    const handleShortcuts = (e) => {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable;
+      if (e.key === '?' && !e.metaKey && !e.ctrlKey && !typing) setShowKeyboardHelp(true);
+      if (e.key === 'Escape') {
+        setShowKeyboardHelp(false);
+        setShowGlobalSearch(false);
+        setShowNotifications(false);
+        setShowDealForm(false);
+        setShowEmailComposer(false);
+        setShowGoalForm(false);
+        setShowImportPreview(false);
+        setShowMergeTool(false);
+        setShowBulkEmailModal(false);
+      }
+      if (!userRef.current) return;
+      if (e.altKey && !typing) {
+        if (e.key === '1') setAppStep('DASHBOARD');
+        if (e.key === '2') setAppStep('CLIENTS');
+        if (e.key === '3') setAppStep('GLOBAL_TASKS');
+        if (e.key === '4') setAppStep('REPORTS');
+        if (e.key === '5') setAppStep('CALENDAR');
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n' && appStepRef.current === 'CLIENTS') {
+        e.preventDefault();
+        document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' });
+        document.querySelector('#add-client-form input[type="text"]')?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleShortcuts);
+    return () => window.removeEventListener('keydown', handleShortcuts);
   }, []);
 
   // Global Search Debounce
@@ -302,8 +654,771 @@ export default function App() {
       fetchProfile(session.user.id),
       fetchCustomFields(session.user.id),
       fetchActivities(session.user.id),
-      fetchNotifications(session.user.id)
+      fetchNotifications(session.user.id),
+      fetchDeals(session.user.id),
+      fetchEmailTemplates(session.user.id),
+      fetchAutomationRules(session.user.id),
+      fetchTags(session.user.id),
+      fetchWebhooks(session.user.id),
+      fetchGoals(session.user.id),
+      fetchSavedViews(session.user.id)
     ]);
+    // Workspace depends on the session user; invite acceptance needs the email
+    await fetchWorkspace(session.user.id, session.user.email);
+  }
+
+  // ==========================================
+  // NEW FEATURE DATA FETCHING
+  // ==========================================
+
+  async function fetchDeals(userId) {
+    const { data } = await supabase.from('deals').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+    if (data) setDeals(data);
+  }
+
+  async function fetchEmailTemplates(userId) {
+    const { data } = await supabase.from('email_templates').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+    if (data) setEmailTemplates(data);
+  }
+
+  async function fetchAutomationRules(userId) {
+    const { data } = await supabase.from('automation_rules').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+    if (data) setAutomationRules(data);
+  }
+
+  async function fetchTags(userId) {
+    const { data: tagRows } = await supabase.from('tags').select('*').eq('user_id', userId).order('name');
+    if (tagRows) {
+      setTags(tagRows);
+      const tagIds = tagRows.map(t => t.id);
+      if (tagIds.length > 0) {
+        const { data: links } = await supabase.from('client_tags').select('client_id, tag_id').in('tag_id', tagIds);
+        if (links) {
+          const map = {};
+          links.forEach(l => { (map[l.client_id] = map[l.client_id] || []).push(l.tag_id); });
+          setClientTagMap(map);
+        }
+      } else {
+        setClientTagMap({});
+      }
+    }
+  }
+
+  async function fetchWebhooks(userId) {
+    const { data } = await supabase.from('webhooks').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+    if (data) setWebhooks(data);
+  }
+
+  async function fetchGoals(userId) {
+    const { data } = await supabase.from('goals').select('*').eq('user_id', userId);
+    if (data) setGoals(data);
+  }
+
+  async function fetchSavedViews(userId) {
+    const { data } = await supabase.from('saved_views').select('*').eq('user_id', userId).order('created_at');
+    if (data) setSavedViews(data);
+  }
+
+  async function fetchClientFiles(clientId) {
+    const { data } = await supabase.from('client_files').select('*').eq('client_id', clientId).order('created_at', { ascending: false });
+    if (data) setClientFiles(data);
+  }
+
+  // ==========================================
+  // FEATURE 10 â€” TEAM WORKSPACE
+  // ==========================================
+
+  async function fetchWorkspace(userId, userEmail) {
+    // Accept pending invite for this email if one exists
+    if (userEmail) {
+      const { data: pending } = await supabase.from('workspace_members')
+        .select('*').eq('invited_email', userEmail).eq('accepted', false).limit(1);
+      if (pending && pending.length > 0) {
+        await supabase.from('workspace_members')
+          .update({ user_id: userId, accepted: true }).eq('id', pending[0].id);
+      }
+    }
+    const { data: membership } = await supabase.from('workspace_members')
+      .select('*').eq('user_id', userId).eq('accepted', true).limit(1);
+    if (membership && membership.length > 0) {
+      const m = membership[0];
+      setMyRole(m.role);
+      const { data: ws } = await supabase.from('workspaces').select('*').eq('id', m.workspace_id).single();
+      if (ws) setWorkspace(ws);
+      const { data: members } = await supabase.from('workspace_members').select('*').eq('workspace_id', m.workspace_id);
+      if (members) setWorkspaceMembers(members);
+    }
+  }
+
+  async function handleCreateWorkspace(e) {
+    e.preventDefault();
+    if (!newWorkspaceName.trim()) return;
+    const { data: ws, error } = await supabase.from('workspaces').insert([{ name: newWorkspaceName.trim(), owner_id: user.id }]).select();
+    if (error || !ws) { showToast(`Error creating workspace: ${error?.message}`, 'error'); return; }
+    const { data: member } = await supabase.from('workspace_members')
+      .insert([{ workspace_id: ws[0].id, user_id: user.id, role: 'owner', accepted: true, invited_email: user.email }]).select();
+    setWorkspace(ws[0]);
+    setMyRole('owner');
+    setWorkspaceMembers(member || []);
+    setNewWorkspaceName('');
+    showToast('Workspace created.', 'success');
+  }
+
+  async function handleInviteMember(e) {
+    e.preventDefault();
+    if (!inviteEmail.trim() || !workspace) return;
+    setInviteLoading(true);
+    const { data, error } = await supabase.from('workspace_members')
+      .insert([{ workspace_id: workspace.id, user_id: user.id, role: 'member', invited_email: inviteEmail.trim(), accepted: false }]).select();
+    if (error) {
+      showToast(`Invite error: ${error.message}`, 'error');
+    } else {
+      if (data) setWorkspaceMembers(prev => [...prev, data[0]]);
+      // Send the invite email via Resend (best-effort)
+      fetch('/api/send-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: inviteEmail.trim(),
+          subject: `You've been invited to ${workspace.name} on Student CRM`,
+          body: `${profile.username || user.email} invited you to join the "${workspace.name}" workspace. Sign up with this email address to accept.`,
+          fromName: profile.username || 'Student CRM',
+        }),
+      }).catch(() => {});
+      showToast(`Invite sent to ${inviteEmail.trim()}.`, 'success');
+      setInviteEmail('');
+    }
+    setInviteLoading(false);
+  }
+
+  async function handleUpdateMemberRole(memberId, role) {
+    const { error } = await supabase.from('workspace_members').update({ role }).eq('id', memberId);
+    if (!error) setWorkspaceMembers(prev => prev.map(m => m.id === memberId ? { ...m, role } : m));
+    else showToast(`Error updating role: ${error.message}`, 'error');
+  }
+
+  function handleRemoveMember(memberId) {
+    const member = workspaceMembers.find(m => m.id === memberId);
+    showConfirm(
+      'Remove Member',
+      `Remove ${member?.invited_email || 'this member'} from the workspace? They will lose access immediately.`,
+      'Remove', 'danger',
+      async () => {
+        const { error } = await supabase.from('workspace_members').delete().eq('id', memberId);
+        if (!error) setWorkspaceMembers(prev => prev.filter(m => m.id !== memberId));
+        else showToast(`Error removing member: ${error.message}`, 'error');
+      }
+    );
+  }
+
+  function handleLeaveWorkspace() {
+    showConfirm(
+      'Leave Workspace',
+      'Are you sure you want to leave this workspace? You will lose access to shared data.',
+      'Leave', 'danger',
+      async () => {
+        const mine = workspaceMembers.find(m => m.user_id === user.id);
+        if (mine) await supabase.from('workspace_members').delete().eq('id', mine.id);
+        setWorkspace(null); setWorkspaceMembers([]); setMyRole('owner');
+      }
+    );
+  }
+
+  const canEdit = !workspace || ['owner', 'admin', 'member'].includes(myRole);
+  const canDelete = !workspace || ['owner', 'admin'].includes(myRole);
+  const isViewer = workspace && myRole === 'viewer';
+
+  // ==========================================
+  // FEATURE 1 â€” DEALS HANDLERS
+  // ==========================================
+
+  function resetDealForm() {
+    setDealTitle(''); setDealValue(''); setDealStage('Proposal'); setDealProbability(50);
+    setDealCloseDate(''); setDealNotes(''); setDealClientId(''); setEditingDeal(null);
+  }
+
+  async function handleCreateDeal(e) {
+    e.preventDefault();
+    if (!dealTitle.trim() || !dealClientId) return;
+    setDealSaving(true);
+    const payload = {
+      user_id: user.id, client_id: parseInt(dealClientId, 10), title: dealTitle.trim(),
+      value: parseFloat(dealValue) || 0, stage: dealStage,
+      probability: Math.max(0, Math.min(100, parseInt(dealProbability, 10) || 0)),
+      close_date: dealCloseDate || null, notes: dealNotes || null,
+    };
+    if (editingDeal) {
+      const { data, error } = await supabase.from('deals').update(payload).eq('id', editingDeal.id).select();
+      if (!error && data) {
+        setDeals(prev => prev.map(d => d.id === editingDeal.id ? data[0] : d));
+        showToast('Deal updated.', 'success');
+        setShowDealForm(false); resetDealForm();
+      } else showToast(`Error updating deal: ${error?.message}`, 'error');
+    } else {
+      const { data, error } = await supabase.from('deals').insert([payload]).select();
+      if (!error && data) {
+        setDeals(prev => [data[0], ...prev]);
+        dispatchWebhook('deal.created', data[0]);
+        showToast('Deal created.', 'success');
+        setShowDealForm(false); resetDealForm();
+      } else showToast(`Error creating deal: ${error?.message}`, 'error');
+    }
+    setDealSaving(false);
+  }
+
+  async function handleUpdateDealStage(deal, newStage) {
+    const { error } = await supabase.from('deals').update({ stage: newStage }).eq('id', deal.id);
+    if (!error) {
+      setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, stage: newStage } : d));
+      if (newStage === 'Won') dispatchWebhook('deal.won', { ...deal, stage: newStage });
+      if (newStage === 'Lost') dispatchWebhook('deal.lost', { ...deal, stage: newStage });
+      executeAutomations('deal_stage_change', newStage, deal.client_id);
+    } else showToast(`Error moving deal: ${error.message}`, 'error');
+  }
+
+  function handleDeleteDeal(deal) {
+    showConfirm(
+      'Delete Deal',
+      `Are you sure you want to delete "${deal.title}"? This cannot be undone.`,
+      'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('deals').delete().eq('id', deal.id);
+        if (!error) setDeals(prev => prev.filter(d => d.id !== deal.id));
+        else showToast(`Error deleting deal: ${error.message}`, 'error');
+      }
+    );
+  }
+
+  const handleDealDragStart = (e, dealId) => e.dataTransfer.setData('text/deal-id', dealId.toString());
+  const handleDealDrop = async (e, targetStage) => {
+    e.preventDefault();
+    const idStr = e.dataTransfer.getData('text/deal-id');
+    if (!idStr) return;
+    const deal = deals.find(d => d.id === parseInt(idStr, 10));
+    if (deal && deal.stage !== targetStage) await handleUpdateDealStage(deal, targetStage);
+  };
+
+  // ==========================================
+  // FEATURE 2 â€” AI SUMMARY / FEATURE 23 â€” FOLLOW-UP
+  // ==========================================
+
+  async function handleGenerateAISummary(client, force = false) {
+    if (!force && aiSummaryClientId === client.id && aiSummary) return; // cache per-client
+    setAiSummaryLoading(true); setAiSummaryClientId(client.id);
+    try {
+      const res = await fetch('/api/ai-summary', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientName: client.name,
+          activities: activities.filter(a => a.client_id === client.id),
+          tasks: tasks.filter(t => t.client_id === client.id),
+          deals: deals.filter(d => d.client_id === client.id),
+          notes: client.note_conversation,
+        }),
+      });
+      const { summary, error } = await res.json();
+      if (error) throw new Error(error);
+      setAiSummary(summary);
+    } catch (err) {
+      showToast(`AI summary failed: ${err.message}`, 'error');
+      setAiSummary('');
+    }
+    setAiSummaryLoading(false);
+  }
+
+  async function generateFollowUpSuggestion(client, clientActs) {
+    setFollowUpLoading(true);
+    try {
+      const res = await fetch('/api/ai-summary', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientName: client.name,
+          activities: clientActs,
+          tasks: tasks.filter(t => t.client_id === client.id),
+          deals: deals.filter(d => d.client_id === client.id),
+          notes: client.note_conversation,
+          mode: 'follow_up_suggestion',
+        }),
+      });
+      const { summary, error } = await res.json();
+      if (!error && summary) setFollowUpSuggestion(summary);
+    } catch { /* silent â€” suggestion is best-effort */ }
+    setFollowUpLoading(false);
+  }
+
+  // ==========================================
+  // FEATURE 4 â€” EMAIL COMPOSER / FEATURE 18 â€” BULK EMAIL
+  // ==========================================
+
+  function resolveMergeTags(str, client) {
+    return (str || '')
+      .replace(/{{name}}/g, client?.name || '')
+      .replace(/{{email}}/g, client?.email || '')
+      .replace(/{{phone}}/g, client?.phone_number || '')
+      .replace(/{{stage}}/g, client?.status || '');
+  }
+
+  async function handleSendEmail(e) {
+    e.preventDefault();
+    if (!emailTo || !emailSubject || !emailBody) return;
+    setEmailSending(true);
+    const res = await fetch('/api/send-email', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: emailTo,
+        subject: resolveMergeTags(emailSubject, viewingClient),
+        body: resolveMergeTags(emailBody, viewingClient),
+        fromName: profile.username || 'CRM',
+      }),
+    }).catch(() => null);
+    if (res && res.ok) {
+      if (viewingClient) {
+        const { data } = await supabase.from('activities').insert([{
+          client_id: viewingClient.id, user_id: user.id,
+          activity_type: 'Email', activity_date: new Date().toISOString().split('T')[0],
+          description: `Subject: ${resolveMergeTags(emailSubject, viewingClient)}\n\n${resolveMergeTags(emailBody, viewingClient)}`,
+          outcome: 'Neutral',
+        }]).select();
+        if (data) setActivities(prev => [data[0], ...prev]);
+      }
+      showToast('Email sent and logged.', 'success');
+      setShowEmailComposer(false); setEmailSubject(''); setEmailBody('');
+    } else showToast('Send failed.', 'error');
+    setEmailSending(false);
+  }
+
+  async function handleSaveEmailTemplate(e) {
+    e?.preventDefault();
+    if (!templateName.trim() || !templateSubject || !templateBody) return;
+    if (editingTemplate) {
+      const { data, error } = await supabase.from('email_templates')
+        .update({ name: templateName.trim(), subject: templateSubject, body: templateBody })
+        .eq('id', editingTemplate.id).select();
+      if (!error && data) {
+        setEmailTemplates(prev => prev.map(t => t.id === editingTemplate.id ? data[0] : t));
+        showToast('Template updated.', 'success');
+      } else showToast(`Error: ${error?.message}`, 'error');
+    } else {
+      const { data, error } = await supabase.from('email_templates')
+        .insert([{ user_id: user.id, name: templateName.trim(), subject: templateSubject, body: templateBody }]).select();
+      if (!error && data) {
+        setEmailTemplates(prev => [data[0], ...prev]);
+        showToast('Template saved.', 'success');
+      } else showToast(`Error: ${error?.message}`, 'error');
+    }
+    setEditingTemplate(null); setTemplateName(''); setTemplateSubject(''); setTemplateBody('');
+  }
+
+  function handleDeleteEmailTemplate(id) {
+    showConfirm('Delete Template', 'Delete this email template? This cannot be undone.', 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('email_templates').delete().eq('id', id);
+        if (!error) setEmailTemplates(prev => prev.filter(t => t.id !== id));
+      });
+  }
+
+  async function handleBulkSendEmail(e) {
+    e.preventDefault();
+    if (!bulkEmailSubject || !bulkEmailBody || selectedClientIds.length === 0) return;
+    setBulkEmailSending(true);
+    let sent = 0;
+    const targets = clients.filter(c => selectedClientIds.includes(c.id) && c.email);
+    for (let i = 0; i < targets.length; i++) {
+      const c = targets[i];
+      setBulkEmailProgress(`Sending ${i + 1} of ${targets.length}...`);
+      // Sequential on purpose: avoids provider rate limits
+      const res = await fetch('/api/send-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: c.email,
+          subject: resolveMergeTags(bulkEmailSubject, c),
+          body: resolveMergeTags(bulkEmailBody, c),
+          fromName: profile.username || 'CRM',
+        }),
+      }).catch(() => null);
+      if (res && res.ok) {
+        sent++;
+        const { data } = await supabase.from('activities').insert([{
+          client_id: c.id, user_id: user.id, activity_type: 'Email',
+          activity_date: new Date().toISOString().split('T')[0],
+          description: `Bulk email â€” Subject: ${resolveMergeTags(bulkEmailSubject, c)}`,
+          outcome: 'Neutral',
+        }]).select();
+        if (data) setActivities(prev => [data[0], ...prev]);
+      }
+    }
+    showToast(`Sent to ${sent} clients.`, 'success');
+    setSelectedClientIds([]);
+    setShowBulkEmailModal(false); setBulkEmailSubject(''); setBulkEmailBody(''); setBulkEmailProgress('');
+    setBulkEmailSending(false);
+  }
+
+  // ==========================================
+  // FEATURE 5 â€” AUTOMATION RULES ENGINE
+  // ==========================================
+
+  async function executeAutomations(triggerType, triggerValue, clientId) {
+    const matching = automationRules.filter(r =>
+      r.enabled && r.trigger_type === triggerType && r.trigger_value === String(triggerValue));
+    for (const rule of matching) {
+      if (rule.action_type === 'create_task') {
+        const due = new Date();
+        due.setDate(due.getDate() + (parseInt(rule.action_value?.days_offset) || 1));
+        const { data } = await supabase.from('tasks').insert([{
+          user_id: user.id, client_id: clientId,
+          title: rule.action_value?.title || 'Follow up',
+          due_date: due.toISOString().split('T')[0], status: 'pending',
+        }]).select();
+        if (data) setTasks(prev => [...prev, data[0]]);
+        showToast(`Automation: task "${rule.action_value?.title || 'Follow up'}" created.`, 'success');
+      }
+      if (rule.action_type === 'send_notification') {
+        await supabase.from('notifications').insert([{
+          user_id: user.id, type: 'system', reference_id: clientId,
+          message: rule.action_value?.message || `Rule triggered: ${rule.name}`,
+        }]);
+        fetchNotifications(user.id);
+      }
+      if (rule.action_type === 'change_stage') {
+        await supabase.from('clients').update({ status: rule.action_value?.stage }).eq('id', clientId);
+        setClients(prev => prev.map(c => c.id === clientId ? { ...c, status: rule.action_value.stage } : c));
+        showToast(`Automation: moved client to "${rule.action_value?.stage}".`, 'success');
+      }
+      if (rule.action_type === 'send_email') {
+        const target = clients.find(c => c.id === clientId);
+        if (target?.email) {
+          fetch('/api/send-email', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: target.email,
+              subject: resolveMergeTags(rule.action_value?.subject || '', target),
+              body: resolveMergeTags(rule.action_value?.body || '', target),
+              fromName: profile.username || 'CRM',
+            }),
+          }).catch(() => {});
+        }
+      }
+      await supabase.from('automation_rules')
+        .update({ run_count: (rule.run_count || 0) + 1, last_run_at: new Date().toISOString() })
+        .eq('id', rule.id);
+      setAutomationRules(prev => prev.map(r => r.id === rule.id ? { ...r, run_count: (r.run_count || 0) + 1 } : r));
+    }
+  }
+
+  async function handleCreateRule(e) {
+    e.preventDefault();
+    if (!newRule.name.trim()) return;
+    const { data, error } = await supabase.from('automation_rules').insert([{
+      user_id: user.id, name: newRule.name.trim(), enabled: true,
+      trigger_type: newRule.triggerType, trigger_value: newRule.triggerValue || null,
+      action_type: newRule.actionType, action_value: newRule.actionValue,
+    }]).select();
+    if (!error && data) {
+      setAutomationRules(prev => [data[0], ...prev]);
+      setShowRuleForm(false);
+      setNewRule({ name: '', triggerType: 'stage_change', triggerValue: '', actionType: 'create_task', actionValue: {} });
+      showToast('Automation rule created.', 'success');
+    } else showToast(`Error creating rule: ${error?.message}`, 'error');
+  }
+
+  async function handleToggleRule(rule) {
+    const { error } = await supabase.from('automation_rules').update({ enabled: !rule.enabled }).eq('id', rule.id);
+    if (!error) setAutomationRules(prev => prev.map(r => r.id === rule.id ? { ...r, enabled: !r.enabled } : r));
+  }
+
+  function handleDeleteRule(id) {
+    showConfirm('Delete Rule', 'Delete this automation rule? This cannot be undone.', 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('automation_rules').delete().eq('id', id);
+        if (!error) setAutomationRules(prev => prev.filter(r => r.id !== id));
+      });
+  }
+
+  // ==========================================
+  // FEATURE 7 â€” FILE ATTACHMENTS
+  // ==========================================
+
+  async function handleFileUpload(file) {
+    if (!file || !viewingClient) return;
+    if (file.size > 10 * 1024 * 1024) { showToast('File exceeds the 10MB limit.', 'error'); return; }
+    setUploadingFile(true);
+    // Path shape ${user.id}/... is required by the storage RLS policy
+    const path = `${user.id}/${viewingClient.id}/${Date.now()}_${file.name}`;
+    const { error: upErr } = await supabase.storage.from('client-files').upload(path, file);
+    if (upErr) { showToast(`Upload failed: ${upErr.message}`, 'error'); setUploadingFile(false); return; }
+    const { data, error } = await supabase.from('client_files').insert([{
+      user_id: user.id, client_id: viewingClient.id,
+      file_name: file.name, file_size: file.size, file_type: file.type, storage_path: path,
+    }]).select();
+    if (!error && data) {
+      setClientFiles(prev => [data[0], ...prev]);
+      showToast('File uploaded.', 'success');
+    } else showToast(`Error saving file record: ${error?.message}`, 'error');
+    setUploadingFile(false);
+  }
+
+  async function handleDownloadFile(f) {
+    const { data, error } = await supabase.storage.from('client-files').createSignedUrl(f.storage_path, 60);
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank');
+    else showToast(`Download failed: ${error?.message}`, 'error');
+  }
+
+  function handleDeleteFile(f) {
+    showConfirm('Delete File', `Delete "${f.file_name}"? This cannot be undone.`, 'Delete', 'danger',
+      async () => {
+        await supabase.storage.from('client-files').remove([f.storage_path]);
+        const { error } = await supabase.from('client_files').delete().eq('id', f.id);
+        if (!error) setClientFiles(prev => prev.filter(x => x.id !== f.id));
+      });
+  }
+
+  // ==========================================
+  // FEATURE 9 â€” TAGS
+  // ==========================================
+
+  async function handleCreateTag(e) {
+    e.preventDefault();
+    if (!newTagName.trim()) return;
+    const { data, error } = await supabase.from('tags').insert([{ user_id: user.id, name: newTagName.trim(), color: newTagColor }]).select();
+    if (!error && data) {
+      setTags(prev => [...prev, data[0]].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewTagName('');
+      showToast('Tag created.', 'success');
+    } else showToast(`Error creating tag: ${error?.message}`, 'error');
+  }
+
+  async function handleToggleClientTag(clientId, tagId) {
+    const has = (clientTagMap[clientId] || []).includes(tagId);
+    if (has) {
+      const { error } = await supabase.from('client_tags').delete().eq('client_id', clientId).eq('tag_id', tagId);
+      if (!error) setClientTagMap(prev => ({ ...prev, [clientId]: (prev[clientId] || []).filter(t => t !== tagId) }));
+    } else {
+      const { error } = await supabase.from('client_tags').insert([{ client_id: clientId, tag_id: tagId }]);
+      if (!error) setClientTagMap(prev => ({ ...prev, [clientId]: [...(prev[clientId] || []), tagId] }));
+    }
+  }
+
+  function handleDeleteTag(tag) {
+    const count = Object.values(clientTagMap).filter(ids => ids.includes(tag.id)).length;
+    showConfirm('Delete Tag', `Delete tag "${tag.name}"? It will be removed from ${count} client(s).`, 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('tags').delete().eq('id', tag.id);
+        if (!error) {
+          setTags(prev => prev.filter(t => t.id !== tag.id));
+          setClientTagMap(prev => {
+            const next = {};
+            Object.keys(prev).forEach(cid => { next[cid] = prev[cid].filter(t => t !== tag.id); });
+            return next;
+          });
+          setFilterTags(prev => prev.filter(t => t !== tag.id));
+        }
+      });
+  }
+
+  // ==========================================
+  // FEATURE 11 â€” WEBHOOKS
+  // ==========================================
+
+  async function dispatchWebhook(event, payload) {
+    const matching = webhooks.filter(w => w.enabled && (w.events || []).includes(event));
+    if (matching.length === 0) return;
+    await Promise.allSettled(matching.map(async w => {
+      await fetch('/api/webhook-dispatch', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhookUrl: w.url, event, payload, secret: w.secret || null }),
+      });
+      await supabase.from('webhooks').update({ last_triggered_at: new Date().toISOString() }).eq('id', w.id);
+    }));
+  }
+
+  async function handleCreateWebhook(e) {
+    e.preventDefault();
+    if (!newWebhook.name.trim() || !newWebhook.url.trim() || newWebhook.events.length === 0) return;
+    const { data, error } = await supabase.from('webhooks').insert([{
+      user_id: user.id, name: newWebhook.name.trim(), url: newWebhook.url.trim(),
+      events: newWebhook.events, secret: newWebhook.secret || null, enabled: true,
+    }]).select();
+    if (!error && data) {
+      setWebhooks(prev => [data[0], ...prev]);
+      setShowWebhookForm(false);
+      setNewWebhook({ name: '', url: '', events: [], secret: '' });
+      showToast('Webhook added.', 'success');
+    } else showToast(`Error adding webhook: ${error?.message}`, 'error');
+  }
+
+  async function handleTestWebhook(w) {
+    const res = await fetch('/api/webhook-dispatch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        webhookUrl: w.url, event: 'webhook.test',
+        payload: { timestamp: new Date().toISOString(), message: 'Test from CRM' },
+        secret: w.secret || null,
+      }),
+    }).catch(() => null);
+    if (res && res.ok) showToast('Test webhook delivered.', 'success');
+    else showToast('Test webhook failed.', 'error');
+  }
+
+  async function handleToggleWebhook(w) {
+    const { error } = await supabase.from('webhooks').update({ enabled: !w.enabled }).eq('id', w.id);
+    if (!error) setWebhooks(prev => prev.map(x => x.id === w.id ? { ...x, enabled: !x.enabled } : x));
+  }
+
+  function handleDeleteWebhook(id) {
+    showConfirm('Delete Webhook', 'Delete this webhook? This cannot be undone.', 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('webhooks').delete().eq('id', id);
+        if (!error) setWebhooks(prev => prev.filter(w => w.id !== id));
+      });
+  }
+
+  // ==========================================
+  // FEATURE 17 â€” ACTIVITY STREAKS
+  // ==========================================
+
+  async function updateStreak() {
+    const today = new Date().toISOString().split('T')[0];
+    if (streakData.lastActive === today) return;
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = yesterday.toISOString().split('T')[0];
+    const newStreak = streakData.lastActive === yStr ? streakData.current + 1 : 1;
+    const newLongest = Math.max(newStreak, streakData.longest);
+    await supabase.from('profiles').update({
+      current_streak: newStreak, longest_streak: newLongest, last_active_date: today,
+    }).eq('id', user.id);
+    setStreakData({ current: newStreak, longest: newLongest, lastActive: today });
+  }
+
+  // ==========================================
+  // FEATURE 15 â€” QUICK NOTES (auto-save handled by effect below)
+  // ==========================================
+
+  // ==========================================
+  // FEATURE 26 â€” GOALS
+  // ==========================================
+
+  const currentMonthStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
+
+  async function handleSaveGoal(e) {
+    e.preventDefault();
+    const target = parseInt(goalTarget, 10);
+    if (!target || target < 1) return;
+    const { data, error } = await supabase.from('goals').upsert(
+      [{ user_id: user.id, month: currentMonthStr, goal_type: goalType, target_value: target }],
+      { onConflict: 'user_id,month,goal_type' }
+    ).select();
+    if (!error && data) {
+      setGoals(prev => [...prev.filter(g => !(g.month === currentMonthStr && g.goal_type === goalType)), data[0]]);
+      setShowGoalForm(false);
+      showToast('Goal saved.', 'success');
+    } else showToast(`Error saving goal: ${error?.message}`, 'error');
+  }
+
+  function handleDeleteGoal(id) {
+    showConfirm('Delete Goal', 'Delete this goal?', 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('goals').delete().eq('id', id);
+        if (!error) setGoals(prev => prev.filter(g => g.id !== id));
+      });
+  }
+
+  // ==========================================
+  // FEATURE 27 â€” CLIENT MERGE
+  // ==========================================
+
+  async function handleExecuteMerge() {
+    if (!mergeSource || !mergeTarget) return;
+    setMergeLoading(true);
+    try {
+      // Move all child records from source to target
+      await Promise.all([
+        supabase.from('activities').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
+        supabase.from('tasks').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
+        supabase.from('deals').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
+        supabase.from('client_files').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
+      ]);
+      // Apply chosen field overrides to target
+      const overrides = {};
+      Object.keys(mergeFieldChoices).forEach(field => {
+        if (mergeFieldChoices[field] === 'source') overrides[field] = mergeSource[field];
+      });
+      if (Object.keys(overrides).length > 0) {
+        await supabase.from('clients').update(overrides).eq('id', mergeTarget.id);
+      }
+      // Delete the source client
+      await supabase.from('clients').delete().eq('id', mergeSource.id);
+      await Promise.all([fetchClients(user.id), fetchActivities(user.id), fetchTasks(user.id), fetchDeals(user.id)]);
+      showToast('Clients merged successfully.', 'success');
+      setShowMergeTool(false); setMergeSource(null); setMergeTarget(null); setMergeStep(1); setMergeFieldChoices({}); setMergeSearch('');
+    } catch (err) {
+      showToast(`Merge failed: ${err.message}`, 'error');
+    }
+    setMergeLoading(false);
+  }
+
+  // ==========================================
+  // FEATURE 29 â€” SAVED VIEWS
+  // ==========================================
+
+  function applyView(filters) {
+    setFilterPriority(filters.filterPriority ?? 'All');
+    setFilterStatus(filters.filterStatus ?? 'All');
+    setFilterDateAdded(filters.filterDateAdded ?? '');
+    setFilterHasDeals(filters.filterHasDeals ?? false);
+    setFilterHasActivity(filters.filterHasActivity ?? '');
+    setFilterScore(filters.filterScore ?? '');
+    setFilterTags(filters.filterTags ?? []);
+    setFilterHealth(filters.filterHealth ?? '');
+  }
+
+  async function handleSaveView(name) {
+    if (!name.trim()) return;
+    const filters = { filterPriority, filterStatus, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterTags, filterHealth };
+    const { data, error } = await supabase.from('saved_views').insert([{ user_id: user.id, name: name.trim(), filters }]).select();
+    if (!error && data) {
+      setSavedViews(prev => [...prev, data[0]]);
+      setSavingViewName(null);
+      showToast('View saved.', 'success');
+    } else showToast(`Error saving view: ${error?.message}`, 'error');
+  }
+
+  function handleDeleteView(id) {
+    showConfirm('Delete View', 'Delete this saved view?', 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('saved_views').delete().eq('id', id);
+        if (!error) setSavedViews(prev => prev.filter(v => v.id !== id));
+      });
+  }
+
+  function clearAllFilters() {
+    setFilterPriority('All'); setFilterStatus('All'); setFilterDateAdded('');
+    setFilterHasDeals(false); setFilterHasActivity(''); setFilterScore('');
+    setFilterTags([]); setFilterHealth(''); setSearchTerm('');
+  }
+
+  // ==========================================
+  // FEATURE 21 â€” PDF EXPORT
+  // ==========================================
+
+  async function handleExportPDF(client) {
+    const res = await fetch('/api/client-report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client,
+        activities: activities.filter(a => a.client_id === client.id),
+        tasks: tasks.filter(t => t.client_id === client.id),
+        deals: deals.filter(d => d.client_id === client.id),
+      }),
+    }).catch(() => null);
+    if (res && res.ok) {
+      const html = await res.text();
+      const w = window.open('', '_blank');
+      if (w) {
+        w.document.write(html);
+        w.document.close();
+        showToast('Opening print dialog...', 'success');
+        setTimeout(() => w.print(), 400);
+      }
+    } else showToast('Report generation failed.', 'error');
   }
 
   // ==========================================
@@ -353,11 +1468,16 @@ export default function App() {
         country: data.country || '',
         linkedin_profile: data.linkedin_profile || ''
       });
+      setStreakData({
+        current: data.current_streak || 0,
+        longest: data.longest_streak || 0,
+        lastActive: data.last_active_date || null,
+      });
     }
   }
 
   // ==========================================
-  // NOTIFICATIONS — Server-side via Edge Function
+  // NOTIFICATIONS â€” Server-side via Edge Function
   // ==========================================
   // Notifications are now generated server-side by the Supabase Edge Function
   // (daily-notifications) which runs on pg_cron schedule at 8:00 AM UTC.
@@ -419,22 +1539,36 @@ export default function App() {
   // GLOBAL SEARCH ENGINE
   // ==========================================
   
-  function performGlobalSearch(term) {
+  async function performGlobalSearch(term) {
     const lowerTerm = term.toLowerCase();
-    
-    // Search Clients
-    const matchedClients = clients.filter(c => 
-      (c.name || '').toLowerCase().includes(lowerTerm) || 
+
+    // Search Clients (in-memory)
+    let matchedClients = clients.filter(c =>
+      (c.name || '').toLowerCase().includes(lowerTerm) ||
       (c.email || '').toLowerCase().includes(lowerTerm) ||
       (c.phone_number || '').toLowerCase().includes(lowerTerm)
     ).slice(0, 5);
 
-    // Search Activities
-    const matchedActivities = activities.filter(a => 
+    // Search Activities (in-memory)
+    const matchedActivities = activities.filter(a =>
       (a.description || '').toLowerCase().includes(lowerTerm)
     ).slice(0, 5);
 
     setGlobalSearchResults({ clients: matchedClients, activities: matchedActivities });
+
+    // Supabase fallback: local state can be stale on multi-device use
+    if (term.length > 2 && user) {
+      const { data } = await supabase.from('clients')
+        .select('id, name, email, phone_number, status, relationship')
+        .eq('user_id', user.id)
+        .or(`name.ilike.%${term}%,email.ilike.%${term}%`)
+        .limit(5);
+      if (data && data.length > 0) {
+        const merged = [...matchedClients];
+        data.forEach(c => { if (!merged.some(m => m.id === c.id)) merged.push(c); });
+        setGlobalSearchResults(prev => ({ ...prev, clients: merged.slice(0, 5) }));
+      }
+    }
   }
 
   function handleSearchSelection(type, item) {
@@ -605,7 +1739,7 @@ export default function App() {
   function runStatusMigration() {
     showConfirm(
       'Migrate Legacy Statuses',
-      "This will convert old 'Active/Inactive' statuses to the new Pipeline stages ('Active' → 'Engaged', 'Inactive' → 'Inactive'). This may take a moment.",
+      "This will convert old 'Active/Inactive' statuses to the new Pipeline stages ('Active' â†’ 'Engaged', 'Inactive' â†’ 'Inactive'). This may take a moment.",
       'Start Migration',
       'primary',
       async () => {
@@ -631,13 +1765,15 @@ export default function App() {
   async function handleAddClient(e) {
     e.preventDefault();
     if (!name || !clientEmail) return;
+    if (duplicateWarning && !forceSaveDuplicate) return; // FEATURE 14: blocked until "Save anyway"
     setCrmErrorMessage('');
 
-    const { data, error } = await supabase.from('clients').insert([{ 
+    const { data, error } = await supabase.from('clients').insert([{
       name, email: clientEmail, status, notes, user_id: user.id,
       country: clientCountry || null, phone_number: clientPhone || null,
       note_conversation: clientConversation || null, linkedin_url: clientLinkedin || null,
-      birthday: clientBirthday || null, relationship: clientRelationship
+      birthday: clientBirthday || null, relationship: clientRelationship,
+      source: clientSource || null
     }]).select();
 
     if (!error && data) {
@@ -660,7 +1796,10 @@ export default function App() {
       setName(''); setClientEmail(''); setNotes(''); setStatus('New');
       setClientCountry(''); setClientPhone(''); setClientConversation('');
       setClientLinkedin(''); setClientBirthday(''); setClientRelationship('Medium');
+      setClientSource(''); setForceSaveDuplicate(false); setDuplicateWarning(null);
       setFormCustomValues({});
+      updateStreak();
+      dispatchWebhook('client.created', newClient);
     } else if (error) {
       setCrmErrorMessage(`Database Sync Error: ${error.message}`);
     }
@@ -671,34 +1810,56 @@ export default function App() {
     if (!editingClient.name || !editingClient.email) return;
     setCrmErrorMessage('');
   
+    const prevClient = clients.find(c => c.id === editingClient.id);
     const { data, error } = await supabase.from('clients').update({
       name: editingClient.name, email: editingClient.email, status: editingClient.status,
       country: editingClient.country || null, phone_number: editingClient.phone_number || null,
       note_conversation: editingClient.note_conversation || null, linkedin_url: editingClient.linkedin_url || null,
-      birthday: editingClient.birthday || null, relationship: editingClient.relationship
+      birthday: editingClient.birthday || null, relationship: editingClient.relationship,
+      source: editingClient.source || null
     }).eq('id', editingClient.id).select();
 
-    // Update custom fields via upsert emulation
-    for (const defId of Object.keys(formCustomValues)) {
-      const val = formCustomValues[defId];
-      const existing = customFieldValues.find(v => v.client_id === editingClient.id && v.field_definition_id === defId);
-      if (existing) {
-        if (val) {
-          const { data: ud } = await supabase.from('custom_field_values').update({ value: val }).eq('id', existing.id).select();
-          if (ud) setCustomFieldValues(prev => prev.map(v => v.id === existing.id ? ud[0] : v));
-        } else {
-          await supabase.from('custom_field_values').delete().eq('id', existing.id);
-          setCustomFieldValues(prev => prev.filter(v => v.id !== existing.id));
+    // Update custom fields atomically: run all upserts/deletes in parallel and fail together
+    try {
+      const ops = Object.keys(formCustomValues).map(defId => {
+        const val = formCustomValues[defId];
+        const existing = customFieldValues.find(v => v.client_id === editingClient.id && v.field_definition_id === defId);
+        if (existing) {
+          if (val) {
+            return supabase.from('custom_field_values').update({ value: val }).eq('id', existing.id).select()
+              .then(({ data: ud, error: e }) => { if (e) throw e; return { kind: 'update', existingId: existing.id, row: ud?.[0] }; });
+          }
+          return supabase.from('custom_field_values').delete().eq('id', existing.id)
+            .then(({ error: e }) => { if (e) throw e; return { kind: 'delete', existingId: existing.id }; });
         }
-      } else if (val) {
-        const { data: ind } = await supabase.from('custom_field_values').insert([{ client_id: editingClient.id, field_definition_id: defId, value: val }]).select();
-        if (ind) setCustomFieldValues([...customFieldValues, ind[0]]);
-      }
+        if (val) {
+          return supabase.from('custom_field_values').insert([{ client_id: editingClient.id, field_definition_id: defId, value: val }]).select()
+            .then(({ data: ind, error: e }) => { if (e) throw e; return { kind: 'insert', row: ind?.[0] }; });
+        }
+        return Promise.resolve(null);
+      });
+      const results = await Promise.all(ops);
+      setCustomFieldValues(prev => {
+        let next = [...prev];
+        results.filter(Boolean).forEach(r => {
+          if (r.kind === 'update' && r.row) next = next.map(v => v.id === r.existingId ? r.row : v);
+          if (r.kind === 'delete') next = next.filter(v => v.id !== r.existingId);
+          if (r.kind === 'insert' && r.row) next = [...next, r.row];
+        });
+        return next;
+      });
+    } catch {
+      showToast('Error updating custom fields.', 'error');
+      return; // keep the edit modal open so the user can retry
     }
-  
+
     if (!error && data && data.length > 0) {
       setClients(clients.map(client => client.id === editingClient.id ? data[0] : client));
       setEditingClient(null);
+      dispatchWebhook('client.updated', data[0]);
+      if (prevClient && prevClient.status !== editingClient.status) {
+        executeAutomations('stage_change', editingClient.status, editingClient.id);
+      }
     } else if (error) {
       setCrmErrorMessage(`Database Update Error: ${error.message}`);
     } else {
@@ -715,10 +1876,12 @@ export default function App() {
       'Delete',
       'danger',
       async () => {
+        const deleted = clients.find(c => c.id === clientId);
         const { error } = await supabase.from('clients').delete().eq('id', clientId);
         if (!error) {
           setClients(clients.filter(client => client.id !== clientId));
           setSelectedClientIds(prev => prev.filter(id => id !== clientId));
+          if (deleted) dispatchWebhook('client.deleted', deleted);
         }
       }
     );
@@ -764,8 +1927,10 @@ export default function App() {
 
     if (error) {
       console.error("Error updating status via drag and drop:", error);
-      alert(`Failed to save status: ${error.message}`);
+      showToast(`Failed to save status: ${error.message}`, 'error');
       setClients(originalClients); // Rollback on failure
+    } else {
+      executeAutomations('stage_change', targetStatus, clientId);
     }
   };
 
@@ -784,7 +1949,8 @@ export default function App() {
       user_id: user.id,
       activity_type: activityType,
       activity_date: activityDate,
-      description: activityDesc
+      description: activityDesc,
+      outcome: activityOutcome
     }]).select();
 
     if (!error && data) {
@@ -792,6 +1958,9 @@ export default function App() {
       setActivityDesc('');
       setActivityOutcome('Neutral');
       setActivityDate(new Date().toISOString().split('T')[0]);
+      setSavingTemplateName(''); // FEATURE 22: offer "save as template" after logging
+      updateStreak();
+      dispatchWebhook('activity.logged', data[0]);
     } else {
       showToast(`Error logging activity: ${error?.message}`, 'error');
     }
@@ -829,12 +1998,19 @@ export default function App() {
   async function handleCreateTask(e, clientId) {
     e.preventDefault();
     if (!newTaskTitle || !newTaskDate) return;
-    
-    const { data, error } = await supabase.from('tasks').insert([{ client_id: clientId, user_id: user.id, title: newTaskTitle, due_date: newTaskDate, status: 'pending' }]).select();
+
+    const { data, error } = await supabase.from('tasks').insert([{
+      client_id: clientId, user_id: user.id, title: newTaskTitle, due_date: newTaskDate, status: 'pending',
+      recurrence: newTaskRecurrence || null,
+      recurrence_end_date: (newTaskRecurrence && newTaskRecurrenceEnd) ? newTaskRecurrenceEnd : null
+    }]).select();
     if (!error && data) {
       setTasks([...tasks, data[0]]);
       setNewTaskTitle('');
       setNewTaskDate('');
+      setNewTaskRecurrence('');
+      setNewTaskRecurrenceEnd('');
+      updateStreak();
     } else {
       showToast(`Error creating task: ${error?.message}`, 'error');
     }
@@ -842,8 +2018,29 @@ export default function App() {
 
   async function handleToggleTask(taskId, currentStatus) {
     const newStatus = currentStatus === 'pending' ? 'done' : 'pending';
+    const task = tasks.find(t => t.id === taskId);
     const { error } = await supabase.from('tasks').update({ status: newStatus }).eq('id', taskId);
-    if (!error) setTasks(tasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    if (!error) {
+      setTasks(tasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+      if (newStatus === 'done' && task) {
+        dispatchWebhook('task.completed', { ...task, status: 'done' });
+        // FEATURE 20 â€” recurring tasks: auto-create next occurrence
+        if (task.recurrence) {
+          const nextDue = new Date(task.due_date);
+          if (task.recurrence === 'daily') nextDue.setDate(nextDue.getDate() + 1);
+          if (task.recurrence === 'weekly') nextDue.setDate(nextDue.getDate() + 7);
+          if (task.recurrence === 'monthly') nextDue.setMonth(nextDue.getMonth() + 1);
+          if (task.recurrence === 'quarterly') nextDue.setMonth(nextDue.getMonth() + 3);
+          const nextDueStr = nextDue.toISOString().split('T')[0];
+          if (!task.recurrence_end_date || nextDueStr <= task.recurrence_end_date) {
+            await supabase.from('tasks').insert([{
+              ...task, id: undefined, due_date: nextDueStr, status: 'pending', created_at: undefined
+            }]).select();
+            fetchTasks(user.id);
+          }
+        }
+      }
+    }
   }
 
   // ==========================================
@@ -882,6 +2079,7 @@ export default function App() {
     const { error } = await supabase.from('clients').update({ status: newStatus }).in('id', selectedClientIds);
     if (!error) {
       setClients(clients.map(c => selectedClientIds.includes(c.id) ? { ...c, status: newStatus } : c));
+      showToast(`Updated ${selectedClientIds.length} clients.`, 'success');
       setSelectedClientIds([]);
     } else {
       showToast(`Bulk Status Error: ${error.message}`, 'error');
@@ -911,71 +2109,280 @@ export default function App() {
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
+  // BUG 2 + FEATURE 16 â€” robust PapaParse parsing + validated preview before insert
   const handleImportCSV = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       const text = event.target.result;
-      const rows = text.split('\n').filter(row => row.trim().length > 0);
-      if (rows.length < 2) {
+      const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+      if (!parsed.data || parsed.data.length === 0) {
         showToast('CSV file must contain headers and at least one row of data.', 'error');
         return;
       }
-      const newClients = [];
-      for (let i = 1; i < rows.length; i++) {
-        const cols = rows[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || rows[i].split(',');
-        if (cols.length >= 2) {
-          newClients.push({
-            user_id: user.id,
-            name: cols[0]?.replace(/"/g, '') || 'Imported User',
-            email: cols[1]?.replace(/"/g, '') || `imported${i}@example.com`,
-            status: 'New',
-            relationship: 'Medium'
-          });
+      // Case-insensitive column mapping
+      const pick = (row, keys) => {
+        for (const k of Object.keys(row)) {
+          if (keys.includes(k.trim().toLowerCase())) return (row[k] || '').trim();
         }
-      }
-      if (newClients.length > 0) {
-        const { data, error } = await supabase.from('clients').insert(newClients).select();
-        if (data && !error) {
-          setClients([...data, ...clients]);
-          showToast(`Successfully imported ${data.length} clients!`, 'success');
-        } else {
-          showToast(`Import error: ${error?.message}`, 'error');
-        }
-      }
+        return '';
+      };
+      const rows = parsed.data.map((row, i) => {
+        const rName = pick(row, ['name', 'full name', 'full_name']);
+        const rEmail = pick(row, ['email', 'e-mail']);
+        const rCountry = pick(row, ['country']);
+        const rPhone = pick(row, ['phone', 'phone number', 'phone_number']);
+        const rStatus = pick(row, ['status', 'stage']);
+        let error = null, warning = null;
+        if (!rName) error = 'Missing name';
+        else if (!rEmail || !rEmail.includes('@')) error = 'Invalid email';
+        else if (clients.some(c => (c.email || '').toLowerCase() === rEmail.toLowerCase())) warning = 'Already exists';
+        return {
+          key: i, name: rName, email: rEmail, country: rCountry, phone: rPhone,
+          status: PIPELINE_STAGES.includes(rStatus) ? rStatus : 'New',
+          error, warning, checked: !error,
+        };
+      });
+      setImportPreviewData(rows);
+      setShowImportPreview(true);
     };
     reader.readAsText(file);
     e.target.value = null;
   };
+
+  async function handleConfirmImport() {
+    const selected = importPreviewData.filter(r => r.checked && !r.error);
+    if (selected.length === 0) return;
+    setImportLoading(true);
+    const inserts = selected.map(r => ({
+      user_id: user.id, name: r.name, email: r.email,
+      country: r.country || null, phone_number: r.phone || null,
+      status: r.status, relationship: 'Medium',
+    }));
+    const { data, error } = await supabase.from('clients').insert(inserts).select();
+    if (data && !error) {
+      setClients(prev => [...data, ...prev]);
+      showToast(`Imported ${data.length} clients. ${importPreviewData.length - data.length} skipped.`, 'success');
+      setShowImportPreview(false);
+      setImportPreviewData([]);
+    } else {
+      showToast(`Import error: ${error?.message}`, 'error');
+    }
+    setImportLoading(false);
+  }
 
 
   // ==========================================
   // COMPUTED DATA ENGINE
   // ==========================================
   
-  const filteredAndSortedClients = useMemo(() => (clients || [])
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  // FEATURE 6 â€” lead scores computed per client
+  const clientsWithScores = useMemo(() =>
+    (clients || []).filter(Boolean).map(c => ({
+      ...c,
+      leadScore: computeLeadScore(
+        c,
+        activities.filter(a => a.client_id === c.id),
+        tasks.filter(t => t.client_id === c.id),
+        (deals || []).filter(d => d.client_id === c.id),
+      ),
+    })), [clients, activities, tasks, deals]);
+
+  // FEATURE 19 â€” relationship health per client
+  const relationshipHealth = useMemo(() => clients.filter(Boolean).map(c => {
+    const acts = activities.filter(a => a.client_id === c.id); // ordered newest-first by fetchActivities
+    const lastAct = acts.length > 0 ? new Date(acts[0].activity_date) : new Date(c.created_at);
+    const daysSince = Math.floor((Date.now() - lastAct) / 86400000);
+    const openTasks = tasks.filter(t => t.client_id === c.id && t.status === 'pending').length;
+    const health = daysSince <= 7 ? 'Excellent' : daysSince <= 14 ? 'Good' : daysSince <= 30 ? 'Fair' : daysSince <= 60 ? 'At Risk' : 'Critical';
+    return { ...c, daysSince, health, openTasks, activityCount: acts.length };
+  }), [clients, activities, tasks]);
+
+  const healthCounts = useMemo(() => {
+    const counts = { Excellent: 0, Good: 0, Fair: 0, 'At Risk': 0, Critical: 0 };
+    relationshipHealth.forEach(c => { counts[c.health]++; });
+    return counts;
+  }, [relationshipHealth]);
+
+  const healthByClientId = useMemo(() => {
+    const m = {};
+    relationshipHealth.forEach(c => { m[c.id] = c.health; });
+    return m;
+  }, [relationshipHealth]);
+
+  const filteredAndSortedClients = useMemo(() => (clientsWithScores || [])
     .filter(Boolean)
     .filter(client => {
       if (!client || typeof client !== 'object') return false;
-      const matchesSearch = (client.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (client.email || '').toLowerCase().includes(searchTerm.toLowerCase()) || (client.country || '').toLowerCase().includes(searchTerm.toLowerCase()); 
+      const matchesSearch = (client.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (client.email || '').toLowerCase().includes(searchTerm.toLowerCase()) || (client.country || '').toLowerCase().includes(searchTerm.toLowerCase());
       const matchesPriority = filterPriority === 'All' || client.relationship === filterPriority;
       const matchesStatus = filterStatus === 'All' || client.status === filterStatus;
-      return matchesSearch && matchesPriority && matchesStatus;
+      // FEATURE 9 â€” tag filter (client must have every selected tag)
+      const matchesTags = filterTags.length === 0 || filterTags.every(id => (clientTagMap[client.id] || []).includes(id));
+      // FEATURE 19 â€” health filter
+      const matchesHealth = !filterHealth || healthByClientId[client.id] === filterHealth;
+      // FEATURE 29 â€” advanced filters
+      let matchesDateAdded = true;
+      if (filterDateAdded) {
+        const created = new Date(client.created_at || 0);
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (filterDateAdded === 'today') matchesDateAdded = created >= startOfDay;
+        if (filterDateAdded === 'this_week') { const d = new Date(startOfDay); d.setDate(d.getDate() - d.getDay()); matchesDateAdded = created >= d; }
+        if (filterDateAdded === 'this_month') matchesDateAdded = created >= new Date(now.getFullYear(), now.getMonth(), 1);
+        if (filterDateAdded === 'this_quarter') matchesDateAdded = created >= new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      }
+      const matchesHasDeals = !filterHasDeals || deals.some(d => d.client_id === client.id);
+      let matchesHasActivity = true;
+      if (filterHasActivity) {
+        const acts = activities.filter(a => a.client_id === client.id);
+        if (filterHasActivity === 'none') matchesHasActivity = acts.length === 0;
+        else {
+          const days = filterHasActivity === 'last_7' ? 7 : 30;
+          const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+          matchesHasActivity = acts.some(a => new Date(a.activity_date) >= cutoff);
+        }
+      }
+      let matchesScore = true;
+      if (filterScore === 'high') matchesScore = client.leadScore >= 75;
+      if (filterScore === 'medium') matchesScore = client.leadScore >= 50 && client.leadScore < 75;
+      if (filterScore === 'low') matchesScore = client.leadScore < 50;
+      return matchesSearch && matchesPriority && matchesStatus && matchesTags && matchesHealth && matchesDateAdded && matchesHasDeals && matchesHasActivity && matchesScore;
     }).sort((a, b) => {
       if (!a || !b) return 0;
       if (sortBy === 'created_at_desc') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
       if (sortBy === 'created_at_asc') return new Date(a.created_at || 0) - new Date(b.created_at || 0);
       if (sortBy === 'name_asc') return (a.name || '').localeCompare(b.name || '');
       if (sortBy === 'name_desc') return (b.name || '').localeCompare(a.name || '');
+      if (sortBy === 'score_desc') return b.leadScore - a.leadScore;
+      if (sortBy === 'score_asc') return a.leadScore - b.leadScore;
       return 0;
-    }), [clients, searchTerm, filterPriority, filterStatus, sortBy]);
+    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, deals, activities]);
+
+  const activeFilterCount = [
+    filterPriority !== 'All', filterStatus !== 'All', filterDateAdded, filterHasDeals,
+    filterHasActivity, filterScore, filterTags.length > 0, filterHealth,
+  ].filter(Boolean).length;
+
+  const BUILT_IN_VIEWS = [
+    { name: 'High Priority', filters: { filterPriority: 'High' } },
+    { name: 'New This Week', filters: { filterDateAdded: 'this_week', filterStatus: 'New' } },
+    { name: 'Needs Follow-up', filters: { filterHasActivity: 'none' } },
+    { name: 'Active Deals', filters: { filterHasDeals: true } },
+  ];
+
+  // FEATURE 1 â€” deal rollups
+  const pipelineValue = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + (parseFloat(d.value) || 0), 0), [deals]);
+  const weightedForecast = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + (parseFloat(d.value) || 0) * ((d.probability || 0) / 100), 0), [deals]);
+  const wonValue = useMemo(() => deals.filter(d => d.stage === 'Won').reduce((s, d) => s + (parseFloat(d.value) || 0), 0), [deals]);
+  const openDealsCount = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).length, [deals]);
+  const fmtMoney = (n) => `$${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+  // FEATURE 3 â€” reports computed
+  const reportStats = useMemo(() => {
+    const days = parseInt(reportRange, 10);
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    const activitiesInRange = activities.filter(a => new Date(a.activity_date) >= cutoff);
+    const activityByType = { Note: 0, Call: 0, Email: 0, Meeting: 0 };
+    activitiesInRange.forEach(a => { if (activityByType[a.activity_type] !== undefined) activityByType[a.activity_type]++; });
+    const clientsByStage = {};
+    PIPELINE_STAGES.forEach(s => { clientsByStage[s] = clients.filter(c => c.status === s).length; });
+    const dealsByStage = {};
+    DEAL_STAGES.forEach(s => {
+      const stageDeals = deals.filter(d => d.stage === s);
+      dealsByStage[s] = { count: stageDeals.length, value: stageDeals.reduce((sum, d) => sum + (parseFloat(d.value) || 0), 0) };
+    });
+    const perClient = {};
+    activitiesInRange.forEach(a => { perClient[a.client_id] = (perClient[a.client_id] || 0) + 1; });
+    const topClientsByActivity = Object.entries(perClient)
+      .map(([cid, count]) => ({ client: clients.find(c => c.id === parseInt(cid, 10)), count }))
+      .filter(x => x.client)
+      .sort((a, b) => b.count - a.count).slice(0, 5);
+    const clientsAddedByWeek = [...Array(8)].map((_, i) => {
+      const start = new Date(); start.setDate(start.getDate() - (7 - i) * 7);
+      const end = new Date(start); end.setDate(end.getDate() + 7);
+      return {
+        label: start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        count: clients.filter(c => { const d = new Date(c.created_at); return d >= start && d < end; }).length,
+      };
+    });
+    const won = deals.filter(d => d.stage === 'Won').length;
+    const lost = deals.filter(d => d.stage === 'Lost').length;
+    const winRate = (won + lost) > 0 ? Math.round((won / (won + lost)) * 100) : 0;
+    // Approximate: average gap in days between consecutive activities, per client
+    let gapSum = 0, gapCount = 0;
+    clients.forEach(c => {
+      const acts = activities.filter(a => a.client_id === c.id).map(a => new Date(a.activity_date)).sort((a, b) => a - b);
+      for (let i = 1; i < acts.length; i++) { gapSum += (acts[i] - acts[i - 1]) / 86400000; gapCount++; }
+    });
+    const avgResponseTime = gapCount > 0 ? (gapSum / gapCount).toFixed(1) : null;
+    const doneTasks = tasks.filter(t => t.status === 'done').length;
+    const taskCompletionRate = tasks.length > 0 ? Math.round((doneTasks / tasks.length) * 100) : 0;
+    const avgActivitiesPerClient = clients.length > 0 ? (activitiesInRange.length / clients.length).toFixed(1) : '0';
+    const clientsBySource = {};
+    CLIENT_SOURCES.forEach(s => { clientsBySource[s] = clients.filter(c => c.source === s).length; });
+    return { activitiesInRange, activityByType, clientsByStage, dealsByStage, topClientsByActivity, clientsAddedByWeek, winRate, avgResponseTime, taskCompletionRate, avgActivitiesPerClient, clientsBySource };
+  }, [reportRange, activities, clients, deals, tasks]);
+
+  // FEATURE 8 â€” calendar events
+  const calendarEvents = useMemo(() => {
+    const events = [];
+    const yr = new Date().getFullYear();
+    tasks.forEach(t => {
+      if (t.due_date) events.push({ id: `task-${t.id}`, date: t.due_date, type: 'task', label: t.title, clientId: t.client_id, isOverdue: t.status === 'pending' && t.due_date < todayStr, task: t });
+    });
+    activities.forEach(a => {
+      if (a.activity_date) events.push({ id: `act-${a.id}`, date: a.activity_date, type: 'activity', label: `${a.activity_type}: ${(a.description || '').slice(0, 40)}`, clientId: a.client_id, activity: a });
+    });
+    clients.forEach(c => {
+      if (c.birthday) {
+        const b = new Date(c.birthday);
+        const thisYear = `${yr}-${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
+        events.push({ id: `bday-${c.id}`, date: thisYear, type: 'birthday', label: `ðŸŽ‚ ${c.name}'s birthday`, clientId: c.id, client: c });
+      }
+    });
+    deals.forEach(d => {
+      if (d.close_date && !['Won', 'Lost'].includes(d.stage)) events.push({ id: `deal-${d.id}`, date: d.close_date, type: 'deal', label: `${d.title} (${fmtMoney(d.value)})`, clientId: d.client_id, deal: d });
+    });
+    return events;
+  }, [tasks, activities, clients, deals, todayStr]);
+
+  // FEATURE 26 â€” goal progress
+  const goalProgress = useMemo(() => goals.filter(g => g.month === currentMonthStr).map(g => {
+    let current = 0;
+    const monthStart = new Date(g.month);
+    const monthEnd = new Date(monthStart); monthEnd.setMonth(monthEnd.getMonth() + 1);
+    const monthEndStr = monthEnd.toISOString().split('T')[0];
+    if (g.goal_type === 'new_clients')
+      current = clients.filter(c => new Date(c.created_at) >= monthStart && new Date(c.created_at) < monthEnd).length;
+    if (g.goal_type === 'activities_logged')
+      current = activities.filter(a => a.activity_date >= g.month && a.activity_date < monthEndStr).length;
+    if (g.goal_type === 'deals_closed')
+      current = (deals || []).filter(d => d.stage === 'Won' && d.close_date >= g.month).length;
+    if (g.goal_type === 'tasks_completed')
+      current = tasks.filter(t => t.status === 'done').length;
+    return { ...g, current, pct: Math.min(Math.round((current / g.target_value) * 100), 100) };
+  }), [goals, clients, activities, deals, tasks, currentMonthStr]);
+
+  // FEATURE 30 â€” onboarding
+  const onboardingSteps = [
+    { title: 'Add your first client', desc: 'Start tracking relationships.', done: clients.length > 0 },
+    { title: 'Log your first activity', desc: 'Open a client and log an activity.', done: activities.length > 0 },
+    { title: 'Create your first task', desc: 'Stay on top of follow-ups.', done: tasks.length > 0 },
+    { title: 'Explore your dashboard', desc: 'Look around for 30 seconds.', done: dashboardExplored },
+  ];
+  const onboardingDone = onboardingSteps.filter(s => s.done).length;
+  const onboardingComplete = onboardingDone === onboardingSteps.length;
+
+  // FEATURE 6 â€” top leads for dashboard widget
+  const topLeads = useMemo(() => [...clientsWithScores].sort((a, b) => b.leadScore - a.leadScore).slice(0, 5), [clientsWithScores]);
 
   const totalPages = useMemo(() => Math.ceil(filteredAndSortedClients.length / itemsPerPage) || 1, [filteredAndSortedClients, itemsPerPage]);
   const paginatedClients = useMemo(() => filteredAndSortedClients.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage), [filteredAndSortedClients, currentPage, itemsPerPage]);
-
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
 
   const upcomingBirthdays = useMemo(() => clients.filter(c => {
     if (!c.birthday) return false;
@@ -1039,7 +2446,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] text-gray-900 font-sans flex flex-col selection:bg-gray-900 selection:text-white relative">
+    <div className="min-h-screen bg-[#F9FAFB] dark:bg-gray-950 text-gray-900 dark:text-gray-100 font-sans flex flex-col selection:bg-gray-900 selection:text-white relative">
       
       {/* GLOBAL SEARCH COMMAND PALETTE */}
       {showGlobalSearch && (
@@ -1064,7 +2471,7 @@ export default function App() {
                         <button key={c.id} onClick={() => handleSearchSelection('client', c)} className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors text-left group">
                           <div>
                             <p className="text-[14px] font-semibold text-gray-900">{c.name}</p>
-                            <p className="text-[12px] text-gray-500">{c.email} {c.phone_number ? `• ${c.phone_number}` : ''}</p>
+                            <p className="text-[12px] text-gray-500">{c.email} {c.phone_number ? `â€¢ ${c.phone_number}` : ''}</p>
                           </div>
                           <span className="text-[12px] text-gray-400 group-hover:text-gray-900 transition-colors">View Profile &rarr;</span>
                         </button>
@@ -1102,7 +2509,7 @@ export default function App() {
       )}
       
       {/* PREMIUM TOP NAVIGATION BAR */}
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+      <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-14 items-center">
             <div className="flex items-center gap-8">
@@ -1113,20 +2520,45 @@ export default function App() {
               
               {user && (
                 <div className="hidden md:flex items-center gap-1">
-                  <button onClick={() => setAppStep('DASHBOARD')} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${appStep === 'DASHBOARD' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>Dashboard</button>
-                  <button onClick={() => setAppStep('CLIENTS')} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${appStep === 'CLIENTS' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>Clients Pipeline</button>
-                  <button onClick={() => setAppStep('GLOBAL_TASKS')} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${appStep === 'GLOBAL_TASKS' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>Tasks</button>
-                  <button onClick={() => setAppStep('SETTINGS')} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${appStep === 'SETTINGS' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'}`}>Settings</button>
+                  {[
+                    ['DASHBOARD', 'Dashboard'],
+                    ['CLIENTS', 'Clients Pipeline'],
+                    ['DEALS', 'Deals'],
+                    ['GLOBAL_TASKS', 'Tasks'],
+                    ['CALENDAR', 'Calendar'],
+                    ['REPORTS', 'Reports'],
+                    ['SETTINGS', 'Settings'],
+                  ].map(([step, label]) => (
+                    <button key={step} onClick={() => setAppStep(step)} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${appStep === step ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>{label}</button>
+                  ))}
                 </div>
               )}
             </div>
             
             {user ? (
               <div className="flex items-center gap-4">
+                {/* Mobile hamburger (Feature 12) */}
+                <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="flex md:hidden text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 p-1" title="Menu">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    {mobileMenuOpen
+                      ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      : <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />}
+                  </svg>
+                </button>
+
+                {/* Dark mode toggle (Feature 13) */}
+                <button onClick={toggleDarkMode} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 p-1 transition-colors" title={darkMode ? 'Light mode' : 'Dark mode'}>
+                  {darkMode ? (
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" /></svg>
+                  ) : (
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" /></svg>
+                  )}
+                </button>
+
                 {/* Search Trigger */}
                 <button onClick={() => setShowGlobalSearch(true)} className="text-gray-500 hover:text-gray-900 p-1 rounded-full transition-colors hidden sm:flex items-center gap-2 group" title="Search (Cmd+K)">
                   <SearchIcon />
-                  <span className="text-[11px] font-medium border border-gray-200 px-1.5 py-0.5 rounded text-gray-400 group-hover:bg-gray-100 transition-colors">⌘K</span>
+                  <span className="text-[11px] font-medium border border-gray-200 px-1.5 py-0.5 rounded text-gray-400 group-hover:bg-gray-100 transition-colors">âŒ˜K</span>
                 </button>
 
                 {/* Notifications Bell */}
@@ -1174,6 +2606,25 @@ export default function App() {
             )}
           </div>
         </div>
+
+        {/* MOBILE NAV DRAWER (Feature 12) */}
+        {user && mobileMenuOpen && (
+          <div className="md:hidden border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 animate-in slide-in-from-top-2 fade-in duration-200">
+            <div className="px-4 py-3 flex flex-col gap-1">
+              {[
+                ['DASHBOARD', 'Dashboard'],
+                ['CLIENTS', 'Clients Pipeline'],
+                ['DEALS', 'Deals'],
+                ['GLOBAL_TASKS', 'Tasks'],
+                ['CALENDAR', 'Calendar'],
+                ['REPORTS', 'Reports'],
+                ['SETTINGS', 'Settings'],
+              ].map(([step, label]) => (
+                <button key={step} onClick={() => { setAppStep(step); setMobileMenuOpen(false); }} className={`text-left px-3 py-2.5 min-h-[44px] rounded-md text-[13px] font-medium transition-all ${appStep === step ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>{label}</button>
+              ))}
+            </div>
+          </div>
+        )}
       </nav>
 
       {/* GLOBAL FLOATING ACTION BUTTON */}
@@ -1188,7 +2639,7 @@ export default function App() {
               setTimeout(() => document.getElementById('add-client-form')?.scrollIntoView({behavior: 'smooth'}), 100);
             }
           }}
-          className="fixed bottom-8 right-8 z-50 bg-gray-900 text-white p-4 rounded-full shadow-xl hover:bg-gray-800 hover:scale-105 transition-all active:scale-95 group flex items-center justify-center"
+          className="fixed bottom-6 right-4 md:bottom-8 md:right-8 z-50 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 p-4 rounded-full shadow-xl hover:bg-gray-800 dark:hover:bg-white hover:scale-105 transition-all active:scale-95 group flex items-center justify-center"
           title="Add New Client"
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
@@ -1232,7 +2683,7 @@ export default function App() {
                     <button type="button" onClick={() => {setAppStep('FORGOT_PASSWORD'); setAuthMessage('');}} className="text-gray-500 hover:text-gray-800 focus:outline-none transition-colors">Forgot password?</button>
                   </label>
                   <div className="relative">
-                    <input type={showLoginPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showLoginPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowLoginPassword(!showLoginPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showLoginPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -1268,7 +2719,7 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Password</label>
                   <div className="relative">
-                    <input type={showSignupPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showSignupPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowSignupPassword(!showSignupPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showSignupPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -1277,7 +2728,7 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Confirm Password</label>
                   <div className="relative">
-                    <input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showConfirmPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -1355,9 +2806,38 @@ export default function App() {
         {appStep === 'DASHBOARD' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-1">Overview</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Overview</h1>
               <p className="text-[13px] text-gray-500">Monitor your workspace activity and client directory.</p>
             </div>
+
+            {/* ONBOARDING CHECKLIST (Feature 30) */}
+            {!onboardingComplete && !onboardingDismissed && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm animate-in fade-in">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">Welcome to your CRM! Get started in 4 steps:</h3>
+                    <p className="text-[12px] text-gray-500 mt-0.5">{onboardingDone} of 4 complete</p>
+                  </div>
+                  <button onClick={() => { setOnboardingDismissed(true); localStorage.setItem('crm_onboarding_dismissed', 'true'); }} className="text-[12px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">Dismiss</button>
+                </div>
+                <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2 overflow-hidden mb-5">
+                  <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: `${(onboardingDone / 4) * 100}%` }} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {onboardingSteps.map((step, i) => (
+                    <div key={i} className={`flex items-start gap-3 p-3 rounded-xl border ${step.done ? 'border-green-100 dark:border-green-900 bg-green-50/40 dark:bg-green-900/10' : 'border-gray-100 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-700/30'}`}>
+                      <span className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${step.done ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300'}`}>{step.done ? 'âœ“' : i + 1}</span>
+                      <div className="flex-1">
+                        <p className={`text-[13px] font-semibold ${step.done ? 'text-green-800 dark:text-green-300 line-through' : 'text-gray-900 dark:text-gray-100'}`}>{step.title}</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">{step.desc}</p>
+                        {!step.done && i === 0 && <button onClick={() => { setAppStep('CLIENTS'); setTimeout(() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' }), 100); }} className="mt-1.5 text-[12px] font-semibold text-indigo-600 hover:underline">Add Client &rarr;</button>}
+                        {!step.done && i === 2 && <button onClick={() => setAppStep('GLOBAL_TASKS')} className="mt-1.5 text-[12px] font-semibold text-indigo-600 hover:underline">Go to Tasks &rarr;</button>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* DASHBOARD TOP ROW: Charts and Tasks */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1437,6 +2917,121 @@ export default function App() {
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">New Stage</p>
                 <p className="text-2xl font-bold tracking-tight text-gray-900 mt-1">{clients.filter(c => c.status === 'New').length}</p>
               </div>
+              <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Open Deals</p>
+                <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{openDealsCount}</p>
+              </div>
+              <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Pipeline Value</p>
+                <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{fmtMoney(pipelineValue)}</p>
+              </div>
+            </div>
+
+            {/* NEW WIDGETS ROW: Streak, Goals, Top Leads, Health, Sources */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Your Streak (Feature 17) */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3">
+                  <span>ðŸ”¥</span> Your Streak
+                </h3>
+                <p className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{streakData.current} day{streakData.current === 1 ? '' : 's'}</p>
+                <p className="text-[12px] text-gray-500 mt-1">Longest: {streakData.longest} days</p>
+                <div className="flex gap-1.5 mt-4">
+                  {[...Array(7)].map((_, i) => {
+                    const d = new Date(); d.setDate(d.getDate() - (6 - i));
+                    const ds = d.toISOString().split('T')[0];
+                    const active = activities.some(a => (a.created_at || '').split('T')[0] === ds);
+                    return <span key={i} className={`w-3 h-3 rounded-full ${active ? 'bg-orange-500' : 'bg-gray-200 dark:bg-gray-700'}`} title={ds} />;
+                  })}
+                </div>
+                <p className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mt-3">
+                  {streakData.current === 0 ? 'Start your streak!' : streakData.current >= 30 ? 'On fire! ðŸ”¥' : streakData.current >= 7 ? 'One week! Keep it going!' : 'Keep it going!'}
+                </p>
+              </div>
+
+              {/* Monthly Goals (Feature 26) */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5"><span>ðŸŽ¯</span> Monthly Goals</h3>
+                  <button onClick={() => setShowGoalForm(true)} className="text-[12px] font-medium text-indigo-600 hover:underline">Set Goals</button>
+                </div>
+                {goalProgress.length === 0 ? (
+                  <p className="text-[13px] text-gray-400 py-2">No goals set for this month yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {goalProgress.map(g => (
+                      <div key={g.id} className="relative">
+                        <div className="flex justify-between text-[12px] mb-1">
+                          <span className="font-medium text-gray-700 dark:text-gray-300">{{ new_clients: 'New Clients', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</span>
+                          <span className="font-bold text-gray-900 dark:text-gray-100">{g.current} of {g.target_value} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${g.pct >= 100 ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'}`}>{g.pct}%</span></span>
+                        </div>
+                        <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                          <div className={`h-full rounded-full transition-all duration-500 ${g.pct >= 100 ? 'bg-green-500' : g.pct >= 50 ? 'bg-blue-500' : 'bg-yellow-400'}`} style={{ width: `${g.pct}%` }} />
+                        </div>
+                        {g.pct >= 100 && <span className="goal-confetti absolute -top-1 right-0 text-[14px]">ðŸŽ‰</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Top Leads (Feature 6) */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>â­</span> Top Leads</h3>
+                {topLeads.length === 0 ? (
+                  <p className="text-[13px] text-gray-400 py-2">Add clients to see lead scores.</p>
+                ) : (
+                  <div className="space-y-2.5">
+                    {topLeads.map(c => (
+                      <div key={c.id} className="flex items-center justify-between gap-2">
+                        <span className="text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate flex-1">{c.name}</span>
+                        <ScoreBar score={c.leadScore} />
+                        <button onClick={() => { setViewingClient(c); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 font-medium shrink-0">View</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Relationship Health (Feature 19) */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ’—</span> Relationship Health</h3>
+                <div className="space-y-2">
+                  {[['Excellent', 'bg-green-500'], ['Good', 'bg-teal-500'], ['Fair', 'bg-yellow-400'], ['At Risk', 'bg-orange-500'], ['Critical', 'bg-red-500']].map(([label, color]) => {
+                    const count = healthCounts[label] || 0;
+                    const total = Math.max(clients.length, 1);
+                    return (
+                      <button key={label} onClick={() => { setFilterHealth(label); setAppStep('CLIENTS'); }} className="w-full flex items-center gap-3 group">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${color}`} />
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-16 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{label}</span>
+                        <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-6 text-right">{count}</span>
+                        <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                          <div className={`h-full rounded-full ${color}`} style={{ width: `${(count / total) * 100}%` }} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Top Sources (Feature 25) */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ“</span> Top Sources</h3>
+                {(() => {
+                  const top = CLIENT_SOURCES.map(s => [s, clients.filter(c => c.source === s).length]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
+                  if (top.length === 0) return <p className="text-[13px] text-gray-400 py-2">No sources recorded yet â€” set a source when adding clients.</p>;
+                  return (
+                    <div className="space-y-2.5">
+                      {top.map(([source, count]) => (
+                        <div key={source} className="flex items-center justify-between">
+                          <span className="text-[13px] font-medium text-gray-800 dark:text-gray-200">{source}</span>
+                          <span className="text-[12px] font-bold text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
 
             {/* DASHBOARD BOTTOM ROW: Lists */}
@@ -1445,7 +3040,7 @@ export default function App() {
               {/* Birthdays */}
               <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>🎂</span> Birthdays (Next 30 Days)
+                  <span>ðŸŽ‚</span> Birthdays (Next 30 Days)
                 </h3>
                 <div className="space-y-2.5 overflow-y-auto flex-1">
                   {upcomingBirthdays.length === 0 ? (
@@ -1464,7 +3059,7 @@ export default function App() {
               {/* Recent Activity */}
               <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>⚡</span> Recently Added Profiles
+                  <span>âš¡</span> Recently Added Profiles
                 </h3>
                 <div className="space-y-2.5 flex-1">
                   {recentActivity.length === 0 ? (
@@ -1488,7 +3083,7 @@ export default function App() {
               {/* Stale Clients */}
               <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>❄️</span> Stale Clients (&gt;30 Days)
+                  <span>â„ï¸</span> Stale Clients (&gt;30 Days)
                 </h3>
                 <div className="space-y-2.5 flex-1">
                   {staleClients.length === 0 ? (
@@ -1514,6 +3109,12 @@ export default function App() {
         {/* VIEW: CLIENTS */}
         {appStep === 'CLIENTS' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {/* FEATURE 10 â€” read-only banner for viewers */}
+            {isViewer && (
+              <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-[13px] font-medium text-blue-800">
+                ðŸ‘ï¸ Read-only access â€” you can view clients but not edit them. Ask a workspace admin for a higher role.
+              </div>
+            )}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-1">CRM Pipeline</h1>
@@ -1533,13 +3134,25 @@ export default function App() {
             </div>
 
             {/* ADD CLIENT FORM */}
+            {canEdit && (
             <div id="add-client-form" className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm space-y-4">
               <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400">Add New Student Profile Card</h3>
               {crmErrorMessage && <div className="p-2 bg-red-50 text-red-700 text-[12px] rounded-lg border border-red-100">{crmErrorMessage}</div>}
               
               <form onSubmit={handleAddClient} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[13px]">
                 <input type="text" required placeholder="Name *" value={name} onChange={e => setName(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
-                <input type="email" required placeholder="Email *" value={clientEmail} onChange={e => setClientEmail(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                <div className="flex flex-col">
+                  <input type="email" required placeholder="Email *" value={clientEmail} onChange={e => setClientEmail(e.target.value)} className="px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                  {/* FEATURE 14 â€” duplicate detection */}
+                  {duplicateWarning && (
+                    <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg mt-1">
+                      <span className="text-[12px] text-yellow-800">
+                        âš ï¸ A client with this email already exists:
+                        <button type="button" onClick={() => setViewingClient(duplicateWarning)} className="font-semibold ml-1 underline">{duplicateWarning.name}</button>
+                      </span>
+                    </div>
+                  )}
+                </div>
                 <input type="text" placeholder="Country" value={clientCountry} onChange={e => setClientCountry(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="text" placeholder="Phone Number" value={clientPhone} onChange={e => setClientPhone(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="url" placeholder="LinkedIn URL" value={clientLinkedin} onChange={e => setClientLinkedin(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
@@ -1557,6 +3170,12 @@ export default function App() {
 
                 <select value={status} onChange={e => setStatus(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
                   {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+
+                {/* FEATURE 25 â€” source tracking */}
+                <select value={clientSource} onChange={e => setClientSource(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
+                  <option value="">Source: Unknown</option>
+                  {CLIENT_SOURCES.map(s => <option key={s} value={s}>Source: {s}</option>)}
                 </select>
 
                 {/* DYNAMIC CUSTOM FIELDS RENDER */}
@@ -1580,10 +3199,14 @@ export default function App() {
 
                 <div className="sm:col-span-2 lg:col-span-4 flex items-center gap-2 pt-2 border-t border-gray-100">
                   <input type="text" placeholder="Legacy Note: Add conversation details log note remarks..." value={clientConversation} onChange={e => setClientConversation(e.target.value)} className="flex-1 px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none" />
-                  <button type="submit" className="px-5 py-2 font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm transition-all whitespace-nowrap">Save Client</button>
+                  {duplicateWarning && !forceSaveDuplicate && (
+                    <button type="button" onClick={() => setForceSaveDuplicate(true)} className="px-3 py-2 text-[12px] font-medium text-yellow-700 bg-white border border-yellow-300 rounded-lg hover:bg-yellow-50 whitespace-nowrap">Save anyway</button>
+                  )}
+                  <button type="submit" disabled={!!duplicateWarning && !forceSaveDuplicate} className="px-5 py-2 font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm transition-all whitespace-nowrap disabled:opacity-50 disabled:hover:bg-gray-900">Save Client</button>
                 </div>
               </form>
             </div>
+            )}
 
             {/* FILTER CONTROLS */}
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between text-[13px]">
@@ -1618,11 +3241,104 @@ export default function App() {
                       <option value="created_at_asc">Oldest Added</option>
                       <option value="name_asc">Name (A-Z)</option>
                       <option value="name_desc">Name (Z-A)</option>
+                      <option value="score_desc">Score: Highâ†’Low</option>
+                      <option value="score_asc">Score: Lowâ†’High</option>
                     </select>
                   </div>
                 )}
+                {/* FEATURE 29 â€” expand advanced filters */}
+                <button onClick={() => setShowMoreFilters(!showMoreFilters)} className="relative px-3 py-1.5 border border-gray-200 rounded-md bg-white text-[12px] font-medium text-gray-700 hover:bg-gray-50">
+                  More Filters
+                  {activeFilterCount > 0 && <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-900 text-white rounded-full text-[9px] font-bold flex items-center justify-center">{activeFilterCount}</span>}
+                </button>
+                {activeFilterCount > 0 && (
+                  <button onClick={clearAllFilters} className="text-[12px] font-medium text-red-500 hover:text-red-700">Clear all filters</button>
+                )}
               </div>
             </div>
+
+            {/* FEATURE 29 â€” SAVED VIEWS PILLS */}
+            <div className="flex flex-wrap items-center gap-2 text-[12px]">
+              {BUILT_IN_VIEWS.map(v => (
+                <button key={v.name} onClick={() => { clearAllFilters(); applyView(v.filters); }} className="px-3 py-1 rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 font-medium">{v.name}</button>
+              ))}
+              {savedViews.map(v => (
+                <span key={v.id} className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 font-medium">
+                  <button onClick={() => { clearAllFilters(); applyView(v.filters || {}); }}>{v.name}</button>
+                  <button onClick={() => handleDeleteView(v.id)} className="hover:opacity-60 ml-0.5">Ã—</button>
+                </span>
+              ))}
+              {activeFilterCount > 0 && (
+                savingViewName === null ? (
+                  <button onClick={() => setSavingViewName('')} className="px-3 py-1 rounded-full border border-dashed border-gray-300 text-gray-500 hover:text-gray-800 font-medium">+ Save this view</button>
+                ) : (
+                  <form onSubmit={e => { e.preventDefault(); handleSaveView(savingViewName); }} className="inline-flex items-center gap-1">
+                    <input autoFocus type="text" placeholder="View name..." value={savingViewName} onChange={e => setSavingViewName(e.target.value)} className="px-2 py-1 border border-gray-200 rounded-full text-[12px] focus:outline-none" />
+                    <button type="submit" className="px-2 py-1 bg-gray-900 text-white rounded-full text-[11px] font-medium">Save</button>
+                    <button type="button" onClick={() => setSavingViewName(null)} className="text-gray-400 px-1">Ã—</button>
+                  </form>
+                )
+              )}
+            </div>
+
+            {/* FEATURE 29 â€” MORE FILTERS PANEL */}
+            {showMoreFilters && (
+              <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-[13px] animate-in fade-in">
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Date Added</label>
+                  <select value={filterDateAdded} onChange={e => setFilterDateAdded(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                    <option value="">Any time</option>
+                    <option value="today">Today</option>
+                    <option value="this_week">This week</option>
+                    <option value="this_month">This month</option>
+                    <option value="this_quarter">This quarter</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Activity</label>
+                  <select value={filterHasActivity} onChange={e => setFilterHasActivity(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                    <option value="">Any</option>
+                    <option value="none">No activity logged</option>
+                    <option value="last_7">Active in last 7 days</option>
+                    <option value="last_30">Active in last 30 days</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Lead Score</label>
+                  <select value={filterScore} onChange={e => setFilterScore(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                    <option value="">Any</option>
+                    <option value="high">High (75+)</option>
+                    <option value="medium">Medium (50â€“74)</option>
+                    <option value="low">Low (&lt;50)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Health</label>
+                  <select value={filterHealth} onChange={e => setFilterHealth(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                    <option value="">Any</option>
+                    {['Excellent', 'Good', 'Fair', 'At Risk', 'Critical'].map(h => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input id="filter-has-deals" type="checkbox" checked={filterHasDeals} onChange={e => setFilterHasDeals(e.target.checked)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
+                  <label htmlFor="filter-has-deals" className="text-[12px] font-medium text-gray-700">Has at least one deal</label>
+                </div>
+                {tags.length > 0 && (
+                  <div className="sm:col-span-2 lg:col-span-3">
+                    <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Tags (must have all selected)</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tags.map(t => (
+                        <button key={t.id} onClick={() => setFilterTags(prev => prev.includes(t.id) ? prev.filter(x => x !== t.id) : [...prev, t.id])}
+                          className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-all ${filterTags.includes(t.id) ? 'ring-2 ring-offset-1 ring-gray-400' : 'opacity-70 hover:opacity-100'}`}
+                          style={{ backgroundColor: t.color + '22', color: t.color, borderColor: t.color + '44' }}>
+                          {t.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* BULK ACTIONS BAR (Table mode only) */}
             {viewMode === 'table' && selectedClientIds.length > 0 && (
@@ -1633,6 +3349,7 @@ export default function App() {
                     <option value="">Change Status...</option>
                     {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
+                  <button onClick={() => setShowBulkEmailModal(true)} className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-[12px] font-medium hover:bg-indigo-700 shadow-sm">Bulk Email</button>
                   <button onClick={handleBulkDelete} className="px-3 py-1.5 bg-red-600 text-white rounded-md text-[12px] font-medium hover:bg-red-700 shadow-sm">Delete Selected</button>
                 </div>
               </div>
@@ -1642,12 +3359,55 @@ export default function App() {
             {loadingClients ? (
               <div className="p-12 text-center text-[13px] text-gray-400 bg-white rounded-2xl border border-gray-200">Loading records...</div>
             ) : filteredAndSortedClients.length === 0 ? (
-              <div className="p-12 text-center text-[13px] text-gray-400 bg-white rounded-2xl border border-gray-200">No matching records found.</div>
+              <div className="p-12 text-center bg-white rounded-2xl border border-gray-200">
+                {clients.length === 0 ? (
+                  <>
+                    <p className="text-[14px] font-semibold text-gray-900">No clients yet</p>
+                    <p className="text-[13px] text-gray-400 mt-1">Add your first client to start tracking relationships.</p>
+                    <button onClick={() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' })} className="mt-4 px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Your First Client</button>
+                  </>
+                ) : (
+                  <p className="text-[13px] text-gray-400">No matching records found. Try adjusting your filters.</p>
+                )}
+              </div>
             ) : (
               viewMode === 'table' ? (
                 /* ------------------- TABLE VIEW ------------------- */
                 <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in">
-                  <div className="overflow-x-auto">
+                  {/* FEATURE 12 â€” mobile card layout */}
+                  <div className="block md:hidden space-y-3 p-3">
+                    {paginatedClients.map(client => {
+                      const isSelected = selectedClientIds.includes(client.id);
+                      return (
+                        <div key={client.id} className={`relative p-4 rounded-xl border ${isSelected ? 'border-gray-400 bg-gray-50' : 'border-gray-200 bg-white'}`}>
+                          <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(client.id)} className="absolute top-4 left-4 rounded border-gray-300 text-gray-900 focus:ring-0" />
+                          <div className="pl-8">
+                            <p className="text-[14px] font-bold text-gray-900">{client.name} {client.quick_note && <span className="text-[12px]">ðŸ“</span>}</p>
+                            <p className="text-[12px] text-gray-500 break-all">{client.email}</p>
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                              <span className="text-[11px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">{client.status}</span>
+                              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${client.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' : client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{client.relationship}</span>
+                              <ScoreBar score={client.leadScore || 0} />
+                            </div>
+                            <div className="flex gap-4 mt-3 text-[13px] font-medium">
+                              <button onClick={() => setViewingClient(client)} className="text-gray-600 min-h-[44px]">View</button>
+                              <button onClick={() => {
+                                setEditingClient(client);
+                                const cfs = {};
+                                customFieldDefs.forEach(def => {
+                                  const existing = customFieldValues.find(v => v.client_id === client.id && v.field_definition_id === def.id);
+                                  cfs[def.id] = existing ? existing.value : '';
+                                });
+                                setFormCustomValues(cfs);
+                              }} className="text-gray-900 min-h-[44px]">Edit</button>
+                              <button onClick={() => handleDeleteClient(client.id)} className="text-red-600 min-h-[44px]">Delete</button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="overflow-x-auto hidden md:block">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-gray-50/70 border-b border-gray-200 text-[11px] font-bold uppercase tracking-wider text-gray-400 select-none">
@@ -1655,9 +3415,11 @@ export default function App() {
                             <input type="checkbox" checked={paginatedClients.length > 0 && paginatedClients.every(c => selectedClientIds.includes(c.id))} onChange={(e) => handleSelectAll(e, paginatedClients)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
                           </th>
                           <th className="p-4">Client</th>
-                          <th className="p-4">Country</th>
+                          <th className="p-4">Tags</th>
                           <th className="p-4">Priority</th>
+                          <th className="p-4">Score</th>
                           <th className="p-4">Pipeline Stage</th>
+                          <th className="p-4">Health</th>
                           <th className="p-4 text-right">Actions</th>
                         </tr>
                       </thead>
@@ -1671,11 +3433,22 @@ export default function App() {
                               </td>
                               <td className="p-4">
                                 <div>
-                                  <span className="font-semibold text-gray-900 text-[14px] block">{client.name}</span>
+                                  <span className="font-semibold text-gray-900 text-[14px] block">
+                                    {client.name}
+                                    {client.quick_note && <span className="ml-1.5 text-[12px]" title={client.quick_note.slice(0, 60)}>ðŸ“</span>}
+                                  </span>
                                   <span className="text-[11px] text-gray-400 block font-normal mt-0.5">{client.email}</span>
                                 </div>
                               </td>
-                              <td className="p-4 text-gray-500 font-normal">{client.country || '—'}</td>
+                              <td className="p-4">
+                                <div className="flex flex-wrap gap-1 max-w-[140px]">
+                                  {(clientTagMap[client.id] || []).slice(0, 3).map(tid => {
+                                    const t = tags.find(x => x.id === tid);
+                                    return t ? <TagPill key={tid} tag={t} /> : null;
+                                  })}
+                                  {(clientTagMap[client.id] || []).length > 3 && <span className="text-[11px] text-gray-400 font-medium">+{(clientTagMap[client.id] || []).length - 3}</span>}
+                                </div>
+                              </td>
                               <td className="p-4">
                                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
                                   client.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' :
@@ -1685,6 +3458,7 @@ export default function App() {
                                   {client.relationship || 'Low'}
                                 </span>
                               </td>
+                              <td className="p-4"><ScoreBar score={client.leadScore || 0} /></td>
                               <td className="p-4">
                                 <span className={`inline-flex items-center gap-1 text-[12px] font-bold ${
                                   client.status === 'New' ? 'text-blue-600' : 
@@ -1701,9 +3475,18 @@ export default function App() {
                                   {client.status}
                                 </span>
                               </td>
+                              <td className="p-4">
+                                {(() => {
+                                  const h = healthByClientId[client.id];
+                                  const cls = { Excellent: 'bg-green-50 text-green-700 border-green-100', Good: 'bg-teal-50 text-teal-700 border-teal-100', Fair: 'bg-yellow-50 text-yellow-700 border-yellow-100', 'At Risk': 'bg-orange-50 text-orange-700 border-orange-100', Critical: 'bg-red-50 text-red-700 border-red-100' }[h] || 'bg-gray-50 text-gray-500 border-gray-100';
+                                  return <button onClick={() => setFilterHealth(h)} className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}>{h}</button>;
+                                })()}
+                              </td>
                               <td className="p-4 text-right font-normal">
                                 <div className="flex justify-end gap-3 text-[12px] font-medium">
                                   <button onClick={() => setViewingClient(client)} className="text-gray-500 hover:text-gray-900 transition-colors">View</button>
+                                  <button onClick={() => { setTimelineClient(client); setAppStep('CLIENT_TIMELINE'); }} className="text-gray-500 hover:text-gray-900 transition-colors">Timeline</button>
+                                  <button onClick={() => { setMergeSource(client); setMergeTarget(null); setMergeStep(1); setMergeFieldChoices({}); setMergeSearch(''); setShowMergeTool(true); }} className="text-gray-500 hover:text-gray-900 transition-colors">Merge</button>
                                   <button onClick={() => {
                                     setEditingClient(client);
                                     // Preload custom fields into form
@@ -1739,9 +3522,10 @@ export default function App() {
                   {PIPELINE_STAGES.map(stage => {
                     const columnClients = filteredAndSortedClients.filter(c => c.status === stage);
                     return (
-                      <div 
-                        key={stage} 
-                        className="flex-shrink-0 w-80 bg-gray-200/50 rounded-2xl flex flex-col border border-gray-200"
+                      <div
+                        key={stage}
+                        className="flex-shrink-0 w-72 md:w-80 bg-gray-200/50 rounded-2xl flex flex-col border border-gray-200"
+                        style={{ scrollSnapAlign: 'start' }}
                         onDragOver={handleDragOver}
                         onDrop={e => handleDrop(e, stage)}
                       >
@@ -1752,7 +3536,7 @@ export default function App() {
                         <div className="p-3 flex-1 overflow-y-auto space-y-3">
                           {columnClients.map(client => {
                             const clActs = activities.filter(a => a.client_id === client.id);
-                            const lastAct = clActs.length > 0 ? clActs[0].date : (client.created_at ? new Date(client.created_at).toISOString().split('T')[0] : 'N/A');
+                            const lastAct = clActs.length > 0 ? clActs[0].activity_date : (client.created_at ? new Date(client.created_at).toISOString().split('T')[0] : 'N/A');
                             
                             return (
                               <div 
@@ -1793,6 +3577,504 @@ export default function App() {
           </div>
         )}
 
+        {/* VIEW: DEALS (Feature 1) */}
+        {appStep === 'DEALS' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Deals Pipeline</h1>
+                <p className="text-[13px] text-gray-500">Track opportunities, forecast revenue, and close more deals.</p>
+              </div>
+              {canEdit && (
+                <button onClick={() => { resetDealForm(); setShowDealForm(true); }} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">+ New Deal</button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {[
+                ['Total Pipeline', fmtMoney(pipelineValue)],
+                ['Weighted Forecast', fmtMoney(weightedForecast)],
+                ['Won', fmtMoney(wonValue)],
+                ['Deal Count', deals.length],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
+                  <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {deals.length === 0 ? (
+              <div className="p-12 text-center bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700">
+                <p className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">No deals yet</p>
+                <p className="text-[13px] text-gray-400 mt-1">Create your first deal to start tracking your pipeline.</p>
+                {canEdit && <button onClick={() => { resetDealForm(); setShowDealForm(true); }} className="mt-4 px-4 py-2 text-[13px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Create Deal</button>}
+              </div>
+            ) : (
+              <div className="flex gap-4 overflow-x-auto pb-4 animate-in fade-in" style={{ scrollSnapType: 'x mandatory' }}>
+                {DEAL_STAGES.map(stage => {
+                  const stageDeals = deals.filter(d => d.stage === stage);
+                  const stageValue = stageDeals.reduce((s, d) => s + (parseFloat(d.value) || 0), 0);
+                  return (
+                    <div key={stage} className="flex-shrink-0 w-72 md:w-80 bg-gray-200/50 dark:bg-gray-800/60 rounded-2xl flex flex-col border border-gray-200 dark:border-gray-700"
+                      style={{ scrollSnapAlign: 'start' }}
+                      onDragOver={handleDragOver} onDrop={e => handleDealDrop(e, stage)}>
+                      <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-100/50 dark:bg-gray-800 rounded-t-2xl flex justify-between items-center">
+                        <div>
+                          <h4 className="text-[14px] font-bold text-gray-800 dark:text-gray-100">{stage}</h4>
+                          <p className="text-[11px] text-gray-400">{fmtMoney(stageValue)}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[12px] font-semibold text-gray-500 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 px-2 py-0.5 rounded-full">{stageDeals.length}</span>
+                          {canEdit && <button onClick={() => { resetDealForm(); setDealStage(stage); setShowDealForm(true); }} className="w-6 h-6 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 text-[14px] font-bold leading-none">+</button>}
+                        </div>
+                      </div>
+                      <div className="p-3 flex-1 overflow-y-auto space-y-3 min-h-[100px] max-h-[60vh]">
+                        {stageDeals.map(deal => {
+                          const dealClient = clients.find(c => c.id === deal.client_id);
+                          return (
+                            <div key={deal.id} draggable onDragStart={e => handleDealDragStart(e, deal.id)}
+                              className="bg-white dark:bg-gray-800 p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow transition-shadow cursor-grab active:cursor-grabbing flex flex-col gap-2 group">
+                              <div className="flex justify-between items-start gap-2">
+                                <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{deal.title}</p>
+                                <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-800">{deal.probability}%</span>
+                              </div>
+                              <div className="text-[11px] text-gray-500 truncate">{dealClient?.name || 'Unknown client'}</div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-[13px] font-bold text-gray-900 dark:text-gray-100">{fmtMoney(deal.value)}</span>
+                                {deal.close_date && <span className="text-[10px] text-gray-400">Close: {deal.close_date}</span>}
+                              </div>
+                              {canEdit && (
+                                <div className="flex gap-2 text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button onClick={() => {
+                                    setEditingDeal(deal); setDealTitle(deal.title); setDealValue(String(deal.value ?? ''));
+                                    setDealStage(deal.stage); setDealProbability(deal.probability ?? 50);
+                                    setDealCloseDate(deal.close_date || ''); setDealNotes(deal.notes || '');
+                                    setDealClientId(String(deal.client_id)); setShowDealForm(true);
+                                  }} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Edit</button>
+                                  {canDelete && <button onClick={() => handleDeleteDeal(deal)} className="text-red-500 hover:text-red-700">Delete</button>}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {stageDeals.length === 0 && (
+                          <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl h-20 flex items-center justify-center text-[12px] text-gray-400 font-medium">Drop here</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* VIEW: REPORTS (Feature 3) */}
+        {appStep === 'REPORTS' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Reports</h1>
+                <p className="text-[13px] text-gray-500">Analytics across clients, activities, deals, and tasks.</p>
+              </div>
+              <div className="bg-gray-200/50 dark:bg-gray-800 p-1 rounded-lg flex items-center gap-1">
+                {[['7', '7d'], ['30', '30d'], ['90', '90d'], ['365', '1yr']].map(([v, label]) => (
+                  <button key={v} onClick={() => setReportRange(v)} className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-all ${reportRange === v ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>{label}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+              {[
+                ['Clients Total', clients.length],
+                ['Activities', reportStats.activitiesInRange.length],
+                ['Pipeline $', fmtMoney(pipelineValue)],
+                ['Win Rate', `${reportStats.winRate}%`],
+                ['Task Completion', `${reportStats.taskCompletionRate}%`],
+                ['Avg Act/Client', reportStats.avgActivitiesPerClient],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
+                  <p className="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Chart 1 â€” Activity by type */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Activity by Type</h3>
+                <div className="space-y-3">
+                  {Object.entries(reportStats.activityByType).map(([type, count]) => {
+                    const max = Math.max(...Object.values(reportStats.activityByType), 1);
+                    const color = { Note: 'bg-gray-400', Call: 'bg-blue-500', Email: 'bg-green-500', Meeting: 'bg-purple-500' }[type];
+                    return (
+                      <div key={type} className="flex items-center gap-3">
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-16">{type}</span>
+                        <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+                          <div className={`h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${(count / max) * 100}%` }} />
+                        </div>
+                        <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Chart 2 â€” Pipeline funnel */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Pipeline Funnel</h3>
+                <div className="space-y-3">
+                  {PIPELINE_STAGES.map(stage => {
+                    const count = reportStats.clientsByStage[stage] || 0;
+                    const max = Math.max(...Object.values(reportStats.clientsByStage), 1);
+                    return (
+                      <div key={stage} className="flex items-center gap-3">
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-20">{stage}</span>
+                        <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+                          <div className="h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
+                        </div>
+                        <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Chart 3 â€” Deal stages */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Deal Stages</h3>
+                <div className="space-y-2">
+                  {DEAL_STAGES.map(stage => {
+                    const s = reportStats.dealsByStage[stage] || { count: 0, value: 0 };
+                    const pct = deals.length > 0 ? Math.round((s.count / deals.length) * 100) : 0;
+                    return (
+                      <div key={stage} className="flex items-center gap-3 py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0">
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-28">{stage}</span>
+                        <span className="text-[12px] text-gray-500 w-8">{s.count}</span>
+                        <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-20">{fmtMoney(s.value)}</span>
+                        <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                          <div className="h-full rounded-full bg-gray-900 dark:bg-gray-300" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {reportStats.avgResponseTime && (
+                  <p className="text-[11px] text-gray-400 mt-3">Avg. time between activities: ~{reportStats.avgResponseTime} days (approx)</p>
+                )}
+              </div>
+
+              {/* Chart 4 â€” Clients added over time */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Clients Added (8 Weeks)</h3>
+                <div className="flex-1 flex items-end gap-2 h-32 mt-auto pb-2">
+                  {reportStats.clientsAddedByWeek.map((w, i) => {
+                    const max = Math.max(...reportStats.clientsAddedByWeek.map(x => x.count), 1);
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-2 group relative">
+                        <div className="w-full bg-indigo-100 dark:bg-indigo-900/40 rounded-sm relative overflow-hidden" style={{ height: '100px' }}>
+                          <div className="absolute bottom-0 w-full bg-indigo-500 transition-all duration-500" style={{ height: `${(w.count / max) * 100}%` }} />
+                        </div>
+                        <span className="text-[9px] text-gray-400">{w.label}</span>
+                        <div className="absolute -top-8 bg-gray-900 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{w.count}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Chart 5 â€” Clients by source (Feature 25) */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Clients by Source</h3>
+                <div className="space-y-3">
+                  {CLIENT_SOURCES.map(source => {
+                    const count = reportStats.clientsBySource[source] || 0;
+                    const max = Math.max(...Object.values(reportStats.clientsBySource), 1);
+                    return (
+                      <div key={source} className="flex items-center gap-3">
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-24">{source}</span>
+                        <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+                          <div className="h-full rounded-full bg-teal-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
+                        </div>
+                        <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Table â€” Most active clients */}
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Most Active Clients</h3>
+                {reportStats.topClientsByActivity.length === 0 ? (
+                  <p className="text-[13px] text-gray-400">No activities logged in this range.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {reportStats.topClientsByActivity.map((x, i) => (
+                      <div key={x.client.id} className="flex items-center gap-3 py-2 border-b border-gray-50 dark:border-gray-700/50 last:border-0">
+                        <span className="text-[12px] font-bold text-gray-400 w-5">#{i + 1}</span>
+                        <span className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 flex-1 truncate">{x.client.name}</span>
+                        <span className="text-[11px] font-bold text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded-full">{x.client.status}</span>
+                        <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100">{x.count}</span>
+                        <button onClick={() => { setViewingClient(x.client); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 font-medium">View</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: CALENDAR (Feature 8) */}
+        {appStep === 'CALENDAR' && (() => {
+          const y = calendarDate.getFullYear();
+          const m = calendarDate.getMonth();
+          const firstDay = new Date(y, m, 1).getDay();
+          const daysInMonth = new Date(y, m + 1, 0).getDate();
+          const cells = [];
+          for (let i = 0; i < firstDay; i++) cells.push(null);
+          for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+          const dateStr = (d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          const eventsOn = (ds) => calendarEvents.filter(ev => ev.date === ds);
+          const typeColor = { task: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300', activity: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300', birthday: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300', deal: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' };
+          const next30 = [...Array(30)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return d.toISOString().split('T')[0]; });
+          const selEvents = selectedCalendarDay ? eventsOn(selectedCalendarDay) : [];
+          return (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Calendar</h1>
+                  <p className="text-[13px] text-gray-500">Tasks, activities, birthdays, and deal close dates in one view.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="bg-gray-200/50 dark:bg-gray-800 p-1 rounded-lg flex items-center gap-1">
+                    <button onClick={() => setCalendarView('month')} className={`px-3 py-1.5 text-[12px] font-medium rounded-md ${calendarView === 'month' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500'}`}>Month</button>
+                    <button onClick={() => setCalendarView('agenda')} className={`px-3 py-1.5 text-[12px] font-medium rounded-md ${calendarView === 'agenda' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500'}`}>Agenda</button>
+                  </div>
+                </div>
+              </div>
+
+              {calendarView === 'month' ? (
+                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-4 sm:p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <button onClick={() => setCalendarDate(new Date(y, m - 1, 1))} className="px-3 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">&larr; Prev</button>
+                    <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">{calendarDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h3>
+                    <button onClick={() => setCalendarDate(new Date(y, m + 1, 1))} className="px-3 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">Next &rarr;</button>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1 text-center mb-1">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                      <div key={d} className="text-[11px] font-bold uppercase tracking-wider text-gray-400 py-2">{d}</div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {cells.map((d, i) => {
+                      if (d === null) return <div key={`e-${i}`} className="min-h-[90px]" />;
+                      const ds = dateStr(d);
+                      const evs = eventsOn(ds);
+                      const isToday = ds === todayStr;
+                      return (
+                        <button key={ds} onClick={() => setSelectedCalendarDay(ds)} className={`min-h-[90px] p-1.5 rounded-lg border text-left align-top transition-colors ${selectedCalendarDay === ds ? 'border-gray-900 dark:border-gray-300' : 'border-gray-100 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'}`}>
+                          <span className={`text-[12px] font-semibold inline-flex items-center justify-center ${isToday ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-full w-6 h-6' : 'text-gray-600 dark:text-gray-300'}`}>{d}</span>
+                          <div className="mt-1 space-y-0.5">
+                            {evs.slice(0, 3).map(ev => (
+                              <div key={ev.id} className={`text-[9px] font-medium px-1 py-0.5 rounded truncate ${typeColor[ev.type]}`}>{ev.label}</div>
+                            ))}
+                            {evs.length > 3 && <div className="text-[9px] text-gray-400 font-medium px-1">+{evs.length - 3} more</div>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                  {next30.filter(ds => eventsOn(ds).length > 0).length === 0 && (
+                    <p className="text-[13px] text-gray-400 text-center py-8">Nothing scheduled in the next 30 days.</p>
+                  )}
+                  {next30.map(ds => {
+                    const evs = eventsOn(ds);
+                    if (evs.length === 0) return null;
+                    return (
+                      <div key={ds}>
+                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">{new Date(ds + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}{ds === todayStr ? ' Â· Today' : ''}</h4>
+                        <div className="space-y-1.5">
+                          {evs.map(ev => {
+                            const evClient = clients.find(c => c.id === ev.clientId);
+                            return (
+                              <div key={ev.id} className="flex items-center gap-3 p-2.5 rounded-lg border border-gray-100 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-700/30">
+                                <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${typeColor[ev.type]}`}>{ev.type}</span>
+                                <span className="text-[13px] text-gray-800 dark:text-gray-200 flex-1 truncate">{ev.label}</span>
+                                {evClient && <button onClick={() => { setViewingClient(evClient); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 font-medium shrink-0">{evClient.name}</button>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* SELECTED DAY PANEL */}
+              {calendarView === 'month' && selectedCalendarDay && (
+                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6 space-y-4 animate-in fade-in">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[14px] font-bold text-gray-900 dark:text-gray-100">{new Date(selectedCalendarDay + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
+                    <button onClick={() => setSelectedCalendarDay(null)} className="text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-bold">&times;</button>
+                  </div>
+                  {selEvents.length === 0 && <p className="text-[13px] text-gray-400">Nothing scheduled for this day.</p>}
+                  <div className="space-y-2">
+                    {selEvents.map(ev => {
+                      const evClient = clients.find(c => c.id === ev.clientId);
+                      return (
+                        <div key={ev.id} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-700/30">
+                          <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 ${typeColor[ev.type]}`}>{ev.type}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] font-medium text-gray-900 dark:text-gray-100 truncate">{ev.label}</p>
+                            {ev.type === 'task' && <span className={`text-[10px] font-bold ${ev.task.status === 'done' ? 'text-green-600' : ev.isOverdue ? 'text-red-500' : 'text-gray-400'}`}>{ev.task.status === 'done' ? 'Done' : ev.isOverdue ? 'Overdue' : 'Pending'}</span>}
+                            {ev.type === 'deal' && <span className="text-[10px] text-gray-400">{ev.deal.stage}</span>}
+                          </div>
+                          {evClient && (
+                            <div className="flex gap-2 shrink-0">
+                              <button onClick={() => { setViewingClient(evClient); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 font-medium">Open Client</button>
+                              {ev.type === 'birthday' && (
+                                <button onClick={() => { setViewingClient(evClient); setAppStep('CLIENTS'); setEmailTo(evClient.email || ''); setShowEmailComposer(true); }} className="text-[12px] text-indigo-600 hover:underline font-medium">Send Email</button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Inline add-task for the selected day */}
+                  {canEdit && clients.length > 0 && (
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+                      const cid = parseInt(e.target.elements.calTaskClient.value, 10);
+                      if (!newTaskTitle || !cid) return;
+                      const { data, error } = await supabase.from('tasks').insert([{
+                        client_id: cid, user_id: user.id, title: newTaskTitle,
+                        due_date: selectedCalendarDay, status: 'pending',
+                      }]).select();
+                      if (!error && data) {
+                        setTasks(prev => [...prev, data[0]]);
+                        setNewTaskTitle('');
+                        updateStreak();
+                        showToast('Task created.', 'success');
+                      } else showToast(`Error creating task: ${error?.message}`, 'error');
+                    }} className="flex flex-wrap gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
+                      <input type="text" placeholder="Add task for this day..." value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} className="flex-1 min-w-[160px] px-3 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:outline-none" />
+                      <select name="calTaskClient" className="px-2 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:outline-none">
+                        {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                      <button type="submit" disabled={!newTaskTitle} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50 shadow-sm">Add Task</button>
+                    </form>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* VIEW: CLIENT TIMELINE (Feature 24) */}
+        {appStep === 'CLIENT_TIMELINE' && timelineClient && (() => {
+          const tc = clientsWithScores.find(c => c.id === timelineClient.id) || timelineClient;
+          const tcActs = activities.filter(a => a.client_id === tc.id);
+          const tcTasks = tasks.filter(t => t.client_id === tc.id);
+          const tcDeals = deals.filter(d => d.client_id === tc.id);
+          const tcFiles = clientFiles.filter(f => f.client_id === tc.id);
+          const events = [
+            ...tcActs.map(a => ({ id: `a-${a.id}`, date: a.activity_date, sort: a.created_at, kind: 'activity', color: { Note: 'bg-gray-400', Call: 'bg-blue-500', Email: 'bg-green-500', Meeting: 'bg-purple-500' }[a.activity_type] || 'bg-gray-400', title: `${a.activity_type}`, detail: a.description })),
+            ...tcTasks.map(t => ({ id: `t-${t.id}`, date: t.due_date, sort: t.created_at || t.due_date, kind: t.status === 'done' ? 'task-done' : 'task', color: t.status === 'done' ? 'bg-green-500' : 'bg-gray-300', title: `${t.status === 'done' ? 'âœ“ ' : ''}Task: ${t.title}`, detail: `Due ${t.due_date}` })),
+            ...tcDeals.map(d => ({ id: `d-${d.id}`, date: d.close_date || (d.created_at || '').split('T')[0], sort: d.created_at, kind: 'deal', color: 'bg-emerald-500', title: `Deal: ${d.title}`, detail: `${fmtMoney(d.value)} Â· ${d.stage}` })),
+            ...tcFiles.map(f => ({ id: `f-${f.id}`, date: (f.created_at || '').split('T')[0], sort: f.created_at, kind: 'file', color: 'bg-amber-500', title: `ðŸ“Ž ${f.file_name}`, detail: formatFileSize(f.file_size) })),
+          ].sort((a, b) => new Date(b.sort || b.date || 0) - new Date(a.sort || a.date || 0));
+          return (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <button onClick={() => { setTimelineClient(null); setAppStep('CLIENTS'); }} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">&larr; Back to Clients</button>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{tc.name}</h1>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{tc.status}</span>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${tc.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' : tc.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tc.relationship}</span>
+                <ScoreBar score={tc.leadScore || 0} />
+                {canEdit && <button onClick={() => setEditingClient(tc)} className="ml-auto px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Edit</button>}
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="space-y-4">
+                  <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-2 text-[13px]">
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Client Info</h3>
+                    <p className="break-all"><span className="text-gray-400">Email:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.email}</span></p>
+                    <p><span className="text-gray-400">Phone:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.phone_number || 'â€”'}</span></p>
+                    <p><span className="text-gray-400">Country:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.country || 'â€”'}</span></p>
+                    <p><span className="text-gray-400">Source:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.source || 'â€”'}</span></p>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Deals ({tcDeals.length})</h3>
+                    {tcDeals.length === 0 ? <p className="text-[12px] text-gray-400 italic">No deals.</p> : tcDeals.map(d => (
+                      <div key={d.id} className="flex justify-between py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0 text-[13px]">
+                        <span className="truncate text-gray-800 dark:text-gray-200">{d.title}</span>
+                        <span className="font-bold shrink-0 text-gray-900 dark:text-gray-100">{fmtMoney(d.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Open Tasks ({tcTasks.filter(t => t.status === 'pending').length})</h3>
+                    {tcTasks.filter(t => t.status === 'pending').length === 0 ? <p className="text-[12px] text-gray-400 italic">No open tasks.</p> : tcTasks.filter(t => t.status === 'pending').map(t => (
+                      <div key={t.id} className="flex justify-between py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0 text-[13px]">
+                        <span className="truncate text-gray-800 dark:text-gray-200">{t.title}</span>
+                        <span className="text-gray-400 shrink-0">{t.due_date}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-4">Full History</h3>
+                  {events.length === 0 ? (
+                    <p className="text-[13px] text-gray-400 text-center py-8">No history yet â€” log an activity to get started.</p>
+                  ) : (
+                    <div className="relative pl-6 space-y-5 before:absolute before:left-[7px] before:top-1 before:bottom-1 before:w-px before:bg-gray-200 dark:before:bg-gray-700">
+                      {events.map(ev => (
+                        <div key={ev.id} className="relative">
+                          <span className={`absolute -left-6 top-1 w-3.5 h-3.5 rounded-full ring-4 ring-white dark:ring-gray-800 ${ev.color}`} />
+                          <div className="flex justify-between items-start gap-3">
+                            <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">{ev.title}</p>
+                            <span className="text-[11px] text-gray-400 shrink-0">{ev.date}</span>
+                          </div>
+                          {ev.detail && <p className="text-[12px] text-gray-500 mt-0.5 whitespace-pre-wrap line-clamp-3">{ev.detail}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {canEdit && (
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!activityDesc.trim()) return;
+                      const { data, error } = await supabase.from('activities').insert([{
+                        client_id: tc.id, user_id: user.id, activity_type: activityType,
+                        activity_date: new Date().toISOString().split('T')[0],
+                        description: activityDesc, outcome: activityOutcome,
+                      }]).select();
+                      if (!error && data) {
+                        setActivities(prev => [data[0], ...prev]);
+                        setActivityDesc('');
+                        updateStreak();
+                        dispatchWebhook('activity.logged', data[0]);
+                        showToast('Activity logged.', 'success');
+                      } else showToast(`Error logging activity: ${error?.message}`, 'error');
+                    }} className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-700 flex gap-2">
+                      <textarea placeholder="Log an activity..." value={activityDesc} onChange={e => setActivityDesc(e.target.value)} rows={2} className="flex-1 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:outline-none" />
+                      <button type="submit" className="px-3 text-[12px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Log</button>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* VIEW: GLOBAL TASKS */}
         {appStep === 'GLOBAL_TASKS' && (
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -1809,7 +4091,14 @@ export default function App() {
 
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
               {tasks.filter(t => t.status === tasksFilter).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).length === 0 && (
-                <p className="text-center text-[13px] text-gray-500 py-8">No {tasksFilter} tasks found.</p>
+                tasks.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-[14px] font-semibold text-gray-900">No tasks yet</p>
+                    <p className="text-[13px] text-gray-500 mt-1">Create tasks to stay on top of your follow-ups â€” open a client profile to add one.</p>
+                  </div>
+                ) : (
+                  <p className="text-center text-[13px] text-gray-500 py-8">No {tasksFilter} tasks found.</p>
+                )
               )}
               {tasks.filter(t => t.status === tasksFilter).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).map(task => {
                 const client = clients.find(c => c.id === task.client_id);
@@ -1821,11 +4110,12 @@ export default function App() {
                       <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="w-5 h-5 rounded border-gray-300 text-gray-900 focus:ring-gray-900 cursor-pointer" />
                       <div>
                         <div className={`text-[14px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
+                          {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>ðŸ” </span>}
                           {task.title}
                         </div>
                         <div className="text-[12px] text-gray-500 mt-0.5">
                           Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span> 
-                          &nbsp;•&nbsp; 
+                          &nbsp;â€¢&nbsp; 
                           Client: <button onClick={() => { setViewingClient(client); setAppStep('CLIENTS'); }} className="text-gray-900 font-medium hover:underline">{client?.name || 'Unknown'}</button>
                         </div>
                       </div>
@@ -1850,6 +4140,56 @@ export default function App() {
                 {settingsMessage.text}
               </div>
             )}
+
+            {/* FEATURE 10 â€” Team & Workspace (first section) */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+              <h2 className="text-[15px] font-bold text-gray-900 mb-2">Team & Workspace</h2>
+              {!workspace ? (
+                <>
+                  <p className="text-[13px] text-gray-500 mb-4">You're in solo mode. Create a workspace to invite teammates and share your CRM.</p>
+                  <form onSubmit={handleCreateWorkspace} className="flex flex-wrap gap-2 max-w-md">
+                    <input type="text" placeholder="Workspace name..." value={newWorkspaceName} onChange={e => setNewWorkspaceName(e.target.value)} className="flex-1 min-w-[160px] px-3 py-2 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" required />
+                    <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Create Workspace</button>
+                  </form>
+                </>
+              ) : (
+                <>
+                  <p className="text-[13px] text-gray-500 mb-4">Workspace: <span className="font-bold text-gray-900">{workspace.name}</span> Â· Your role: <span className="font-semibold capitalize">{myRole}</span></p>
+                  <div className="space-y-2 mb-5">
+                    {workspaceMembers.map(m => (
+                      <div key={m.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                        <span className="w-8 h-8 rounded-full bg-gray-900 text-white text-[12px] font-bold flex items-center justify-center shrink-0">
+                          {(m.invited_email || '?').slice(0, 2).toUpperCase()}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-semibold text-gray-900 truncate">{m.invited_email || 'Member'}</p>
+                          <p className="text-[11px] text-gray-400">{m.accepted ? 'Active' : 'Invite pending'}</p>
+                        </div>
+                        {['owner', 'admin'].includes(myRole) && m.user_id !== user.id ? (
+                          <>
+                            <select value={m.role} onChange={e => handleUpdateMemberRole(m.id, e.target.value)} className="text-[12px] border border-gray-200 rounded-md bg-white p-1 text-gray-700 focus:outline-none">
+                              {['admin', 'member', 'viewer'].map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                            <button onClick={() => handleRemoveMember(m.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Remove</button>
+                          </>
+                        ) : (
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">{m.role}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {['owner', 'admin'].includes(myRole) && (
+                    <form onSubmit={handleInviteMember} className="flex flex-wrap gap-2 max-w-md mb-4">
+                      <input type="email" placeholder="teammate@company.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} className="flex-1 min-w-[160px] px-3 py-2 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" required />
+                      <button type="submit" disabled={inviteLoading} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50">{inviteLoading ? 'Inviting...' : 'Invite'}</button>
+                    </form>
+                  )}
+                  {myRole !== 'owner' && (
+                    <button onClick={handleLeaveWorkspace} className="px-4 py-2 text-[13px] font-medium text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100">Leave Workspace</button>
+                  )}
+                </>
+              )}
+            </div>
 
             {/* Profile Information Block */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
@@ -1953,6 +4293,263 @@ export default function App() {
               <p className="text-[11px] text-gray-500 mt-2">Use this utility once if you have old CRM entries showing raw "Active" or "Inactive" tags in the Pipeline column to port them cleanly to the new Kanban Board structure.</p>
             </div>
 
+            {/* FEATURE 4 â€” Email Templates */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+              <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Templates</h2>
+              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer. Delivery uses Resend's sandbox sender (onboarding@resend.dev) â€” verify your own domain in Resend before production use, or emails may land in spam.</p>
+              <div className="space-y-2 mb-5">
+                {emailTemplates.length === 0 ? (
+                  <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No templates yet.</p>
+                ) : emailTemplates.map(t => (
+                  <div key={t.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold text-gray-900">{t.name}</p>
+                      <p className="text-[11px] text-gray-500 truncate">{t.subject}</p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button onClick={() => { setEditingTemplate(t); setTemplateName(t.name); setTemplateSubject(t.subject); setTemplateBody(t.body); }} className="text-[12px] font-medium text-gray-500 hover:text-gray-900">Edit</button>
+                      <button onClick={() => handleDeleteEmailTemplate(t.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <form onSubmit={handleSaveEmailTemplate} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+                <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-500">{editingTemplate ? 'Edit Template' : 'New Template'}</h4>
+                <input type="text" required placeholder="Template name" value={templateName} onChange={e => setTemplateName(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                <input type="text" required placeholder="Subject â€” supports {{name}} {{email}} {{phone}} {{stage}}" value={templateSubject} onChange={e => setTemplateSubject(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                <textarea rows={4} required placeholder="Body" value={templateBody} onChange={e => setTemplateBody(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                <div className="flex justify-end gap-2">
+                  {editingTemplate && <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(''); setTemplateBody(''); }} className="px-4 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>}
+                  <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">{editingTemplate ? 'Save Changes' : 'Add Template'}</button>
+                </div>
+              </form>
+            </div>
+
+            {/* FEATURE 5 â€” Automation Rules */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-[15px] font-bold text-gray-900">Automation Rules</h2>
+                  <p className="text-[12px] text-gray-500 mt-1">When something happens in your CRM, do something automatically.</p>
+                </div>
+                <button onClick={() => setShowRuleForm(!showRuleForm)} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm shrink-0">{showRuleForm ? 'Close' : 'Add Rule'}</button>
+              </div>
+              <div className="space-y-2 mb-4">
+                {automationRules.length === 0 ? (
+                  <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No automation rules yet.</p>
+                ) : automationRules.map(r => {
+                  const triggerLabel = {
+                    stage_change: `Client moves to "${r.trigger_value}"`,
+                    deal_stage_change: `Deal moves to "${r.trigger_value}"`,
+                    no_activity_days: `No activity for ${r.trigger_value} days`,
+                    task_overdue: 'A task becomes overdue',
+                  }[r.trigger_type] || r.trigger_type;
+                  const actionLabel = {
+                    create_task: `Create task "${r.action_value?.title || 'Follow up'}"`,
+                    send_notification: 'Send a notification',
+                    change_stage: `Move client to "${r.action_value?.stage}"`,
+                    send_email: 'Send an email',
+                  }[r.action_type] || r.action_type;
+                  return (
+                    <div key={r.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-gray-900">{r.name}</p>
+                        <p className="text-[11px] text-gray-500 truncate">When: {triggerLabel} â†’ Then: {actionLabel}</p>
+                      </div>
+                      {(r.run_count || 0) > 0 && <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full shrink-0">ran Ã—{r.run_count}</span>}
+                      <button onClick={() => handleToggleRule(r)} className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 transition-colors ${r.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>{r.enabled ? 'On' : 'Off'}</button>
+                      <button onClick={() => handleDeleteRule(r.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700 shrink-0">Delete</button>
+                    </div>
+                  );
+                })}
+              </div>
+              {showRuleForm && (
+                <form onSubmit={handleCreateRule} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-[13px]">
+                  <input type="text" required placeholder="Rule name (e.g. Follow up new engaged clients)" value={newRule.name} onChange={e => setNewRule({ ...newRule, name: e.target.value })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-700 mb-1">When (trigger)</label>
+                      <select value={newRule.triggerType} onChange={e => setNewRule({ ...newRule, triggerType: e.target.value, triggerValue: '' })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700">
+                        <option value="stage_change">Client stage changes to...</option>
+                        <option value="deal_stage_change">Deal stage changes to...</option>
+                        <option value="no_activity_days">No activity for N days (daily check)</option>
+                        <option value="task_overdue">Task becomes overdue (daily check)</option>
+                      </select>
+                      {newRule.triggerType === 'stage_change' && (
+                        <select value={newRule.triggerValue} onChange={e => setNewRule({ ...newRule, triggerValue: e.target.value })} className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700" required>
+                          <option value="">-- Stage --</option>
+                          {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      )}
+                      {newRule.triggerType === 'deal_stage_change' && (
+                        <select value={newRule.triggerValue} onChange={e => setNewRule({ ...newRule, triggerValue: e.target.value })} className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700" required>
+                          <option value="">-- Stage --</option>
+                          {DEAL_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      )}
+                      {newRule.triggerType === 'no_activity_days' && (
+                        <input type="number" min="1" placeholder="Days (e.g. 30)" value={newRule.triggerValue} onChange={e => setNewRule({ ...newRule, triggerValue: e.target.value })} className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
+                      )}
+                      <p className="text-[11px] text-gray-400 mt-1.5">
+                        {{
+                          stage_change: 'Fires immediately when a client is dragged or edited into this stage.',
+                          deal_stage_change: 'Fires immediately when a deal moves to this stage.',
+                          no_activity_days: 'Evaluated by the daily notification job.',
+                          task_overdue: 'Evaluated by the daily notification job.',
+                        }[newRule.triggerType]}
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-700 mb-1">Then (action)</label>
+                      <select value={newRule.actionType} onChange={e => setNewRule({ ...newRule, actionType: e.target.value, actionValue: {} })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700">
+                        <option value="create_task">Create a task</option>
+                        <option value="send_notification">Send a notification</option>
+                        <option value="change_stage">Change client stage</option>
+                        <option value="send_email">Send an email</option>
+                      </select>
+                      {newRule.actionType === 'create_task' && (
+                        <div className="mt-2 space-y-2">
+                          <input type="text" placeholder="Task title" value={newRule.actionValue.title || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, title: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
+                          <input type="number" min="0" placeholder="Due in N days (default 1)" value={newRule.actionValue.days_offset || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, days_offset: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                        </div>
+                      )}
+                      {newRule.actionType === 'send_notification' && (
+                        <input type="text" placeholder="Notification message" value={newRule.actionValue.message || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, message: e.target.value } })} className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
+                      )}
+                      {newRule.actionType === 'change_stage' && (
+                        <select value={newRule.actionValue.stage || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, stage: e.target.value } })} className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700" required>
+                          <option value="">-- Stage --</option>
+                          {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      )}
+                      {newRule.actionType === 'send_email' && (
+                        <div className="mt-2 space-y-2">
+                          <input type="text" placeholder="Subject" value={newRule.actionValue.subject || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, subject: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
+                          <textarea rows={2} placeholder="Body â€” supports {{name}} etc." value={newRule.actionValue.body || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, body: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Create Rule</button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {/* FEATURE 9 â€” Tags */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+              <h2 className="text-[15px] font-bold text-gray-900 mb-4">Tags</h2>
+              <div className="space-y-2 mb-5">
+                {tags.length === 0 ? (
+                  <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No tags yet â€” create tags to segment your clients.</p>
+                ) : tags.map(t => {
+                  const count = Object.values(clientTagMap).filter(ids => ids.includes(t.id)).length;
+                  return (
+                    <div key={t.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                      <span className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+                      <span className="text-[13px] font-semibold text-gray-900 flex-1">{t.name}</span>
+                      <span className="text-[11px] text-gray-400">{count} client{count === 1 ? '' : 's'}</span>
+                      <button onClick={() => handleDeleteTag(t)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>
+                    </div>
+                  );
+                })}
+              </div>
+              <form onSubmit={handleCreateTag} className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-wrap items-end gap-3">
+                <div className="flex-1 min-w-[160px]">
+                  <label className="block text-[11px] font-medium text-gray-700 mb-1">Tag name</label>
+                  <input type="text" required value={newTagName} onChange={e => setNewTagName(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-700 mb-1">Color</label>
+                  <div className="flex gap-1.5">
+                    {TAG_COLORS.map(c => (
+                      <button key={c} type="button" onClick={() => setNewTagColor(c)} className={`w-6 h-6 rounded-full transition-transform ${newTagColor === c ? 'ring-2 ring-offset-1 ring-gray-400 scale-110' : ''}`} style={{ backgroundColor: c }} />
+                    ))}
+                  </div>
+                </div>
+                <button type="submit" className="px-4 py-2 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Tag</button>
+              </form>
+            </div>
+
+            {/* FEATURE 11 â€” Webhooks & Integrations */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-[15px] font-bold text-gray-900">Webhooks & Integrations</h2>
+                  <p className="text-[12px] text-gray-500 mt-1">POST CRM events to any URL. Payloads are signed with HMAC-SHA256 (X-CRM-Signature) when a secret is set.</p>
+                </div>
+                <button onClick={() => setShowWebhookForm(!showWebhookForm)} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm shrink-0">{showWebhookForm ? 'Close' : 'Add Webhook'}</button>
+              </div>
+              <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 mb-4 text-[12px] text-orange-800">
+                <strong>Zapier tip:</strong> create a Zap with a "Catch Hook" trigger, paste the hook URL here, and pick the events to forward. Every event arrives as JSON: <code className="font-mono text-[11px]">{'{ event, payload, timestamp }'}</code>.
+              </div>
+              <div className="space-y-2 mb-4">
+                {webhooks.length === 0 ? (
+                  <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No webhooks configured.</p>
+                ) : webhooks.map(w => (
+                  <div key={w.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-semibold text-gray-900">{w.name}</p>
+                        <p className="text-[11px] font-mono text-gray-400 truncate">{w.url}</p>
+                      </div>
+                      <button onClick={() => handleToggleWebhook(w)} className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 ${w.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>{w.enabled ? 'On' : 'Off'}</button>
+                      <button onClick={() => handleTestWebhook(w)} className="text-[12px] font-medium text-gray-500 hover:text-gray-900 shrink-0">Test</button>
+                      <button onClick={() => handleDeleteWebhook(w.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700 shrink-0">Delete</button>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {(w.events || []).map(ev => <span key={ev} className="text-[10px] font-bold bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{ev}</span>)}
+                      {w.last_triggered_at && <span className="text-[10px] text-gray-400 ml-auto">Last triggered {new Date(w.last_triggered_at).toLocaleString()}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {showWebhookForm && (
+                <form onSubmit={handleCreateWebhook} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-[13px]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input type="text" required placeholder="Name (e.g. Zapier â€” new clients)" value={newWebhook.name} onChange={e => setNewWebhook({ ...newWebhook, name: e.target.value })} className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                    <input type="url" required placeholder="https://hooks.zapier.com/..." value={newWebhook.url} onChange={e => setNewWebhook({ ...newWebhook, url: e.target.value })} className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                  </div>
+                  <input type="text" placeholder="Signing secret (optional)" value={newWebhook.secret} onChange={e => setNewWebhook({ ...newWebhook, secret: e.target.value })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                  <div className="flex flex-wrap gap-2">
+                    {WEBHOOK_EVENTS.map(ev => (
+                      <label key={ev.value} className={`text-[11px] font-semibold px-2 py-1 rounded-full border cursor-pointer transition-colors ${newWebhook.events.includes(ev.value) ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
+                        <input type="checkbox" className="hidden" checked={newWebhook.events.includes(ev.value)} onChange={() => setNewWebhook(prev => ({ ...prev, events: prev.events.includes(ev.value) ? prev.events.filter(x => x !== ev.value) : [...prev.events, ev.value] }))} />
+                        {ev.label}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex justify-end">
+                    <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Webhook</button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {/* FEATURE 26 â€” Goals management */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-[15px] font-bold text-gray-900">Monthly Goals</h2>
+                <button onClick={() => setShowGoalForm(true)} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Set Goal</button>
+              </div>
+              {goals.length === 0 ? (
+                <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No goals yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {[...goals].sort((a, b) => (b.month || '').localeCompare(a.month || '')).map(g => (
+                    <div key={g.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                      <div className="flex-1">
+                        <p className="text-[13px] font-semibold text-gray-900">{{ new_clients: 'New Clients', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</p>
+                        <p className="text-[11px] text-gray-400">{new Date(g.month + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} Â· Target: {g.target_value}</p>
+                      </div>
+                      <button onClick={() => handleDeleteGoal(g.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Password Security Block */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
               <h2 className="text-[15px] font-bold text-gray-900 mb-5">Security & Authentication</h2>
@@ -2028,18 +4625,78 @@ export default function App() {
 
       {/* VIEWING MODAL (Enhanced) */}
       {viewingClient && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in slide-in-from-bottom-4 duration-300">
-            
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">{viewingClient.name}</h3>
+        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 animate-in fade-in duration-200 md:p-4 md:flex md:items-center md:justify-center" onClick={() => { setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null); }}>
+          <div className="bg-white w-full h-full overflow-y-auto md:h-auto md:rounded-2xl shadow-xl md:max-w-2xl border border-gray-100 md:overflow-hidden md:max-h-[90vh] flex flex-col animate-in slide-in-from-bottom-4 duration-300" onClick={e => e.stopPropagation()}>
+
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-lg font-bold text-gray-900 truncate">{viewingClient.name}</h3>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-900 text-white" title="Lead score">
+                    {clientsWithScores.find(c => c.id === viewingClient.id)?.leadScore ?? 0}
+                  </span>
+                </div>
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Client Profile</p>
+                {/* FEATURE 9 â€” tags on profile */}
+                <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                  {(clientTagMap[viewingClient.id] || []).map(tid => {
+                    const t = tags.find(x => x.id === tid);
+                    return t ? <TagPill key={tid} tag={t} onRemove={canEdit ? (id) => handleToggleClientTag(viewingClient.id, id) : undefined} /> : null;
+                  })}
+                  {canEdit && tags.length > 0 && (
+                    <div className="relative group">
+                      <button className="text-[11px] font-medium text-gray-400 border border-dashed border-gray-300 rounded-full px-2 py-0.5 hover:text-gray-700">+ tag</button>
+                      <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 hidden group-hover:block group-focus-within:block min-w-[140px]">
+                        {tags.map(t => (
+                          <label key={t.id} className="flex items-center gap-2 py-1 px-1 text-[12px] cursor-pointer hover:bg-gray-50 rounded">
+                            <input type="checkbox" checked={(clientTagMap[viewingClient.id] || []).includes(t.id)} onChange={() => handleToggleClientTag(viewingClient.id, t.id)} className="rounded border-gray-300 focus:ring-0" />
+                            <span style={{ color: t.color }} className="font-semibold">{t.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              <button onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="w-7 h-7 rounded-full bg-white border border-gray-200 flex items-center justify-center font-bold text-gray-400 hover:text-gray-800 hover:shadow-sm transition-all">&times;</button>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* FEATURE 2 â€” AI summary trigger */}
+                <button onClick={() => handleGenerateAISummary(viewingClient)} className="px-3 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">âœ¨ AI Summary</button>
+                <button onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="w-7 h-7 rounded-full bg-white border border-gray-200 flex items-center justify-center font-bold text-gray-400 hover:text-gray-800 hover:shadow-sm transition-all">&times;</button>
+              </div>
             </div>
 
             <div className="p-6 space-y-6 text-[13px] overflow-y-auto flex-1">
+
+              {/* FEATURE 2 â€” AI SUMMARY BOX */}
+              {aiSummaryLoading && aiSummaryClientId === viewingClient.id && (
+                <div className="space-y-2 animate-pulse">
+                  <div className="h-3 bg-gray-200 rounded-full w-full" />
+                  <div className="h-3 bg-gray-200 rounded-full w-5/6" />
+                  <div className="h-3 bg-gray-200 rounded-full w-4/6" />
+                </div>
+              )}
+              {!aiSummaryLoading && aiSummary && aiSummaryClientId === viewingClient.id && (
+                <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <span>âœ¨</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-500">AI Summary</span>
+                  </div>
+                  <p className="text-[13px] text-indigo-900 whitespace-pre-wrap leading-relaxed">{aiSummary}</p>
+                  <button onClick={() => handleGenerateAISummary(viewingClient, true)} className="text-[11px] font-medium text-indigo-600 hover:underline mt-2">Regenerate</button>
+                </div>
+              )}
+
+              {/* FEATURE 23 â€” SMART FOLLOW-UP SUGGESTION */}
+              {followUpLoading && <div className="h-10 bg-green-50 border border-green-100 rounded-xl animate-pulse" />}
+              {!followUpLoading && followUpSuggestion && (
+                <div className="bg-green-50 rounded-xl p-3 border border-green-100">
+                  <p className="text-[13px] text-green-900">ðŸ’¡ <span className="font-semibold">Suggested:</span> {followUpSuggestion}</p>
+                  <div className="flex gap-3 mt-2 text-[12px] font-medium">
+                    <button onClick={() => { setActivityType('Note'); setActivityDesc(followUpSuggestion); setActiveProfileTab('activity'); }} className="text-green-700 hover:underline">Log this as a note</button>
+                    <button onClick={() => { setNewTaskTitle(followUpSuggestion.slice(0, 100)); setActiveProfileTab('tasks'); }} className="text-green-700 hover:underline">Create task</button>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Email</span>
@@ -2057,6 +4714,10 @@ export default function App() {
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Birthday</span>
                   <span className="font-semibold text-gray-800 block">{viewingClient.birthday || 'Not specified'}</span>
                 </div>
+                <div className="space-y-0.5">
+                  <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Source</span>
+                  <span className="font-semibold text-gray-800 block">{viewingClient.source || 'Unknown'}</span>
+                </div>
               </div>
 
               {/* DYNAMIC CUSTOM FIELDS RENDER IN PROFILE */}
@@ -2069,7 +4730,7 @@ export default function App() {
                       return (
                         <div key={cf.id} className="space-y-0.5">
                           <span className="text-[11px] font-bold text-gray-500 block">{cf.field_name}</span>
-                          <span className="font-semibold text-gray-900 block">{cv ? cv.value : '—'}</span>
+                          <span className="font-semibold text-gray-900 block">{cv ? cv.value : 'â€”'}</span>
                         </div>
                       )
                     })}
@@ -2081,21 +4742,108 @@ export default function App() {
                 <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">LinkedIn</span>
                 {viewingClient.linkedin_url ? (
                   <a href={viewingClient.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-gray-900 font-semibold hover:underline flex items-center gap-1 break-all">
-                    {viewingClient.linkedin_url} <span className="text-[10px] font-normal text-gray-400">↗</span>
+                    {viewingClient.linkedin_url} <span className="text-[10px] font-normal text-gray-400">â†—</span>
                   </a>
                 ) : (
                   <span className="text-gray-400 font-normal italic">Not provided</span>
                 )}
               </div>
 
-              {/* CLIENT TASKS SECTION */}
+              {/* FEATURE 15 â€” QUICK NOTE (always visible, auto-saves) */}
               <div className="pt-4 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400">Quick Note</h4>
+                  <span className="text-[11px] font-medium text-gray-400">
+                    {quickNoteSaving ? 'Saving...' : quickNoteSaved ? <span className="text-green-600">Saved âœ“</span> : ''}
+                  </span>
+                </div>
+                <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this client â€” auto-saves as you type..." disabled={!canEdit} className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-xl bg-yellow-50/50 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
+              </div>
+
+              {/* FEATURE 7 â€” PROFILE TAB BAR */}
+              <div className="flex gap-1 bg-gray-100 p-1 rounded-lg sticky top-0 z-10">
+                {[['activity', 'Activity'], ['tasks', 'Tasks'], ['files', 'Files'], ['deals', 'Deals']].map(([key, label]) => (
+                  <button key={key} onClick={() => setActiveProfileTab(key)} className={`flex-1 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide rounded-md transition-all ${activeProfileTab === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{label}</button>
+                ))}
+              </div>
+
+              {/* TAB: FILES (Feature 7) */}
+              {activeProfileTab === 'files' && (
+                <div className="space-y-3">
+                  {canEdit && (
+                    <div
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleFileUpload(f); }}
+                      onClick={() => fileUploadRef.current?.click()}
+                      className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center cursor-pointer hover:border-gray-400 transition-colors"
+                    >
+                      <input ref={fileUploadRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); e.target.value = null; }} />
+                      <p className="text-[13px] font-medium text-gray-600">{uploadingFile ? 'Uploading...' : 'Drop file or click to upload'}</p>
+                      <p className="text-[11px] text-gray-400 mt-1">Max 10MB</p>
+                    </div>
+                  )}
+                  {clientFiles.filter(f => f.client_id === viewingClient.id).length === 0 ? (
+                    <p className="text-[12px] text-gray-400 italic text-center py-4">No files attached yet.</p>
+                  ) : (
+                    clientFiles.filter(f => f.client_id === viewingClient.id).map(f => (
+                      <div key={f.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 rounded-xl">
+                        <span className="text-lg shrink-0">
+                          {(f.file_type || '').includes('pdf') ? 'ðŸ“„' : (f.file_type || '').startsWith('image') ? 'ðŸ–¼ï¸' : 'ðŸ“Ž'}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-semibold text-gray-900 truncate">{f.file_name}</p>
+                          <p className="text-[11px] text-gray-400">{formatFileSize(f.file_size)} Â· {new Date(f.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <button onClick={() => handleDownloadFile(f)} className="text-[12px] font-medium text-gray-500 hover:text-gray-900">Download</button>
+                        {canDelete && <button onClick={() => handleDeleteFile(f)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* TAB: DEALS (Feature 1) */}
+              {activeProfileTab === 'deals' && (
+                <div className="space-y-3">
+                  {canEdit && (
+                    <button onClick={() => { resetDealForm(); setDealClientId(String(viewingClient.id)); setShowDealForm(true); }} className="w-full px-3 py-2 text-[12px] font-medium text-gray-700 border border-dashed border-gray-300 rounded-xl hover:border-gray-400 hover:text-gray-900 transition-colors">+ Add Deal for {viewingClient.name}</button>
+                  )}
+                  {deals.filter(d => d.client_id === viewingClient.id).length === 0 ? (
+                    <p className="text-[12px] text-gray-400 italic text-center py-4">No deals yet. Create your first deal to start tracking your pipeline.</p>
+                  ) : (
+                    deals.filter(d => d.client_id === viewingClient.id).map(d => (
+                      <div key={d.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 rounded-xl">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-semibold text-gray-900 truncate">{d.title}</p>
+                          <p className="text-[11px] text-gray-400">{d.stage} Â· {d.probability}%{d.close_date ? ` Â· Close ${d.close_date}` : ''}</p>
+                        </div>
+                        <span className="text-[13px] font-bold text-gray-900 shrink-0">{fmtMoney(d.value)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* TAB: TASKS */}
+              {activeProfileTab === 'tasks' && (
+              <div>
                 <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-3">Tasks for this Client</h4>
-                
-                <form onSubmit={(e) => handleCreateTask(e, viewingClient.id)} className="flex gap-2 mb-3">
-                  <input type="text" placeholder="New task title..." value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className="flex-1 px-3 py-1.5 text-[13px] border border-gray-200 rounded-lg focus:outline-none" required />
-                  <input type="date" value={newTaskDate} onChange={(e) => setNewTaskDate(e.target.value)} className="px-2 py-1.5 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600" required />
-                  <button type="submit" className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Add</button>
+
+                <form onSubmit={(e) => handleCreateTask(e, viewingClient.id)} className="flex flex-wrap gap-2 mb-3">
+                  <input type="text" placeholder="New task title..." value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className="flex-1 min-w-[140px] px-3 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none" required />
+                  <input type="date" value={newTaskDate} onChange={(e) => setNewTaskDate(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600" required />
+                  {/* FEATURE 20 â€” recurrence */}
+                  <select value={newTaskRecurrence} onChange={e => setNewTaskRecurrence(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600">
+                    <option value="">No repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                  </select>
+                  {newTaskRecurrence && (
+                    <input type="date" title="Repeat end date" value={newTaskRecurrenceEnd} onChange={e => setNewTaskRecurrenceEnd(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600" />
+                  )}
+                  <button type="submit" className="px-3 py-1.5 min-h-[44px] md:min-h-0 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Add</button>
                 </form>
 
                 <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
@@ -2110,9 +4858,10 @@ export default function App() {
                           <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-0 cursor-pointer" />
                           <div>
                             <span className={`text-[13px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
+                              {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>ðŸ” </span>}
                               {task.title}
                             </span>
-                            <span className="text-[11px] text-gray-400 block mt-0.5">Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span></span>
+                            <span className="text-[11px] text-gray-400 block mt-0.5">Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span>{task.recurrence ? ` Â· ${task.recurrence}` : ''}</span>
                           </div>
                         </div>
                       </div>
@@ -2120,9 +4869,11 @@ export default function App() {
                   })}
                 </div>
               </div>
+              )}
 
-              {/* ENHANCED ACTIVITY LOGGING */}
-              <div id="activity-timeline" className="pt-4 border-t border-gray-100 space-y-4">
+              {/* TAB: ACTIVITY â€” ENHANCED ACTIVITY LOGGING */}
+              {activeProfileTab === 'activity' && (
+              <div id="activity-timeline" className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-[12px] font-bold text-gray-400 uppercase tracking-wider">Activity Timeline</span>
                   <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
@@ -2150,7 +4901,7 @@ export default function App() {
                         <div className="flex justify-between items-start mb-2">
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded uppercase">{act.activity_type}</span>
-                            <span className="text-[11px] font-semibold text-gray-400">{act.date}</span>
+                            <span className="text-[11px] font-semibold text-gray-400">{act.activity_date}</span>
                             {act.outcome && act.outcome !== 'Neutral' && (
                               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
                                 act.outcome === 'Positive' ? 'bg-green-50 text-green-700 border-green-200' :
@@ -2185,6 +4936,34 @@ export default function App() {
 
                 {/* Add New Activity Form */}
                 <form onSubmit={handleAddActivityLog} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm flex flex-col gap-3 mt-4">
+                  {/* FEATURE 22 â€” quick-log template pills */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {activityTemplates.map((t, i) => (
+                      <button key={i} type="button" onClick={() => {
+                        setActivityType(t.type); setActivityDesc(t.desc); setActivityOutcome(t.outcome);
+                      }} className="text-[11px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors">
+                        {t.type}: {t.desc.slice(0, 25)}...
+                      </button>
+                    ))}
+                  </div>
+                  {savingTemplateName !== null && (
+                    <div className="flex items-center gap-2">
+                      <input type="text" placeholder="Template name to save last entry..." value={savingTemplateName} onChange={e => setSavingTemplateName(e.target.value)} className="flex-1 px-2 py-1 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                      <button type="button" onClick={() => {
+                        if (!savingTemplateName.trim()) return;
+                        const lastAct = activities.find(a => a.client_id === viewingClient.id);
+                        const tpl = { name: savingTemplateName.trim(), type: lastAct?.activity_type || activityType, desc: lastAct?.description || activityDesc || '', outcome: lastAct?.outcome || activityOutcome };
+                        setActivityTemplates(prev => {
+                          const next = [...prev.filter(t => t.name !== tpl.name), tpl];
+                          localStorage.setItem('crm_activity_templates', JSON.stringify(next.filter(t => !DEFAULT_ACTIVITY_TEMPLATES.some(d => d.name === t.name))));
+                          return next;
+                        });
+                        setSavingTemplateName(null);
+                        showToast('Template saved.', 'success');
+                      }} className="text-[11px] font-medium text-indigo-600 hover:underline">Save as template</button>
+                      <button type="button" onClick={() => setSavingTemplateName(null)} className="text-gray-400 text-[12px]">Ã—</button>
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-2 items-center text-[12px]">
                     <select value={activityType} onChange={e => setActivityType(e.target.value)} className="p-1.5 border border-gray-200 rounded-lg focus:outline-none bg-gray-50/50 text-gray-700">
                       <option value="Note">Note</option>
@@ -2206,10 +4985,15 @@ export default function App() {
                   </div>
                 </form>
               </div>
+              )}
 
             </div>
 
-            <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex justify-end gap-2">
+            <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex flex-wrap justify-end gap-2">
+              {/* FEATURE 4 â€” email composer trigger */}
+              <button type="button" onClick={() => { setEmailTo(viewingClient.email || ''); setShowEmailComposer(true); }} className="px-4 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">Send Email</button>
+              {/* FEATURE 21 â€” PDF export */}
+              <button type="button" onClick={() => handleExportPDF(viewingClient)} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Export PDF</button>
               <button type="button" onClick={() => { 
                 setEditingClient(viewingClient); 
                 setViewingClient(null);
@@ -2262,6 +5046,13 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Birthday</label>
                   <input type="date" value={editingClient.birthday || ''} onChange={e => setEditingClient({...editingClient, birthday: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Source</label>
+                  <select value={editingClient.source || ''} onChange={e => setEditingClient({...editingClient, source: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                    <option value="">Unknown</option>
+                    {CLIENT_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
                 </div>
               </div>
 
@@ -2351,6 +5142,333 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* DEAL FORM MODAL (Feature 1) */}
+      {showDealForm && (
+        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowDealForm(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-gray-900">{editingDeal ? 'Edit Deal' : 'New Deal'}</h3>
+              <button onClick={() => setShowDealForm(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+            </div>
+            <form onSubmit={handleCreateDeal} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
+              <div>
+                <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Title *</label>
+                <input type="text" required value={dealTitle} onChange={e => setDealTitle(e.target.value)} className="w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Client *</label>
+                  <select required value={dealClientId} onChange={e => setDealClientId(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                    <option value="">-- Select client --</option>
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Value ($)</label>
+                  <input type="number" min="0" step="0.01" value={dealValue} onChange={e => setDealValue(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Stage</label>
+                  <select value={dealStage} onChange={e => setDealStage(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                    {DEAL_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Probability ({dealProbability}%)</label>
+                  <input type="range" min="0" max="100" step="5" value={dealProbability} onChange={e => setDealProbability(e.target.value)} className="w-full" />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Close Date</label>
+                  <input type="date" value={dealCloseDate} onChange={e => setDealCloseDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-gray-600 focus:outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Notes</label>
+                <textarea rows={2} value={dealNotes} onChange={e => setDealNotes(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+              </div>
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                <button type="button" onClick={() => setShowDealForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button type="submit" disabled={dealSaving} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                  {dealSaving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                  {editingDeal ? 'Save Changes' : 'Create Deal'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EMAIL COMPOSER MODAL (Feature 4) */}
+      {showEmailComposer && (
+        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowEmailComposer(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-gray-900">Send Email</h3>
+              <button onClick={() => setShowEmailComposer(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+            </div>
+            <form onSubmit={handleSendEmail} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
+              {emailTemplates.length > 0 && (
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Template</label>
+                  <select onChange={e => {
+                    const t = emailTemplates.find(x => x.id === parseInt(e.target.value, 10));
+                    if (t) { setEmailSubject(t.subject); setEmailBody(t.body); }
+                  }} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                    <option value="">-- Choose a template --</option>
+                    {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-[12px] font-medium text-gray-700 mb-1.5">To</label>
+                <input type="email" required value={emailTo} onChange={e => setEmailTo(e.target.value)} className="w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Subject</label>
+                <input type="text" required value={emailSubject} onChange={e => setEmailSubject(e.target.value)} className="w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Body</label>
+                <textarea rows={6} required value={emailBody} onChange={e => setEmailBody(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} {'{{phone}}'} {'{{stage}}'}</p>
+              </div>
+              <div className="flex flex-wrap justify-end gap-3 pt-4 border-t border-gray-100">
+                <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(emailSubject); setTemplateBody(emailBody); setAppStep('SETTINGS'); setShowEmailComposer(false); showToast('Finish saving the template in Settings â†’ Email Templates.', 'success'); }} className="px-3 py-2 text-[12px] font-medium text-gray-500 hover:text-gray-800 mr-auto">Save as template</button>
+                <button type="button" onClick={() => setShowEmailComposer(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button type="submit" disabled={emailSending} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                  {emailSending && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                  {emailSending ? 'Sending...' : 'Send'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* BULK EMAIL MODAL (Feature 18) */}
+      {showBulkEmailModal && (
+        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-gray-900">Email {selectedClientIds.length} clients</h3>
+              <button onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+            </div>
+            <form onSubmit={handleBulkSendEmail} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
+              <div>
+                <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Subject</label>
+                <input type="text" required value={bulkEmailSubject} onChange={e => setBulkEmailSubject(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Body</label>
+                <textarea rows={8} required value={bulkEmailBody} onChange={e => setBulkEmailBody(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} â€” resolved per recipient.</p>
+              </div>
+              <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">Recipients preview</p>
+                <p className="text-[12px] text-gray-600">
+                  {clients.filter(c => selectedClientIds.includes(c.id)).slice(0, 3).map(c => c.name).join(', ')}
+                  {selectedClientIds.length > 3 ? ` and ${selectedClientIds.length - 3} more...` : ''}
+                </p>
+              </div>
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-[12px] text-yellow-800">
+                âš ï¸ This will send {selectedClientIds.length} individual emails.
+              </div>
+              {bulkEmailProgress && <p className="text-[12px] font-medium text-indigo-600">{bulkEmailProgress}</p>}
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                <button type="button" disabled={bulkEmailSending} onClick={() => setShowBulkEmailModal(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={bulkEmailSending} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                  {bulkEmailSending && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                  Send to {selectedClientIds.length} Clients
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* IMPORT PREVIEW MODAL (Feature 16) */}
+      {showImportPreview && (
+        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !importLoading && setShowImportPreview(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50">
+              <h3 className="text-[15px] font-bold text-gray-900">
+                Import Preview â€” {importPreviewData.filter(r => !r.error).length} rows ready, {importPreviewData.filter(r => r.error).length} errors
+              </h3>
+            </div>
+            <div className="overflow-auto flex-1 p-4">
+              <table className="w-full text-left text-[12px]">
+                <thead>
+                  <tr className="text-[11px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-200">
+                    <th className="p-2 w-8"></th>
+                    <th className="p-2">Name</th>
+                    <th className="p-2">Email</th>
+                    <th className="p-2">Country</th>
+                    <th className="p-2">Phone</th>
+                    <th className="p-2">Status</th>
+                    <th className="p-2">Issue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {importPreviewData.map(r => (
+                    <tr key={r.key} className={r.error ? 'bg-red-50/60' : r.warning ? 'bg-yellow-50/60' : 'bg-green-50/40'}>
+                      <td className="p-2"><input type="checkbox" disabled={!!r.error} checked={r.checked} onChange={() => setImportPreviewData(prev => prev.map(x => x.key === r.key ? { ...x, checked: !x.checked } : x))} className="rounded border-gray-300 focus:ring-0" /></td>
+                      <td className="p-2 font-semibold text-gray-900">{r.name || 'â€”'}</td>
+                      <td className="p-2 text-gray-600">{r.email || 'â€”'}</td>
+                      <td className="p-2 text-gray-500">{r.country || 'â€”'}</td>
+                      <td className="p-2 text-gray-500">{r.phone || 'â€”'}</td>
+                      <td className="p-2 text-gray-500">{r.status}</td>
+                      <td className="p-2 font-medium">
+                        {r.error ? <span className="text-red-600">{r.error}</span> : r.warning ? <span className="text-yellow-700">{r.warning}</span> : <span className="text-green-600">OK</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={() => { setShowImportPreview(false); setImportPreviewData([]); }} disabled={importLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              <button onClick={handleConfirmImport} disabled={importLoading || importPreviewData.filter(r => r.checked && !r.error).length === 0} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                {importLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                Import {importPreviewData.filter(r => r.checked && !r.error).length} selected rows
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CLIENT MERGE MODAL (Feature 27) */}
+      {showMergeTool && mergeSource && (
+        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !mergeLoading && setShowMergeTool(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-gray-900">Merge Client â€” Step {mergeStep} of 2</h3>
+              <button onClick={() => !mergeLoading && setShowMergeTool(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+            </div>
+            <div className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
+              {mergeStep === 1 && (
+                <>
+                  <p className="text-gray-600">Merging <span className="font-bold text-gray-900">{mergeSource.name}</span> into another client. Select the <span className="font-semibold">target</span> client to keep:</p>
+                  <input type="text" autoFocus placeholder="Search clients..." value={mergeSearch} onChange={e => setMergeSearch(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                  <div className="max-h-64 overflow-y-auto space-y-1.5">
+                    {clients.filter(c => c.id !== mergeSource.id && ((c.name || '').toLowerCase().includes(mergeSearch.toLowerCase()) || (c.email || '').toLowerCase().includes(mergeSearch.toLowerCase()))).slice(0, 10).map(c => (
+                      <button key={c.id} onClick={() => setMergeTarget(c)} className={`w-full flex items-center justify-between p-3 rounded-xl border text-left transition-colors ${mergeTarget?.id === c.id ? 'border-gray-900 bg-gray-50' : 'border-gray-100 hover:border-gray-300'}`}>
+                        <div>
+                          <p className="font-semibold text-gray-900">{c.name}</p>
+                          <p className="text-[12px] text-gray-500">{c.email}</p>
+                        </div>
+                        <span className="text-[11px] text-gray-400">{activities.filter(a => a.client_id === c.id).length} activities</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {mergeStep === 2 && mergeTarget && (
+                <>
+                  <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-[12px] text-red-800">
+                    âš ï¸ All activities, tasks, deals, and files from <strong>{mergeSource.name}</strong> ({activities.filter(a => a.client_id === mergeSource.id).length} activities) will move to <strong>{mergeTarget.name}</strong> ({activities.filter(a => a.client_id === mergeTarget.id).length} activities). <strong>{mergeSource.name} will be permanently deleted.</strong>
+                  </div>
+                  <div className="space-y-2">
+                    {['name', 'email', 'phone_number', 'country', 'status', 'relationship', 'linkedin_url', 'birthday', 'source'].filter(f => (mergeSource[f] || '') !== (mergeTarget[f] || '') && (mergeSource[f] || mergeTarget[f])).map(field => (
+                      <div key={field} className="grid grid-cols-3 gap-2 items-center p-2 border border-gray-100 rounded-lg">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">{field.replace(/_/g, ' ')}</span>
+                        <label className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-[12px] ${mergeFieldChoices[field] === 'source' ? 'bg-gray-100 font-semibold' : ''}`}>
+                          <input type="radio" name={`merge-${field}`} checked={mergeFieldChoices[field] === 'source'} onChange={() => setMergeFieldChoices(prev => ({ ...prev, [field]: 'source' }))} />
+                          <span className="truncate">{String(mergeSource[field] || 'â€”')}</span>
+                        </label>
+                        <label className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-[12px] ${(mergeFieldChoices[field] || 'target') === 'target' ? 'bg-gray-100 font-semibold' : ''}`}>
+                          <input type="radio" name={`merge-${field}`} checked={(mergeFieldChoices[field] || 'target') === 'target'} onChange={() => setMergeFieldChoices(prev => ({ ...prev, [field]: 'target' }))} />
+                          <span className="truncate">{String(mergeTarget[field] || 'â€”')}</span>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex justify-end gap-2">
+              {mergeStep === 2 && <button onClick={() => setMergeStep(1)} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 mr-auto disabled:opacity-50">&larr; Back</button>}
+              <button onClick={() => setShowMergeTool(false)} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              {mergeStep === 1 ? (
+                <button onClick={() => setMergeStep(2)} disabled={!mergeTarget} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50">Next</button>
+              ) : (
+                <button onClick={handleExecuteMerge} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                  {mergeLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                  Merge
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GOAL FORM MODAL (Feature 26) */}
+      {showGoalForm && (
+        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowGoalForm(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-gray-900">Set Monthly Goal</h3>
+              <button onClick={() => setShowGoalForm(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+            </div>
+            <form onSubmit={handleSaveGoal} className="p-6 space-y-4 text-[13px]">
+              <div>
+                <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Goal Type</label>
+                <select value={goalType} onChange={e => setGoalType(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                  <option value="new_clients">New Clients</option>
+                  <option value="activities_logged">Activities Logged</option>
+                  <option value="deals_closed">Deals Closed</option>
+                  <option value="tasks_completed">Tasks Completed</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Target for {new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</label>
+                <input type="number" min="1" required value={goalTarget} onChange={e => setGoalTarget(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+              </div>
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                <button type="button" onClick={() => setShowGoalForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Save Goal</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* KEYBOARD HELP MODAL (Feature 28) */}
+      {showKeyboardHelp && (
+        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[140] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowKeyboardHelp(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+              <h3 className="text-[15px] font-bold text-gray-900">Keyboard Shortcuts</h3>
+              <button onClick={() => setShowKeyboardHelp(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+            </div>
+            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6 text-[13px]">
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">Navigation</h4>
+                {[['Alt+1', 'Dashboard'], ['Alt+2', 'Clients'], ['Alt+3', 'Tasks'], ['Alt+4', 'Reports'], ['Alt+5', 'Calendar']].map(([k, d]) => (
+                  <div key={k} className="flex justify-between items-center py-1.5">
+                    <span className="text-gray-600">{d}</span>
+                    <kbd className="text-[11px] font-bold bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 text-gray-600">{k}</kbd>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">Actions</h4>
+                {[['âŒ˜K / Ctrl+K', 'Global search'], ['âŒ˜N / Ctrl+N', 'New client (on Clients page)'], ['?', 'Show shortcuts'], ['Esc', 'Close / dismiss']].map(([k, d]) => (
+                  <div key={k} className="flex justify-between items-center py-1.5 gap-3">
+                    <span className="text-gray-600">{d}</span>
+                    <kbd className="text-[11px] font-bold bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 text-gray-600 whitespace-nowrap">{k}</kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fixed "?" shortcut hint button (Feature 28) */}
+      {user && (
+        <button onClick={() => setShowKeyboardHelp(true)} className="fixed bottom-6 left-4 md:bottom-8 md:left-8 z-40 w-9 h-9 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-full shadow-md text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 font-bold text-[14px] transition-colors" title="Keyboard shortcuts (?)">?</button>
       )}
 
       {/* CONFIRM DIALOG MODAL */}
