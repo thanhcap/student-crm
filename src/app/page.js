@@ -101,10 +101,10 @@ const WEBHOOK_EVENTS = [
   { value: 'activity.logged', label: 'Activity logged' },
 ];
 const DEFAULT_ACTIVITY_TEMPLATES = [
-  { name: 'Quick call', type: 'Call', desc: 'Spoke for 15 minutes. Discussed next steps.', outcome: 'Positive' },
-  { name: 'Follow-up email', type: 'Email', desc: 'Sent follow-up email after last meeting.', outcome: 'Neutral' },
-  { name: 'Intro meeting', type: 'Meeting', desc: '30-minute intro meeting. Client is interested.', outcome: 'Positive' },
-  { name: 'Voicemail', type: 'Note', desc: 'Left voicemail. Will try again next week.', outcome: 'No response' },
+  { name: 'Quick call', type: 'Call', desc: 'Spoke for 15 minutes. Discussed next steps.' },
+  { name: 'Follow-up email', type: 'Email', desc: 'Sent follow-up email after last meeting.' },
+  { name: 'Intro meeting', type: 'Meeting', desc: '30-minute intro meeting. Client is interested.' },
+  { name: 'Voicemail', type: 'Note', desc: 'Left voicemail. Will try again next week.' },
 ];
 
 // Lead score: 0-100, computed client-side (Feature 6)
@@ -245,8 +245,7 @@ export default function App() {
   const [activityType, setActivityType] = useState('Note');
   const [activityDesc, setActivityDesc] = useState('');
   const [activityDate, setActivityDate] = useState(new Date().toISOString().split('T')[0]);
-  const [activityOutcome, setActivityOutcome] = useState('Neutral');
-  
+
   const [activityFilterType, setActivityFilterType] = useState('All');
   const [editingActivityId, setEditingActivityId] = useState(null);
   const [editingActivityDesc, setEditingActivityDesc] = useState('');
@@ -976,7 +975,6 @@ export default function App() {
           client_id: viewingClient.id, user_id: user.id,
           activity_type: 'Email', activity_date: new Date().toISOString().split('T')[0],
           description: `Subject: ${resolveMergeTags(emailSubject, viewingClient)}\n\n${resolveMergeTags(emailBody, viewingClient)}`,
-          outcome: 'Neutral',
         }]).select();
         if (data) setActivities(prev => [data[0], ...prev]);
       }
@@ -1041,7 +1039,6 @@ export default function App() {
           client_id: c.id, user_id: user.id, activity_type: 'Email',
           activity_date: new Date().toISOString().split('T')[0],
           description: `Bulk email â€” Subject: ${resolveMergeTags(bulkEmailSubject, c)}`,
-          outcome: 'Neutral',
         }]).select();
         if (data) setActivities(prev => [data[0], ...prev]);
       }
@@ -1949,14 +1946,12 @@ export default function App() {
       user_id: user.id,
       activity_type: activityType,
       activity_date: activityDate,
-      description: activityDesc,
-      outcome: activityOutcome
+      description: activityDesc
     }]).select();
 
     if (!error && data) {
       setActivities([data[0], ...activities]);
       setActivityDesc('');
-      setActivityOutcome('Neutral');
       setActivityDate(new Date().toISOString().split('T')[0]);
       setSavingTemplateName(''); // FEATURE 22: offer "save as template" after logging
       updateStreak();
@@ -4055,7 +4050,7 @@ export default function App() {
                       const { data, error } = await supabase.from('activities').insert([{
                         client_id: tc.id, user_id: user.id, activity_type: activityType,
                         activity_date: new Date().toISOString().split('T')[0],
-                        description: activityDesc, outcome: activityOutcome,
+                        description: activityDesc,
                       }]).select();
                       if (!error && data) {
                         setActivities(prev => [data[0], ...prev]);
@@ -4902,13 +4897,6 @@ export default function App() {
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded uppercase">{act.activity_type}</span>
                             <span className="text-[11px] font-semibold text-gray-400">{act.activity_date}</span>
-                            {act.outcome && act.outcome !== 'Neutral' && (
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                                act.outcome === 'Positive' ? 'bg-green-50 text-green-700 border-green-200' :
-                                act.outcome === 'Negative' ? 'bg-red-50 text-red-700 border-red-200' :
-                                'bg-gray-100 text-gray-600 border-gray-200' // No response
-                              }`}>{act.outcome}</span>
-                            )}
                           </div>
                           
                           {/* Inline Edit/Delete Actions */}
@@ -4940,7 +4928,7 @@ export default function App() {
                   <div className="flex flex-wrap gap-1.5">
                     {activityTemplates.map((t, i) => (
                       <button key={i} type="button" onClick={() => {
-                        setActivityType(t.type); setActivityDesc(t.desc); setActivityOutcome(t.outcome);
+                        setActivityType(t.type); setActivityDesc(t.desc);
                       }} className="text-[11px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors">
                         {t.type}: {t.desc.slice(0, 25)}...
                       </button>
@@ -4952,7 +4940,7 @@ export default function App() {
                       <button type="button" onClick={() => {
                         if (!savingTemplateName.trim()) return;
                         const lastAct = activities.find(a => a.client_id === viewingClient.id);
-                        const tpl = { name: savingTemplateName.trim(), type: lastAct?.activity_type || activityType, desc: lastAct?.description || activityDesc || '', outcome: lastAct?.outcome || activityOutcome };
+                        const tpl = { name: savingTemplateName.trim(), type: lastAct?.activity_type || activityType, desc: lastAct?.description || activityDesc || '' };
                         setActivityTemplates(prev => {
                           const next = [...prev.filter(t => t.name !== tpl.name), tpl];
                           localStorage.setItem('crm_activity_templates', JSON.stringify(next.filter(t => !DEFAULT_ACTIVITY_TEMPLATES.some(d => d.name === t.name))));
@@ -4970,12 +4958,6 @@ export default function App() {
                       <option value="Call">Call</option>
                       <option value="Email">Email</option>
                       <option value="Meeting">Meeting</option>
-                    </select>
-                    <select value={activityOutcome} onChange={e => setActivityOutcome(e.target.value)} className="p-1.5 border border-gray-200 rounded-lg focus:outline-none bg-gray-50/50 text-gray-700">
-                      <option value="Neutral">Neutral</option>
-                      <option value="Positive">Positive</option>
-                      <option value="Negative">Negative</option>
-                      <option value="No response">No response</option>
                     </select>
                     <input type="date" value={activityDate} onChange={e => setActivityDate(e.target.value)} className="p-1.5 border border-gray-200 rounded-lg focus:outline-none bg-gray-50/50 text-gray-600" />
                   </div>
