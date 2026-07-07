@@ -154,6 +154,15 @@ function TagPill({ tag, onRemove }) {
   );
 }
 
+// G17 â€” company logo via Google's public favicon endpoint (builds on Part F's company_url)
+function companyFaviconUrl(companyUrl, size = 64) {
+  if (!companyUrl) return null;
+  try {
+    const host = new URL(companyUrl.startsWith('http') ? companyUrl : `https://${companyUrl}`).hostname;
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${size}`;
+  } catch { return null; }
+}
+
 // G20 â€” multi-currency (static rates, display-only directional context)
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'VND', 'JPY', 'AUD', 'CAD'];
 const FX_TO_USD = { USD: 1, EUR: 1.09, GBP: 1.27, VND: 0.000039, JPY: 0.0067, AUD: 0.66, CAD: 0.73 };
@@ -3824,7 +3833,12 @@ export default function App() {
                               </td>
                               <td className="p-4">
                                 <div>
-                                  <span className="font-semibold text-gray-900 text-[14px] block">
+                                  <span className="font-semibold text-gray-900 text-[14px] flex items-center gap-1.5">
+                                    {/* G17 â€” company logo in the table row */}
+                                    {companyFaviconUrl(client.company_url) && (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={companyFaviconUrl(client.company_url, 32)} alt="" className="w-4 h-4 rounded shrink-0" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
+                                    )}
                                     {client.name}
                                     {client.quick_note && <span className="ml-1.5 text-[12px]" title={client.quick_note.slice(0, 60)}>ðŸ“</span>}
                                   </span>
@@ -5242,6 +5256,11 @@ export default function App() {
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Company</span>
                   {viewingClient.company_name || viewingClient.company_url ? (
                     <span className="font-semibold text-gray-800 flex items-center gap-2 flex-wrap">
+                      {/* G17 â€” auto-fetched company logo */}
+                      {companyFaviconUrl(viewingClient.company_url) && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={companyFaviconUrl(viewingClient.company_url)} alt="" className="w-5 h-5 rounded" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
+                      )}
                       {viewingClient.company_name || 'â€”'}
                       {viewingClient.company_url && (
                         <a

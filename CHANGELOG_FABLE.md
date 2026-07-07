@@ -133,3 +133,10 @@ NOT touched (verified by post-pass grep audit — every remaining "Client"/"clie
 - Distinct from G2 by design: passive dictation of the user narrating a note, not call recording.
 
 **Manual test:** open a relationship → Activity tab → click 🎤 (grant mic), speak a sentence → text appears in the field; click 🔴 to stop; Log Entry saves it as a normal activity. In Firefox (unsupported) → friendly error toast.
+
+## fable/g17-company-enrichment — G17: Company Data Enrichment
+**Line count: +18**
+
+`companyFaviconUrl()` helper builds a Google `s2/favicons` URL from `company_url` (any scheme handling via `new URL`). Logo shown as a small avatar next to the company name in the Relationship Profile and beside the name in the table row; broken images hide themselves via `onError`.
+
+**Manual test:** set company website "stripe.com" on a relationship → favicon appears in profile Company row and in the table row.
