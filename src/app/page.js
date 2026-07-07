@@ -154,6 +154,51 @@ function TagPill({ tag, onRemove }) {
   );
 }
 
+// ==========================================
+// LGM UPGRADES — sequence state machine (CLIENT COPY).
+// ⚠ KEEP BEHAVIORALLY IDENTICAL to supabase/functions/sequence-runner/_shared/sequence-logic.ts
+// ==========================================
+const SEQ_CHANNELS = [
+  { value: 'email', label: '✉️ Email' },
+  { value: 'linkedin_view', label: '🔗 LinkedIn view' },
+  { value: 'linkedin_connect', label: '🤝 LinkedIn connect' },
+  { value: 'call', label: '📞 Call' },
+  { value: 'manual_task', label: '✅ Manual task' },
+];
+const SEQ_CONDITIONS = [
+  { value: 'always', label: 'Always send' },
+  { value: 'if_no_reply', label: 'Only if no reply yet' },
+  { value: 'if_no_open', label: 'Only if not opened' },
+  { value: 'if_opened', label: 'Only if opened, no reply' },
+];
+const CHANNEL_TASK_LABEL = { linkedin_view: 'LinkedIn: view profile of', linkedin_connect: 'LinkedIn: connect with', call: 'Call', manual_task: 'Task for' };
+
+function stepConditionMet(step, enrollment, sends) {
+  const cond = step.condition || 'always';
+  if (cond === 'always') return true;
+  const prior = sends.filter(s => s.enrollment_id === enrollment.id);
+  const replied = prior.some(s => s.replied_at);
+  const opened = prior.some(s => s.opened_at);
+  if (cond === 'if_no_reply') return !replied;
+  if (cond === 'if_no_open') return !opened;
+  if (cond === 'if_opened') return opened && !replied;
+  return true;
+}
+function resolveDueStep(enrollment, steps, sends) {
+  let idx = enrollment.current_step;
+  while (idx < steps.length) {
+    if (stepConditionMet(steps[idx], enrollment, sends)) return { step: steps[idx], index: idx };
+    idx++;
+  }
+  return null;
+}
+function pickSubjectVariant(step, enrollment) {
+  if (step.subject_b && String(step.subject_b).trim()) {
+    return enrollment.id % 2 === 0 ? { subject: step.subject, variant: 'A' } : { subject: step.subject_b, variant: 'B' };
+  }
+  return { subject: step.subject, variant: null };
+}
+
 // Country/region combobox source — full country list, rendered as a <datalist>
 // so every country field supports type-to-filter AND click-to-browse.
 const COUNTRY_LIST = ['Afghanistan','Albania','Algeria','Andorra','Angola','Antigua and Barbuda','Argentina','Armenia','Australia','Austria','Azerbaijan','Bahamas','Bahrain','Bangladesh','Barbados','Belarus','Belgium','Belize','Benin','Bhutan','Bolivia','Bosnia and Herzegovina','Botswana','Brazil','Brunei','Bulgaria','Burkina Faso','Burundi','Cabo Verde','Cambodia','Cameroon','Canada','Central African Republic','Chad','Chile','China','Colombia','Comoros','Congo (DRC)','Congo (Republic)','Costa Rica','Croatia','Cuba','Cyprus','Czechia','Denmark','Djibouti','Dominica','Dominican Republic','Ecuador','Egypt','El Salvador','Equatorial Guinea','Eritrea','Estonia','Eswatini','Ethiopia','Fiji','Finland','France','Gabon','Gambia','Georgia','Germany','Ghana','Greece','Grenada','Guatemala','Guinea','Guinea-Bissau','Guyana','Haiti','Honduras','Hong Kong','Hungary','Iceland','India','Indonesia','Iran','Iraq','Ireland','Israel','Italy','Ivory Coast','Jamaica','Japan','Jordan','Kazakhstan','Kenya','Kiribati','Kosovo','Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Lesotho','Liberia','Libya','Liechtenstein','Lithuania','Luxembourg','Macau','Madagascar','Malawi','Malaysia','Maldives','Mali','Malta','Marshall Islands','Mauritania','Mauritius','Mexico','Micronesia','Moldova','Monaco','Mongolia','Montenegro','Morocco','Mozambique','Myanmar','Namibia','Nauru','Nepal','Netherlands','New Zealand','Nicaragua','Niger','Nigeria','North Korea','North Macedonia','Norway','Oman','Pakistan','Palau','Palestine','Panama','Papua New Guinea','Paraguay','Peru','Philippines','Poland','Portugal','Qatar','Romania','Russia','Rwanda','Saint Kitts and Nevis','Saint Lucia','Saint Vincent and the Grenadines','Samoa','San Marino','Sao Tome and Principe','Saudi Arabia','Senegal','Serbia','Seychelles','Sierra Leone','Singapore','Slovakia','Slovenia','Solomon Islands','Somalia','South Africa','South Korea','South Sudan','Spain','Sri Lanka','Sudan','Suriname','Sweden','Switzerland','Syria','Taiwan','Tajikistan','Tanzania','Thailand','Timor-Leste','Togo','Tonga','Trinidad and Tobago','Tunisia','Turkey','Turkmenistan','Tuvalu','Uganda','Ukraine','United Arab Emirates','United Kingdom','United States','Uruguay','Uzbekistan','Vanuatu','Vatican City','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe'];
@@ -498,6 +543,13 @@ export default function App() {
   const [gmailConn, setGmailConn] = useState(null);
   const [gmailSyncing, setGmailSyncing] = useState(false);
 
+  // LGM UPGRADES — automation states
+  const [sequenceSends, setSequenceSends] = useState([]);
+  const [emailSettings, setEmailSettings] = useState(null); // null = no row yet
+  const [stepEdit, setStepEdit] = useState(null); // inline editor: full step draft
+  const [enrollMulti, setEnrollMulti] = useState({}); // sequenceId -> Set-ish {clientId: true}
+  const repliesCheckedRef = useRef(false);
+
   // FEATURE 11 — WEBHOOKS STATES
   const [webhooks, setWebhooks] = useState([]);
   const [showWebhookForm, setShowWebhookForm] = useState(false);
@@ -743,6 +795,14 @@ export default function App() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quickNoteValue]);
+
+  // UPGRADE 2 — run the reply-stop pass once after data loads
+  useEffect(() => {
+    if (repliesCheckedRef.current || !user || activities.length === 0 || sequenceEnrollments.length === 0) return;
+    repliesCheckedRef.current = true;
+    detectRepliesAndStopSequences(activities, sequenceEnrollments, sequenceSends);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activities, sequenceEnrollments, user]);
 
   // FEATURE 23 — Smart follow-up suggestion (only when last activity >14 days or none)
   useEffect(() => {
@@ -1221,7 +1281,8 @@ export default function App() {
       .replace(/{{name}}/g, client?.name || '')
       .replace(/{{email}}/g, client?.email || '')
       .replace(/{{phone}}/g, client?.phone_number || '')
-      .replace(/{{stage}}/g, client?.status || '');
+      .replace(/{{stage}}/g, client?.status || '')
+      .replace(/{{company}}/g, client?.company_name || ''); // LGM — mirrors the runner's mergeTags
   }
 
   // PART B — default send path opens a real compose tab in the user's browser.
@@ -1417,9 +1478,10 @@ export default function App() {
     }).catch(() => null);
     const out = res ? await res.json().catch(() => ({})) : {};
     if (res?.ok) {
-      showToast(`Gmail sync complete — ${out.synced ?? 0} new email activit${(out.synced ?? 0) === 1 ? 'y' : 'ies'}.`, 'success');
+      showToast(`Gmail sync complete — ${out.synced ?? 0} new email activit${(out.synced ?? 0) === 1 ? 'y' : 'ies'}${out.autoStopped ? `, ${out.autoStopped} sequence(s) auto-stopped (replied)` : ''}.`, 'success');
       fetchActivities(user.id);
       fetchGmailConn(user.id);
+      fetchSequences(user.id); // UPGRADE 2 — pick up server-side reply-stops
     } else {
       showToast(`Gmail sync failed: ${out.error || 'network error'}${out.error === 'server_not_configured' || out.detail ? ' — check GOOGLE_CLIENT_SECRET in Supabase function secrets' : ''}`, 'error');
     }
@@ -1431,14 +1493,62 @@ export default function App() {
   // ==========================================
 
   async function fetchSequences(userId) {
-    const [{ data: seqs }, { data: steps }, { data: enr }] = await Promise.all([
+    const [{ data: seqs }, { data: steps }, { data: enr }, { data: sends }, { data: settings }] = await Promise.all([
       supabase.from('email_sequences').select('*').eq('user_id', userId).order('created_at'),
       supabase.from('sequence_steps').select('*').eq('user_id', userId).order('step_order'),
       supabase.from('sequence_enrollments').select('*').eq('user_id', userId),
+      supabase.from('sequence_sends').select('*').eq('user_id', userId).order('sent_at', { ascending: false }),
+      supabase.from('email_settings').select('*').eq('user_id', userId).maybeSingle(),
     ]);
     if (seqs) setSequences(seqs);
     if (steps) setSequenceSteps(steps);
     if (enr) setSequenceEnrollments(enr);
+    if (sends) setSequenceSends(sends);
+    setEmailSettings(settings || null);
+  }
+
+  // UPGRADE 1/7 — Email Automation settings
+  async function handleSaveEmailSettings(patch) {
+    const next = {
+      user_id: user.id,
+      resend_from_email: emailSettings?.resend_from_email ?? null,
+      auto_send_enabled: emailSettings?.auto_send_enabled ?? false,
+      daily_send_cap: emailSettings?.daily_send_cap ?? 50,
+      send_days: emailSettings?.send_days ?? [1, 2, 3, 4, 5],
+      send_window_start: emailSettings?.send_window_start ?? 9,
+      send_window_end: emailSettings?.send_window_end ?? 17,
+      send_tz_offset: emailSettings?.send_tz_offset ?? -new Date().getTimezoneOffset(),
+      ...patch,
+    };
+    const { data, error } = await supabase.from('email_settings').upsert([next], { onConflict: 'user_id' }).select();
+    if (!error && data) { setEmailSettings(data[0]); showToast('Email automation settings saved.', 'success'); }
+    else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  // UPGRADE 2 — client-side reply detection fallback (server does this too)
+  async function detectRepliesAndStopSequences(acts, enrs, sendsList) {
+    const stopped = [];
+    for (const en of enrs.filter(e => e.status === 'active')) {
+      const replied = acts.some(a =>
+        a.client_id === en.client_id && a.gmail_message_id &&
+        (a.description || '').startsWith('Gmail — Received') &&
+        new Date(a.created_at) >= new Date(en.enrolled_at));
+      if (!replied) continue;
+      const { error } = await supabase.from('sequence_enrollments')
+        .update({ status: 'replied', stopped_reason: 'replied', next_send_at: null }).eq('id', en.id);
+      if (error) continue;
+      const lastSend = sendsList.filter(s => s.enrollment_id === en.id && !s.replied_at)
+        .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))[0];
+      if (lastSend) {
+        await supabase.from('sequence_sends').update({ replied_at: new Date().toISOString() }).eq('id', lastSend.id);
+        setSequenceSends(prev => prev.map(s => s.id === lastSend.id ? { ...s, replied_at: new Date().toISOString() } : s));
+      }
+      stopped.push(en.id);
+    }
+    if (stopped.length) {
+      setSequenceEnrollments(prev => prev.map(x => stopped.includes(x.id) ? { ...x, status: 'replied', stopped_reason: 'replied', next_send_at: null } : x));
+      showToast(`${stopped.length} enrollment${stopped.length === 1 ? '' : 's'} auto-stopped — they replied.`, 'success');
+    }
   }
 
   const seqStepsFor = (id) => sequenceSteps.filter(s => s.sequence_id === id).sort((a, b) => a.step_order - b.step_order || a.id - b.id);
@@ -1494,16 +1604,36 @@ export default function App() {
     showToast('Workflow duplicated as draft.', 'success');
   }
 
+  // UPGRADE 5/6/8 — add step with channel/condition/A-B, optionally inserted
+  // between existing steps (insertAt = index or null for end).
+  // DB has subject/body NOT NULL, so non-email steps store '' (documented).
   async function handleAddSequenceStep(e) {
     e.preventDefault();
     const d = seqStepDraft;
-    if (!d || !d.subject?.trim() || !d.body?.trim()) return;
+    if (!d) return;
+    const isEmail = !d.channel || d.channel === 'email';
+    if (isEmail && (!d.subject?.trim() || !d.body?.trim())) return;
+    if (!isEmail && !d.task_note?.trim()) { showToast('Add a note describing the task.', 'error'); return; }
+    const steps = seqStepsFor(d.sequenceId);
+    const at = d.insertAt == null ? steps.length : Math.min(d.insertAt, steps.length);
+    // shift later steps down by one (batched)
+    await Promise.all(steps.slice(at).map(s =>
+      supabase.from('sequence_steps').update({ step_order: s.step_order + 1 }).eq('id', s.id)));
     const { data, error } = await supabase.from('sequence_steps').insert([{
-      sequence_id: d.sequenceId, user_id: user.id, step_order: seqStepsFor(d.sequenceId).length,
-      wait_days: Math.max(0, parseInt(d.wait_days, 10) || 0), subject: d.subject.trim(), body: d.body,
+      sequence_id: d.sequenceId, user_id: user.id, step_order: at,
+      wait_days: Math.max(0, parseInt(d.wait_days, 10) || 0),
+      subject: isEmail ? d.subject.trim() : '',
+      body: isEmail ? d.body : '',
+      subject_b: isEmail && d.subject_b?.trim() ? d.subject_b : null,
+      channel: d.channel || 'email',
+      condition: d.condition || 'always',
+      task_note: !isEmail ? d.task_note : null,
     }]).select();
     if (!error && data) {
-      setSequenceSteps(prev => [...prev, data[0]]);
+      setSequenceSteps(prev => [
+        ...prev.map(s => (s.sequence_id === d.sequenceId && s.step_order >= at && s.id !== data[0].id) ? { ...s, step_order: s.step_order + 1 } : s),
+        data[0],
+      ]);
       setSeqStepDraft(null);
     } else showToast(`Error: ${error?.message}`, 'error');
   }
@@ -1535,33 +1665,110 @@ export default function App() {
     if (!error) setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, status: 'stopped', next_send_at: null } : x));
   }
 
-  // Opens the compose tab for the due step, logs the activity, advances the enrollment.
+  // MANUAL send path (fallback + default when auto-send is off). Runs the SAME
+  // state machine as the server runner: condition skips (U4), channel tasks (U5),
+  // A/B variant pick (U6), sequence_sends row (U3 funnel counting).
+  // Note: manual new-tab sends cannot be open/click tracked — only Resend auto-sends are.
   async function handleSendSequenceStep(enr) {
     const seq = sequences.find(s => s.id === enr.sequence_id);
     const steps = seqStepsFor(enr.sequence_id);
-    const step = steps[enr.current_step];
     const c = clients.find(x => x.id === enr.client_id);
-    if (!seq || !step || !c?.email) { showToast('Missing step or recipient email.', 'error'); return; }
-    const subject = resolveMergeTags(step.subject, c);
-    const body = resolveMergeTags(step.body, c);
-    const url = emailProvider === 'mailto' ? buildMailtoUrl(c.email, subject, body) : buildGmailUrl(c.email, subject, body);
-    const tab = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!tab && emailProvider !== 'mailto') window.location.href = buildMailtoUrl(c.email, subject, body);
+    if (!seq || !c) { showToast('Missing sequence or relationship.', 'error'); return; }
+    const today = new Date().toISOString().split('T')[0];
+
+    // UPGRADE 4 — resolve the next step whose condition is met
+    const resolved = resolveDueStep(enr, steps, sequenceSends);
+    if (!resolved) {
+      const patch = { status: 'completed', stopped_reason: 'completed', current_step: steps.length, next_send_at: null };
+      await supabase.from('sequence_enrollments').update(patch).eq('id', enr.id);
+      setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, ...patch } : x));
+      showToast('All remaining steps were skipped by their conditions — sequence completed.', 'success');
+      return;
+    }
+    const { step, index } = resolved;
+    const token = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `tk_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    let description = '';
+    let variant = null;
+
+    if (step.channel && step.channel !== 'email') {
+      // UPGRADE 5 — non-email step becomes a task
+      const title = `${CHANNEL_TASK_LABEL[step.channel] || 'Task for'} ${c.name}${step.task_note ? ' — ' + resolveMergeTags(step.task_note, c) : ''}`.slice(0, 250);
+      const { data: t } = await supabase.from('tasks').insert([{
+        user_id: user.id, client_id: c.id, title, due_date: today, status: 'pending',
+      }]).select();
+      if (t) setTasks(prev => [...prev, t[0]]);
+      description = `Sequence "${seq.name}" — ${step.channel} task created: ${title}`;
+      showToast('Task created for this step — find it in Tasks.', 'success');
+    } else {
+      if (!c.email) { showToast('This relationship has no email address.', 'error'); return; }
+      // UPGRADE 6 — A/B variant
+      const pick = pickSubjectVariant(step, enr);
+      variant = pick.variant;
+      const subject = resolveMergeTags(pick.subject, c);
+      const body = resolveMergeTags(step.body, c);
+      const url = emailProvider === 'mailto' ? buildMailtoUrl(c.email, subject, body) : buildGmailUrl(c.email, subject, body);
+      const tab = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!tab && emailProvider !== 'mailto') window.location.href = buildMailtoUrl(c.email, subject, body);
+      description = `Sequence "${seq.name}" — step ${index + 1}${variant ? ` (variant ${variant})` : ''}: ${subject}`;
+    }
+
+    // UPGRADE 3 — record the send for the funnel (manual sends: no tracking pixel)
+    const { data: sendRow } = await supabase.from('sequence_sends').insert([{
+      user_id: user.id, enrollment_id: enr.id, sequence_id: seq.id, step_id: step.id,
+      client_id: c.id, track_token: token, channel: step.channel || 'email', subject_variant: variant,
+    }]).select();
+    if (sendRow) setSequenceSends(prev => [sendRow[0], ...prev]);
+
     const { data: act } = await supabase.from('activities').insert([{
-      client_id: c.id, user_id: user.id, activity_type: 'Email',
-      activity_date: new Date().toISOString().split('T')[0],
-      description: `Sequence "${seq.name}" — step ${enr.current_step + 1}: ${subject}`,
+      client_id: c.id, user_id: user.id,
+      activity_type: (!step.channel || step.channel === 'email') ? 'Email' : 'Note',
+      activity_date: today, description,
     }]).select();
     if (act) setActivities(prev => [act[0], ...prev]);
-    const nextIdx = enr.current_step + 1;
-    const patch = nextIdx >= steps.length
-      ? { status: 'completed', current_step: nextIdx, next_send_at: null }
-      : { current_step: nextIdx, next_send_at: addDaysStr(steps[nextIdx].wait_days) };
+
+    const nextIdx = index + 1;
+    const nextStep = steps[nextIdx];
+    const patch = nextStep
+      ? { current_step: nextIdx, next_send_at: addDaysStr(nextStep.wait_days), last_channel_sent: step.channel || 'email' }
+      : { current_step: nextIdx, status: 'completed', stopped_reason: 'completed', next_send_at: null, last_channel_sent: step.channel || 'email' };
     await supabase.from('sequence_enrollments').update(patch).eq('id', enr.id);
     setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, ...patch } : x));
     await supabase.from('email_sequences').update({ last_run_at: new Date().toISOString() }).eq('id', seq.id);
     setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, last_run_at: new Date().toISOString() } : s));
-    showToast(nextIdx >= steps.length ? 'Sequence completed for this relationship.' : `Step sent — next step due ${patch.next_send_at}.`, 'success');
+    if (!nextStep) showToast('Sequence completed for this relationship.', 'success');
+  }
+
+  // UPGRADE 8 — reorder a step up/down (batched step_order swap)
+  async function handleMoveStep(seqId, index, dir) {
+    const steps = seqStepsFor(seqId);
+    const j = index + dir;
+    if (j < 0 || j >= steps.length) return;
+    const a = steps[index], b = steps[j];
+    await Promise.all([
+      supabase.from('sequence_steps').update({ step_order: j }).eq('id', a.id),
+      supabase.from('sequence_steps').update({ step_order: index }).eq('id', b.id),
+    ]);
+    setSequenceSteps(prev => prev.map(s => s.id === a.id ? { ...s, step_order: j } : s.id === b.id ? { ...s, step_order: index } : s));
+  }
+
+  // UPGRADE 8 — inline edit save
+  async function handleSaveStepEdit() {
+    const d = stepEdit;
+    if (!d) return;
+    const patch = {
+      wait_days: Math.max(0, parseInt(d.wait_days, 10) || 0),
+      subject: d.channel === 'email' ? (d.subject || '') : '',
+      body: d.channel === 'email' ? (d.body || '') : '',
+      subject_b: d.channel === 'email' && d.subject_b?.trim() ? d.subject_b : null,
+      condition: d.condition || 'always',
+      channel: d.channel || 'email',
+      task_note: d.channel !== 'email' ? (d.task_note || '') : null,
+    };
+    const { data, error } = await supabase.from('sequence_steps').update(patch).eq('id', d.id).select();
+    if (!error && data) {
+      setSequenceSteps(prev => prev.map(s => s.id === d.id ? data[0] : s));
+      setStepEdit(null);
+    } else showToast(`Error: ${error?.message}`, 'error');
   }
 
   // G11 — one-click insert of a pre-configured recipe rule
@@ -5162,26 +5369,140 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* STEPS (vertical editor) */}
-                  <div className="space-y-2">
-                    {steps.map((st, i) => (
-                      <div key={st.id}>
-                        {(i > 0 || st.wait_days > 0) && (
-                          <div className="flex items-center gap-2 pl-4 py-1 text-[11px] font-semibold text-gray-400">
-                            <span className="w-px h-4 bg-gray-200 dark:bg-gray-700" /> Wait {st.wait_days} day{st.wait_days === 1 ? '' : 's'}{i === 0 ? ' after enrollment' : ''}
-                          </div>
-                        )}
-                        <div className="flex items-start gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl bg-gray-50/50 dark:bg-gray-800/40 group">
-                          <span className="w-6 h-6 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{st.subject}</p>
-                            <p className="text-[12px] text-gray-500 line-clamp-2 whitespace-pre-wrap">{st.body}</p>
-                            <p className="text-[10px] text-gray-400 mt-1">Opens — · Replies — · Bounces — <span className="italic">(no data yet — needs a tracking backend)</span></p>
-                          </div>
-                          <button onClick={() => handleDeleteSequenceStep(st)} className="text-[11px] font-medium text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100">Delete</button>
+                  {/* UPGRADE 3 — live funnel + UPGRADE 8 — enrollment list */}
+                  {(() => {
+                    const sSends = sequenceSends.filter(s => s.sequence_id === seq.id);
+                    const f = {
+                      Sent: sSends.length,
+                      Opened: sSends.filter(s => s.opened_at).length,
+                      Clicked: sSends.filter(s => s.clicked_at).length,
+                      Replied: sSends.filter(s => s.replied_at).length,
+                    };
+                    const max = Math.max(f.Sent, 1);
+                    return (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="p-3 border border-gray-100 dark:border-gray-800 rounded-xl">
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Funnel {f.Sent > 0 && <span className="normal-case font-normal">· open {Math.round((f.Opened / f.Sent) * 100)}% · click {Math.round((f.Clicked / f.Sent) * 100)}% · reply {Math.round((f.Replied / f.Sent) * 100)}%</span>}</p>
+                          {Object.entries(f).map(([k, v]) => (
+                            <div key={k} className="flex items-center gap-2 py-0.5">
+                              <span className="text-[11px] font-medium text-gray-500 w-14">{k}</span>
+                              <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-3 overflow-hidden">
+                                <div className={`anim-grow-w h-full rounded-full ${{ Sent: 'bg-gray-400', Opened: 'bg-blue-500', Clicked: 'bg-indigo-500', Replied: 'bg-green-500' }[k]}`} style={{ width: `${(v / max) * 100}%` }} />
+                              </div>
+                              <span className="text-[11px] font-bold text-gray-900 dark:text-gray-100 w-6 text-right">{v}</span>
+                            </div>
+                          ))}
+                          <p className="text-[10px] text-gray-400 mt-1.5">Open/click tracking applies to auto-sent (Resend) emails only — manual tab sends can't be tracked.</p>
+                        </div>
+                        <div className="p-3 border border-gray-100 dark:border-gray-800 rounded-xl max-h-44 overflow-y-auto">
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Enrollments ({enrolled.length})</p>
+                          {enrolled.length === 0 ? <p className="text-[12px] text-gray-400">Nobody enrolled yet.</p> : enrolled.map(en => {
+                            const ec = clients.find(x => x.id === en.client_id);
+                            return (
+                              <div key={en.id} className="flex items-center gap-2 py-1 text-[12px]">
+                                <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-1">{ec?.name || '?'}</span>
+                                <span className="text-gray-400">step {Math.min(en.current_step + 1, steps.length)}/{steps.length}</span>
+                                {en.status === 'replied' ? (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/10">Replied — auto-stopped</span>
+                                ) : (
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset capitalize ${en.status === 'active' ? 'bg-blue-50 text-blue-700 ring-blue-600/10' : en.status === 'completed' ? 'bg-gray-100 text-gray-600 ring-gray-500/10' : 'bg-red-50 text-red-700 ring-red-600/10'}`}>{en.status}</span>
+                                )}
+                                {en.status === 'active' && (emailSettings?.auto_send_enabled && emailSettings?.resend_from_email
+                                  ? <span className="text-[10px] text-green-600 font-medium shrink-0">Auto-sends {en.next_send_at}</span>
+                                  : <button onClick={() => handleStopEnrollment(en)} className="text-[10px] text-red-400 hover:text-red-600 shrink-0">stop</button>)}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
-                    ))}
+                    );
+                  })()}
+
+                  {/* UPGRADE 8 — TIMELINE (spine, chips, inline edit, add-between, reorder) */}
+                  <div className="relative pl-4 space-y-1 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-px before:bg-gray-200 dark:before:bg-gray-700">
+                    {steps.map((st, i) => {
+                      const stSends = sequenceSends.filter(s => s.step_id === st.id);
+                      const abA = stSends.filter(s => s.subject_variant === 'A');
+                      const abB = stSends.filter(s => s.subject_variant === 'B');
+                      const rate = (arr) => arr.length ? Math.round((arr.filter(s => s.opened_at).length / arr.length) * 100) : 0;
+                      const chLabel = SEQ_CHANNELS.find(c => c.value === (st.channel || 'email'))?.label || '✉️ Email';
+                      const isEditing = stepEdit?.id === st.id;
+                      return (
+                        <div key={st.id}>
+                          {/* add-between */}
+                          <button onClick={() => setSeqStepDraft({ sequenceId: seq.id, insertAt: i, wait_days: 3, channel: 'email', condition: 'always', subject: '', subject_b: '', body: '', task_note: '' })} className="ml-2 text-[10px] font-semibold text-gray-300 hover:text-indigo-600 transition-colors">＋ insert step here</button>
+                          <div className="flex items-center gap-2 py-0.5 text-[11px] font-semibold text-gray-400">
+                            <span className="relative -left-4 w-3.5 h-3.5 rounded-full bg-white dark:bg-gray-900 ring-2 ring-gray-300 dark:ring-gray-600 shrink-0" />
+                            {isEditing ? (
+                              <label className="-ml-3 flex items-center gap-1">Wait <input type="number" min="0" value={stepEdit.wait_days} onChange={e => setStepEdit({ ...stepEdit, wait_days: e.target.value })} className="w-14 px-1.5 py-0.5 border border-gray-200 rounded focus:outline-none" /> days</label>
+                            ) : (
+                              <button onClick={() => setStepEdit({ ...st })} className="-ml-3 hover:text-gray-700 dark:hover:text-gray-200" title="Click to edit">Wait {st.wait_days} day{st.wait_days === 1 ? '' : 's'}{i === 0 ? ' after enrollment' : ''} ✎</button>
+                            )}
+                          </div>
+                          <div className="flex items-start gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl bg-gray-50/50 dark:bg-gray-800/40 group hover-lift">
+                            <span className="w-6 h-6 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white dark:bg-gray-900 ring-1 ring-inset ring-gray-300/60 dark:ring-gray-600">{chLabel}</span>
+                                {(st.condition || 'always') !== 'always' && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-600/10">{SEQ_CONDITIONS.find(c => c.value === st.condition)?.label}</span>
+                                )}
+                                {st.subject_b && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20">A/B test</span>}
+                              </div>
+                              {isEditing ? (
+                                <div className="space-y-1.5">
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <select value={stepEdit.channel || 'email'} onChange={e => setStepEdit({ ...stepEdit, channel: e.target.value })} className="px-2 py-1 text-[12px] border border-gray-200 rounded-lg bg-white focus:outline-none">
+                                      {SEQ_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                    </select>
+                                    <select value={stepEdit.condition || 'always'} onChange={e => setStepEdit({ ...stepEdit, condition: e.target.value })} className="px-2 py-1 text-[12px] border border-gray-200 rounded-lg bg-white focus:outline-none">
+                                      {SEQ_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                    </select>
+                                  </div>
+                                  {(stepEdit.channel || 'email') === 'email' ? (
+                                    <>
+                                      <input type="text" value={stepEdit.subject || ''} onChange={e => setStepEdit({ ...stepEdit, subject: e.target.value })} placeholder="Subject A" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                                      <input type="text" value={stepEdit.subject_b || ''} onChange={e => setStepEdit({ ...stepEdit, subject_b: e.target.value })} placeholder="Subject B (optional — makes this an A/B test)" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                                      <textarea rows={3} value={stepEdit.body || ''} onChange={e => setStepEdit({ ...stepEdit, body: e.target.value })} className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                                    </>
+                                  ) : (
+                                    <textarea rows={2} value={stepEdit.task_note || ''} onChange={e => setStepEdit({ ...stepEdit, task_note: e.target.value })} placeholder="Task instructions, e.g. Mention the webinar — {{name}} attended" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                                  )}
+                                  <div className="flex gap-2 justify-end">
+                                    <button onClick={() => setStepEdit(null)} className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+                                    <button onClick={handleSaveStepEdit} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-gray-900 rounded-lg hover:opacity-90">Save</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  {(st.channel || 'email') === 'email' ? (
+                                    <>
+                                      <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{st.subject}{st.subject_b ? <span className="text-gray-400 font-normal"> / B: {st.subject_b}</span> : ''}</p>
+                                      <p className="text-[12px] text-gray-500 line-clamp-2 whitespace-pre-wrap">{st.body}</p>
+                                    </>
+                                  ) : (
+                                    <p className="text-[13px] text-gray-700 dark:text-gray-300">{st.task_note || 'Manual task step'}</p>
+                                  )}
+                                  <p className="text-[10px] text-gray-400 mt-1">
+                                    Sent {stSends.length} · Opened {stSends.filter(s => s.opened_at).length} · Clicked {stSends.filter(s => s.clicked_at).length} · Replied {stSends.filter(s => s.replied_at).length}
+                                    {st.subject_b && (abA.length + abB.length) > 0 && (
+                                      <span className={'ml-2 font-semibold ' + (rate(abA) >= rate(abB) ? 'text-green-600' : 'text-amber-600')}>
+                                        A/B: A {rate(abA)}% ({abA.length}) vs B {rate(abB)}% ({abB.length}) — {rate(abA) === rate(abB) ? 'tie' : rate(abA) > rate(abB) ? 'A wins' : 'B wins'}
+                                      </span>
+                                    )}
+                                  </p>
+                                </>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                              <button onClick={() => handleMoveStep(seq.id, i, -1)} disabled={i === 0} className="text-[11px] text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30" title="Move up">▲</button>
+                              <button onClick={() => handleMoveStep(seq.id, i, 1)} disabled={i === steps.length - 1} className="text-[11px] text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30" title="Move down">▼</button>
+                              <button onClick={() => showConfirm('Delete Step', 'Delete this step?', 'Delete', 'danger', async () => handleDeleteSequenceStep(st))} className="text-[11px] font-medium text-red-400 hover:text-red-600">✕</button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
 
                     {/* Add step */}
                     {seqStepDraft?.sequenceId === seq.id ? (
@@ -5191,32 +5512,65 @@ export default function App() {
                             <input type="number" min="0" value={seqStepDraft.wait_days} onChange={e => setSeqStepDraft({ ...seqStepDraft, wait_days: e.target.value })} className="w-16 px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none" />
                             days, then send:
                           </label>
-                          {emailTemplates.length > 0 && (
+                          {/* UPGRADE 5 — channel selector */}
+                          <select value={seqStepDraft.channel || 'email'} onChange={e => setSeqStepDraft({ ...seqStepDraft, channel: e.target.value })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
+                            {SEQ_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                          </select>
+                          {/* UPGRADE 4 — condition */}
+                          <select value={seqStepDraft.condition || 'always'} onChange={e => setSeqStepDraft({ ...seqStepDraft, condition: e.target.value })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
+                            {SEQ_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                          </select>
+                          {(seqStepDraft.channel || 'email') === 'email' && emailTemplates.length > 0 && (
                             <select onChange={e => { const t = emailTemplates.find(x => String(x.id) === e.target.value); if (t) setSeqStepDraft({ ...seqStepDraft, subject: t.subject, body: t.body }); }} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
                               <option value="">Use template…</option>
                               {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                             </select>
                           )}
                         </div>
-                        <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={seqStepDraft.subject} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                        <textarea rows={3} required placeholder="Body" value={seqStepDraft.body} onChange={e => setSeqStepDraft({ ...seqStepDraft, body: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                        {(seqStepDraft.channel || 'email') === 'email' ? (
+                          <>
+                            <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={seqStepDraft.subject} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                            {/* UPGRADE 6 — B variant */}
+                            {seqStepDraft.showB ? (
+                              <input type="text" placeholder="Subject B (A/B test — sent to half of enrollments)" value={seqStepDraft.subject_b || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject_b: e.target.value })} className="w-full px-3 py-2 border border-amber-200 rounded-lg focus:outline-none focus:border-amber-400" />
+                            ) : (
+                              <button type="button" onClick={() => setSeqStepDraft({ ...seqStepDraft, showB: true })} className="text-[11px] font-semibold text-amber-600 hover:underline">＋ Add B variant (A/B test)</button>
+                            )}
+                            <textarea rows={3} required placeholder="Body" value={seqStepDraft.body} onChange={e => setSeqStepDraft({ ...seqStepDraft, body: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                          </>
+                        ) : (
+                          <textarea rows={2} required placeholder="Task instructions — e.g. Mention their webinar question. Supports {{name}}." value={seqStepDraft.task_note || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, task_note: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                        )}
                         <div className="flex justify-end gap-2">
                           <button type="button" onClick={() => setSeqStepDraft(null)} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
                           <button type="submit" className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Step</button>
                         </div>
                       </form>
                     ) : (
-                      <button onClick={() => setSeqStepDraft({ sequenceId: seq.id, wait_days: steps.length === 0 ? 0 : 3, subject: '', body: '' })} className="w-full px-3 py-2 text-[12px] font-medium text-gray-500 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl hover:border-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">+ Add step {steps.length > 0 ? `(step ${steps.length + 1})` : '(first email)'}</button>
+                      <button onClick={() => setSeqStepDraft({ sequenceId: seq.id, insertAt: null, wait_days: steps.length === 0 ? 0 : 3, channel: 'email', condition: 'always', subject: '', subject_b: '', body: '', task_note: '' })} className="w-full px-3 py-2 text-[12px] font-medium text-gray-500 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl hover:border-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">+ Add step {steps.length > 0 ? `(step ${steps.length + 1})` : '(first email)'}</button>
                     )}
                   </div>
 
-                  {/* Enroll / Run */}
-                  <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-800">
-                    <select value={enrollPick[seq.id] || ''} onChange={e => setEnrollPick(prev => ({ ...prev, [seq.id]: e.target.value }))} className="px-3 py-1.5 text-[13px] border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none min-w-[180px]">
-                      <option value="">— pick relationship —</option>
-                      {clients.filter(c => c.email).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                    <button onClick={() => enrollPick[seq.id] && enrollClientInSequence(seq, enrollPick[seq.id])} disabled={!enrollPick[seq.id]} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">▶ Enroll / Run</button>
+                  {/* Enroll / Run — UPGRADE 8: multi-select */}
+                  <div className="flex flex-wrap items-start gap-2 pt-3 border-t border-gray-100 dark:border-gray-800">
+                    <details className="relative">
+                      <summary className="px-3 py-1.5 text-[13px] border border-gray-200 rounded-lg bg-white text-gray-700 cursor-pointer select-none list-none">
+                        {Object.values(enrollMulti[seq.id] || {}).filter(Boolean).length || 'Pick'} relationship{Object.values(enrollMulti[seq.id] || {}).filter(Boolean).length === 1 ? '' : 's'} ▾
+                      </summary>
+                      <div className="absolute z-20 mt-1 w-64 max-h-48 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 space-y-0.5">
+                        {clients.filter(c => c.email).map(c => (
+                          <label key={c.id} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
+                            <input type="checkbox" checked={!!(enrollMulti[seq.id] || {})[c.id]} onChange={e => setEnrollMulti(prev => ({ ...prev, [seq.id]: { ...(prev[seq.id] || {}), [c.id]: e.target.checked } }))} className="rounded border-gray-300 focus:ring-0" />
+                            <span className="truncate">{c.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                    <button onClick={async () => {
+                      const ids = Object.entries(enrollMulti[seq.id] || {}).filter(([, v]) => v).map(([k]) => k);
+                      for (const id of ids) await enrollClientInSequence(seq, id);
+                      setEnrollMulti(prev => ({ ...prev, [seq.id]: {} }));
+                    }} disabled={!Object.values(enrollMulti[seq.id] || {}).some(Boolean)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">▶ Enroll / Run</button>
                     {activeEnr.length > 0 && (
                       <span className="text-[11px] text-gray-400">Next sends: {activeEnr.slice(0, 3).map(en => `${clients.find(c => c.id === en.client_id)?.name || '?'} → ${en.next_send_at}`).join(' · ')}{activeEnr.length > 3 ? ' …' : ''}</span>
                     )}
@@ -5226,7 +5580,7 @@ export default function App() {
             })}
 
             <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-[12px] text-yellow-800 dark:text-yellow-300">
-              ⚠️ Sends open a pre-filled compose tab (same Gmail/Default-app setting as Send Email) — you click send, so deliverability stays on your own account. Fully hands-off sending needs an email API key (e.g. Resend) + a scheduled job; the schema is already built for it.
+              ⚠️ Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait here for one-click manual sending via compose tabs. With Auto-send ON + a verified Resend sender + RESEND_API_KEY in Supabase secrets, the sequence-runner cron sends them automatically inside your send window, with open/click tracking.
             </div>
           </div>
         )}
@@ -5293,6 +5647,61 @@ export default function App() {
                   )}
                 </>
               )}
+            </div>
+
+            {/* UPGRADE 1 & 7 — EMAIL AUTOMATION */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Automation</h2>
+              <p className="text-[13px] text-gray-500 mb-4">When enabled, due sequence steps send themselves via Resend every 15 minutes (within your send window). When off, steps wait in the N8N Outbox for manual sending — both paths always work.</p>
+              <div className="space-y-4 text-[13px]">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex-1 min-w-[220px]">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Verified Resend sender</label>
+                    <input type="email" placeholder="you@yourdomain.com" defaultValue={emailSettings?.resend_from_email || ''} onBlur={e => { if (e.target.value !== (emailSettings?.resend_from_email || '')) handleSaveEmailSettings({ resend_from_email: e.target.value || null }); }} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                  </div>
+                  <button onClick={() => handleSaveEmailSettings({ auto_send_enabled: !(emailSettings?.auto_send_enabled) })} className={`px-4 py-2 text-[13px] font-semibold rounded-xl shadow-sm ${emailSettings?.auto_send_enabled ? 'bg-green-600 text-white' : 'bg-gray-900 text-white hover:opacity-90'}`}>
+                    {emailSettings?.auto_send_enabled ? 'Auto-send: ON ✓' : 'Auto-send: OFF — enable'}
+                  </button>
+                </div>
+                {emailSettings?.auto_send_enabled && !emailSettings?.resend_from_email && (
+                  <p className="text-[12px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg p-2">Auto-send is on but no sender is set — the runner will skip your sends (manual Outbox still works). Also make sure RESEND_API_KEY is set in Supabase Edge Function secrets.</p>
+                )}
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Send days</label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => {
+                      const on = (emailSettings?.send_days ?? [1, 2, 3, 4, 5]).includes(i);
+                      return (
+                        <button key={d} onClick={() => {
+                          const cur = emailSettings?.send_days ?? [1, 2, 3, 4, 5];
+                          handleSaveEmailSettings({ send_days: on ? cur.filter(x => x !== i) : [...cur, i].sort() });
+                        }} className={`px-3 py-1 rounded-full text-[12px] font-semibold ring-1 ring-inset ${on ? 'bg-gray-900 text-white ring-gray-900' : 'bg-white text-gray-500 ring-gray-200 hover:ring-gray-400'}`}>{d}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-4">
+                  <label className="text-[12px] text-gray-500 flex items-center gap-2">Window
+                    <select value={emailSettings?.send_window_start ?? 9} onChange={e => handleSaveEmailSettings({ send_window_start: parseInt(e.target.value, 10) })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none">
+                      {[...Array(24)].map((_, h) => <option key={h} value={h}>{h}:00</option>)}
+                    </select>
+                    to
+                    <select value={emailSettings?.send_window_end ?? 17} onChange={e => handleSaveEmailSettings({ send_window_end: parseInt(e.target.value, 10) })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none">
+                      {[...Array(24)].map((_, h) => <option key={h} value={h + 1}>{h + 1}:00</option>)}
+                    </select>
+                  </label>
+                  <label className="text-[12px] text-gray-500 flex items-center gap-2">Timezone
+                    <select value={emailSettings?.send_tz_offset ?? -new Date().getTimezoneOffset()} onChange={e => handleSaveEmailSettings({ send_tz_offset: parseInt(e.target.value, 10) })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none">
+                      {[-12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(h => (
+                        <option key={h} value={Math.round(h * 60)}>UTC{h >= 0 ? '+' : ''}{h}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-[12px] text-gray-500 flex items-center gap-2">Daily cap
+                    <input type="number" min="1" defaultValue={emailSettings?.daily_send_cap ?? 50} onBlur={e => handleSaveEmailSettings({ daily_send_cap: Math.max(1, parseInt(e.target.value, 10) || 50) })} className="w-20 px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none" />
+                  </label>
+                </div>
+              </div>
             </div>
 
             {/* G1 — GMAIL SYNC */}
