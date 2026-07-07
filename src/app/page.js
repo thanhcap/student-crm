@@ -370,6 +370,10 @@ export default function App() {
   const [dealNotes, setDealNotes] = useState('');
   const [dealClientId, setDealClientId] = useState('');
   const [dealCurrency, setDealCurrency] = useState('USD'); // G20
+  // G19 â€” recurring revenue fields
+  const [dealIsRecurring, setDealIsRecurring] = useState(false);
+  const [dealBillingCycle, setDealBillingCycle] = useState('monthly');
+  const [dealRenewalDate, setDealRenewalDate] = useState('');
   const [dealSaving, setDealSaving] = useState(false);
 
   // FEATURE 2 â€” AI SUMMARY STATES
@@ -1017,7 +1021,8 @@ export default function App() {
 
   function resetDealForm() {
     setDealTitle(''); setDealValue(''); setDealStage('Proposal'); setDealProbability(50);
-    setDealCloseDate(''); setDealNotes(''); setDealClientId(''); setDealCurrency('USD'); setEditingDeal(null);
+    setDealCloseDate(''); setDealNotes(''); setDealClientId(''); setDealCurrency('USD');
+    setDealIsRecurring(false); setDealBillingCycle('monthly'); setDealRenewalDate(''); setEditingDeal(null);
   }
 
   async function handleCreateDeal(e) {
@@ -1030,6 +1035,10 @@ export default function App() {
       probability: Math.max(0, Math.min(100, parseInt(dealProbability, 10) || 0)),
       close_date: dealCloseDate || null, notes: dealNotes || null,
       currency: dealCurrency || 'USD', // G20
+      // G19
+      is_recurring: dealIsRecurring,
+      billing_cycle: dealIsRecurring ? dealBillingCycle : null,
+      renewal_date: dealIsRecurring ? (dealRenewalDate || null) : null,
     };
     if (editingDeal) {
       const { data, error } = await supabase.from('deals').update(payload).eq('id', editingDeal.id).select();
@@ -2502,6 +2511,24 @@ export default function App() {
   const weightedForecast = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + toUSD(d.value, d.currency) * ((d.probability || 0) / 100), 0), [deals]);
   const wonValue = useMemo(() => deals.filter(d => d.stage === 'Won').reduce((s, d) => s + toUSD(d.value, d.currency), 0), [deals]);
   const openDealsCount = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).length, [deals]);
+
+  // G19 â€” MRR from Won recurring deals, normalized to monthly USD
+  const mrr = useMemo(() => deals
+    .filter(d => d.stage === 'Won' && d.is_recurring)
+    .reduce((s, d) => {
+      const usd = toUSD(d.value, d.currency);
+      return s + (d.billing_cycle === 'annual' ? usd / 12 : d.billing_cycle === 'quarterly' ? usd / 3 : usd);
+    }, 0), [deals]);
+
+  // G19 â€” renewals due in the next 30 days
+  const upcomingRenewals = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const in30 = new Date(); in30.setDate(in30.getDate() + 30);
+    const in30Str = in30.toISOString().split('T')[0];
+    return deals
+      .filter(d => d.is_recurring && d.renewal_date && d.renewal_date >= today && d.renewal_date <= in30Str)
+      .sort((a, b) => a.renewal_date.localeCompare(b.renewal_date));
+  }, [deals]);
   const fmtMoney = (n) => `$${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
   // FEATURE 3 â€” reports computed
@@ -3401,6 +3428,43 @@ export default function App() {
                 </div>
               </div>
 
+              {/* G19 â€” Recurring Revenue */}
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ”</span> Recurring Revenue</h3>
+                <div className="flex gap-6">
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">MRR</p>
+                    <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{fmtMoney(mrr)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">ARR</p>
+                    <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{fmtMoney(mrr * 12)}</p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1.5">From Won deals marked recurring, normalized monthly.</p>
+                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Renewals (next 30 days)</p>
+                  {upcomingRenewals.length === 0 ? (
+                    <p className="text-[12px] text-gray-400">No renewals coming up.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {upcomingRenewals.slice(0, 4).map(d => {
+                        const rc = clients.find(c => c.id === d.client_id);
+                        return (
+                          <div key={d.id} className="flex items-center gap-2 text-[12px]">
+                            <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-1">{d.title}</span>
+                            <span className="text-gray-400 shrink-0">{d.renewal_date}</span>
+                            {rc && (
+                              <button onClick={() => { setViewingClient(rc); setActivityType('Call'); setActivityDesc(`Renewal call â€” ${d.title} renews ${d.renewal_date}.`); setAppStep('CLIENTS'); }} className="text-indigo-600 font-medium hover:underline shrink-0">Log renewal call</button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Top Sources (Feature 25) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ“</span> Top Sources</h3>
@@ -4072,6 +4136,7 @@ export default function App() {
                                   <button onClick={() => {
                                     setEditingDeal(deal); setDealTitle(deal.title); setDealValue(String(deal.value ?? ''));
                                     setDealCurrency(deal.currency || 'USD');
+                                    setDealIsRecurring(!!deal.is_recurring); setDealBillingCycle(deal.billing_cycle || 'monthly'); setDealRenewalDate(deal.renewal_date || '');
                                     setDealStage(deal.stage); setDealProbability(deal.probability ?? 50);
                                     setDealCloseDate(deal.close_date || ''); setDealNotes(deal.notes || '');
                                     setDealClientId(String(deal.client_id)); setShowDealForm(true);
@@ -5749,6 +5814,29 @@ export default function App() {
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Close Date</label>
                   <input type="date" value={dealCloseDate} onChange={e => setDealCloseDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-gray-600 focus:outline-none" />
                 </div>
+              </div>
+              {/* G19 â€” recurring revenue */}
+              <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 space-y-3">
+                <label className="flex items-center gap-2 text-[13px] font-medium text-gray-700 cursor-pointer">
+                  <input type="checkbox" checked={dealIsRecurring} onChange={e => setDealIsRecurring(e.target.checked)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
+                  Recurring revenue (subscription / retainer)
+                </label>
+                {dealIsRecurring && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Billing Cycle</label>
+                      <select value={dealBillingCycle} onChange={e => setDealBillingCycle(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="annual">Annual</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Next Renewal</label>
+                      <input type="date" value={dealRenewalDate} onChange={e => setDealRenewalDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-gray-600 focus:outline-none" />
+                    </div>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Notes</label>

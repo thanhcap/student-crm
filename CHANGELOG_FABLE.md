@@ -140,3 +140,12 @@ NOT touched (verified by post-pass grep audit — every remaining "Client"/"clie
 `companyFaviconUrl()` helper builds a Google `s2/favicons` URL from `company_url` (any scheme handling via `new URL`). Logo shown as a small avatar next to the company name in the Relationship Profile and beside the name in the table row; broken images hide themselves via `onError`.
 
 **Manual test:** set company website "stripe.com" on a relationship → favicon appears in profile Company row and in the table row.
+
+## fable/g19-recurring-revenue — G19: Renewal & MRR/ARR Tracking
+**Line count: +85 approx**
+
+- Migration `g19_recurring_revenue` applied live (`deals.is_recurring`, `billing_cycle` CHECK, `renewal_date`); copy in `supabase/migrations/`.
+- Deal form: "Recurring revenue" checkbox revealing Billing Cycle + Next Renewal; persisted on create/edit.
+- Dashboard widget: MRR (Won recurring deals normalized to monthly, USD via G20 rates) + ARR (×12), and an "Upcoming Renewals (next 30 days)" list with one-click "Log renewal call" (opens the relationship with a pre-filled Call activity).
+
+**Manual test:** mark a Won deal recurring/monthly with a renewal next week → dashboard shows MRR/ARR and the renewal row; "Log renewal call" opens the profile with the Call note pre-filled.
