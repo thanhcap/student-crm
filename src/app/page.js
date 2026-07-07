@@ -484,6 +484,16 @@ export default function App() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
 
+  // N8N — EMAIL SEQUENCE WORKFLOW STATES
+  const [sequences, setSequences] = useState([]);
+  const [sequenceSteps, setSequenceSteps] = useState([]);
+  const [sequenceEnrollments, setSequenceEnrollments] = useState([]);
+  const [newSeqName, setNewSeqName] = useState('');
+  const [newSeqTrigger, setNewSeqTrigger] = useState('manual');
+  const [newSeqTriggerValue, setNewSeqTriggerValue] = useState('');
+  const [seqStepDraft, setSeqStepDraft] = useState(null); // { sequenceId, wait_days, subject, body }
+  const [enrollPick, setEnrollPick] = useState({}); // sequenceId -> clientId
+
   // FEATURE 11 — WEBHOOKS STATES
   const [webhooks, setWebhooks] = useState([]);
   const [showWebhookForm, setShowWebhookForm] = useState(false);
@@ -824,7 +834,8 @@ export default function App() {
       fetchWebhooks(session.user.id),
       fetchGoals(session.user.id),
       fetchSavedViews(session.user.id),
-      fetchCustomReports(session.user.id)
+      fetchCustomReports(session.user.id),
+      fetchSequences(session.user.id)
     ]);
     // Workspace depends on the session user; invite acceptance needs the email
     await fetchWorkspace(session.user.id, session.user.email);
@@ -1356,6 +1367,144 @@ export default function App() {
     }
   }
 
+  // ==========================================
+  // N8N — EMAIL SEQUENCE WORKFLOWS
+  // ==========================================
+
+  async function fetchSequences(userId) {
+    const [{ data: seqs }, { data: steps }, { data: enr }] = await Promise.all([
+      supabase.from('email_sequences').select('*').eq('user_id', userId).order('created_at'),
+      supabase.from('sequence_steps').select('*').eq('user_id', userId).order('step_order'),
+      supabase.from('sequence_enrollments').select('*').eq('user_id', userId),
+    ]);
+    if (seqs) setSequences(seqs);
+    if (steps) setSequenceSteps(steps);
+    if (enr) setSequenceEnrollments(enr);
+  }
+
+  const seqStepsFor = (id) => sequenceSteps.filter(s => s.sequence_id === id).sort((a, b) => a.step_order - b.step_order || a.id - b.id);
+  const addDaysStr = (days, base = new Date()) => { const d = new Date(base); d.setDate(d.getDate() + (parseInt(days, 10) || 0)); return d.toISOString().split('T')[0]; };
+
+  async function handleCreateSequence(e) {
+    e.preventDefault();
+    if (!newSeqName.trim()) return;
+    const { data, error } = await supabase.from('email_sequences').insert([{
+      user_id: user.id, name: newSeqName.trim(), status: 'draft',
+      trigger_type: newSeqTrigger, trigger_value: newSeqTrigger === 'tag_applied' ? (newSeqTriggerValue || null) : null,
+    }]).select();
+    if (!error && data) {
+      setSequences(prev => [...prev, data[0]]);
+      setNewSeqName(''); setNewSeqTrigger('manual'); setNewSeqTriggerValue('');
+      showToast('Workflow created — add steps, then activate it.', 'success');
+    } else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  async function handleSetSequenceStatus(seq, status) {
+    if (status === 'active' && seqStepsFor(seq.id).length === 0) { showToast('Add at least one step before activating.', 'error'); return; }
+    const { error } = await supabase.from('email_sequences').update({ status }).eq('id', seq.id);
+    if (!error) setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, status } : s));
+  }
+
+  function handleDeleteSequence(seq) {
+    showConfirm('Delete Workflow', `Delete "${seq.name}" and all its steps/enrollments? This cannot be undone.`, 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('email_sequences').delete().eq('id', seq.id);
+        if (!error) {
+          setSequences(prev => prev.filter(s => s.id !== seq.id));
+          setSequenceSteps(prev => prev.filter(s => s.sequence_id !== seq.id));
+          setSequenceEnrollments(prev => prev.filter(s => s.sequence_id !== seq.id));
+        }
+      });
+  }
+
+  async function handleDuplicateSequence(seq) {
+    const { data, error } = await supabase.from('email_sequences').insert([{
+      user_id: user.id, name: `${seq.name} (copy)`, status: 'draft',
+      trigger_type: seq.trigger_type, trigger_value: seq.trigger_value,
+    }]).select();
+    if (error || !data) { showToast(`Error: ${error?.message}`, 'error'); return; }
+    const steps = seqStepsFor(seq.id).map(s => ({
+      sequence_id: data[0].id, user_id: user.id, step_order: s.step_order,
+      wait_days: s.wait_days, subject: s.subject, body: s.body,
+    }));
+    if (steps.length > 0) {
+      const { data: sd } = await supabase.from('sequence_steps').insert(steps).select();
+      if (sd) setSequenceSteps(prev => [...prev, ...sd]);
+    }
+    setSequences(prev => [...prev, data[0]]);
+    showToast('Workflow duplicated as draft.', 'success');
+  }
+
+  async function handleAddSequenceStep(e) {
+    e.preventDefault();
+    const d = seqStepDraft;
+    if (!d || !d.subject?.trim() || !d.body?.trim()) return;
+    const { data, error } = await supabase.from('sequence_steps').insert([{
+      sequence_id: d.sequenceId, user_id: user.id, step_order: seqStepsFor(d.sequenceId).length,
+      wait_days: Math.max(0, parseInt(d.wait_days, 10) || 0), subject: d.subject.trim(), body: d.body,
+    }]).select();
+    if (!error && data) {
+      setSequenceSteps(prev => [...prev, data[0]]);
+      setSeqStepDraft(null);
+    } else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  async function handleDeleteSequenceStep(step) {
+    const { error } = await supabase.from('sequence_steps').delete().eq('id', step.id);
+    if (!error) setSequenceSteps(prev => prev.filter(s => s.id !== step.id));
+  }
+
+  async function enrollClientInSequence(seq, clientId) {
+    const steps = seqStepsFor(seq.id);
+    if (steps.length === 0) { showToast('This workflow has no steps yet.', 'error'); return; }
+    const cid = parseInt(clientId, 10);
+    if (sequenceEnrollments.some(en => en.sequence_id === seq.id && en.client_id === cid && en.status === 'active')) {
+      showToast('Already enrolled in this workflow.', 'error'); return;
+    }
+    const { data, error } = await supabase.from('sequence_enrollments').insert([{
+      sequence_id: seq.id, client_id: cid, user_id: user.id,
+      status: 'active', current_step: 0, next_send_at: addDaysStr(steps[0].wait_days),
+    }]).select();
+    if (!error && data) {
+      setSequenceEnrollments(prev => [...prev, data[0]]);
+      showToast('Enrolled — first email is in the Outbox when due.', 'success');
+    } else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  async function handleStopEnrollment(enr) {
+    const { error } = await supabase.from('sequence_enrollments').update({ status: 'stopped', next_send_at: null }).eq('id', enr.id);
+    if (!error) setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, status: 'stopped', next_send_at: null } : x));
+  }
+
+  // Opens the compose tab for the due step, logs the activity, advances the enrollment.
+  async function handleSendSequenceStep(enr) {
+    const seq = sequences.find(s => s.id === enr.sequence_id);
+    const steps = seqStepsFor(enr.sequence_id);
+    const step = steps[enr.current_step];
+    const c = clients.find(x => x.id === enr.client_id);
+    if (!seq || !step || !c?.email) { showToast('Missing step or recipient email.', 'error'); return; }
+    const subject = resolveMergeTags(step.subject, c);
+    const body = resolveMergeTags(step.body, c);
+    const url = emailProvider === 'mailto' ? buildMailtoUrl(c.email, subject, body) : buildGmailUrl(c.email, subject, body);
+    const tab = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!tab && emailProvider !== 'mailto') window.location.href = buildMailtoUrl(c.email, subject, body);
+    const { data: act } = await supabase.from('activities').insert([{
+      client_id: c.id, user_id: user.id, activity_type: 'Email',
+      activity_date: new Date().toISOString().split('T')[0],
+      description: `Sequence "${seq.name}" — step ${enr.current_step + 1}: ${subject}`,
+    }]).select();
+    if (act) setActivities(prev => [act[0], ...prev]);
+    const nextIdx = enr.current_step + 1;
+    const patch = nextIdx >= steps.length
+      ? { status: 'completed', current_step: nextIdx, next_send_at: null }
+      : { current_step: nextIdx, next_send_at: addDaysStr(steps[nextIdx].wait_days) };
+    await supabase.from('sequence_enrollments').update(patch).eq('id', enr.id);
+    setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, ...patch } : x));
+    await supabase.from('email_sequences').update({ last_run_at: new Date().toISOString() }).eq('id', seq.id);
+    setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, last_run_at: new Date().toISOString() } : s));
+    showToast(nextIdx >= steps.length ? 'Sequence completed for this relationship.' : `Step sent — next step due ${patch.next_send_at}.`, 'success');
+  }
+
   // G11 — one-click insert of a pre-configured recipe rule
   async function handleEnableRecipe(recipe) {
     if (automationRules.some(r => r.name === recipe.name)) { showToast('Recipe already enabled.', 'error'); return; }
@@ -1457,7 +1606,13 @@ export default function App() {
       if (!error) setClientTagMap(prev => ({ ...prev, [clientId]: (prev[clientId] || []).filter(t => t !== tagId) }));
     } else {
       const { error } = await supabase.from('client_tags').insert([{ client_id: clientId, tag_id: tagId }]);
-      if (!error) setClientTagMap(prev => ({ ...prev, [clientId]: [...(prev[clientId] || []), tagId] }));
+      if (!error) {
+        setClientTagMap(prev => ({ ...prev, [clientId]: [...(prev[clientId] || []), tagId] }));
+        // N8N — auto-enroll workflows triggered by "tag applied"
+        const tagName = tags.find(t => t.id === tagId)?.name;
+        if (tagName) sequences.filter(q => q.status === 'active' && q.trigger_type === 'tag_applied' && q.trigger_value === tagName)
+          .forEach(q => enrollClientInSequence(q, clientId));
+      }
     }
   }
 
@@ -2109,6 +2264,9 @@ export default function App() {
       updateStreak();
       dispatchWebhook('client.created', newClient);
       if (newClient.source) executeAutomations('source_is', newClient.source, newClient.id); // G11
+      // N8N — auto-enroll workflows triggered by "new relationship added"
+      sequences.filter(q => q.status === 'active' && q.trigger_type === 'new_relationship')
+        .forEach(q => enrollClientInSequence(q, newClient.id));
     } else if (error) {
       setCrmErrorMessage(`Database Sync Error: ${error.message}`);
     }
@@ -2621,6 +2779,20 @@ export default function App() {
   const wonValue = useMemo(() => deals.filter(d => d.stage === 'Won').reduce((s, d) => s + toUSD(d.value, d.currency), 0), [deals]);
   const openDealsCount = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).length, [deals]);
 
+  // N8N — enrollments whose next step is due (the Outbox)
+  const dueSequenceSends = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return sequenceEnrollments
+      .filter(en => en.status === 'active' && en.next_send_at && en.next_send_at <= today)
+      .map(en => {
+        const seq = sequences.find(s => s.id === en.sequence_id);
+        const step = sequenceSteps.filter(s => s.sequence_id === en.sequence_id).sort((a, b) => a.step_order - b.step_order || a.id - b.id)[en.current_step];
+        const c = clients.find(x => x.id === en.client_id);
+        return seq && seq.status === 'active' && step && c ? { enr: en, seq, step, client: c } : null;
+      })
+      .filter(Boolean);
+  }, [sequenceEnrollments, sequences, sequenceSteps, clients]);
+
   // G19 — MRR from Won recurring deals, normalized to monthly USD
   const mrr = useMemo(() => deals
     .filter(d => d.stage === 'Won' && d.is_recurring)
@@ -2979,6 +3151,7 @@ export default function App() {
               ['DASHBOARD', 'Dashboard'],
               ['CLIENTS', 'Relationships'],
               ['DEALS', 'Deals'],
+              ['N8N', 'N8N'],
               ['GLOBAL_TASKS', 'Tasks'],
               ['CALENDAR', 'Calendar'],
               ['REPORTS', 'Reports'],
@@ -3151,6 +3324,7 @@ export default function App() {
                 ['DASHBOARD', 'Dashboard'],
                 ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
+                ['N8N', 'N8N'],
                 ['GLOBAL_TASKS', 'Tasks'],
                 ['CALENDAR', 'Calendar'],
                 ['REPORTS', 'Reports'],
@@ -4852,6 +5026,148 @@ export default function App() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: N8N — EMAIL SEQUENCE WORKFLOWS */}
+        {appStep === 'N8N' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">N8N</h1>
+              <p className="text-[13px] text-gray-500">Automated email sequences — build a workflow, enroll relationships, and each follow-up lands in your Outbox when due.</p>
+            </div>
+
+            {/* OUTBOX — due sends */}
+            {dueSequenceSends.length > 0 && (
+              <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl p-5 space-y-2">
+                <h3 className="text-[14px] font-semibold text-indigo-900 dark:text-indigo-200">Outbox — {dueSequenceSends.length} email{dueSequenceSends.length === 1 ? '' : 's'} due</h3>
+                {dueSequenceSends.map(({ enr, seq, step, client: c }) => (
+                  <div key={enr.id} className="flex flex-wrap items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-3 border border-indigo-100 dark:border-indigo-800">
+                    <div className="flex-1 min-w-[180px]">
+                      <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">{c.name} <span className="text-gray-400 font-normal">· step {enr.current_step + 1} of {seqStepsFor(seq.id).length} · {seq.name}</span></p>
+                      <p className="text-[12px] text-gray-500 truncate">{resolveMergeTags(step.subject, c)}</p>
+                    </div>
+                    <button onClick={() => handleStopEnrollment(enr)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Stop</button>
+                    <button onClick={() => handleSendSequenceStep(enr)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Send now →</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* NEW WORKFLOW */}
+            <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+              <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">New Workflow</h3>
+              <form onSubmit={handleCreateSequence} className="flex flex-wrap gap-2 text-[13px]">
+                <input type="text" required placeholder="Workflow name (e.g. Cold outreach — agencies)" value={newSeqName} onChange={e => setNewSeqName(e.target.value)} className="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                <select value={newSeqTrigger} onChange={e => setNewSeqTrigger(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                  <option value="manual">Trigger: Manual enroll</option>
+                  <option value="new_relationship">Trigger: New relationship added</option>
+                  <option value="tag_applied">Trigger: Tag applied</option>
+                </select>
+                {newSeqTrigger === 'tag_applied' && (
+                  <select required value={newSeqTriggerValue} onChange={e => setNewSeqTriggerValue(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                    <option value="">— pick tag —</option>
+                    {tags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                  </select>
+                )}
+                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Workflow</button>
+              </form>
+            </div>
+
+            {/* WORKFLOW LIST */}
+            {sequences.length === 0 ? (
+              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                <EmptyState title="No workflows yet" desc="Create a workflow above, add email steps with wait times, then activate it." />
+              </div>
+            ) : sequences.map(seq => {
+              const steps = seqStepsFor(seq.id);
+              const enrolled = sequenceEnrollments.filter(en => en.sequence_id === seq.id);
+              const activeEnr = enrolled.filter(en => en.status === 'active');
+              const statusCls = { draft: 'bg-gray-100 text-gray-600 ring-gray-500/10', active: 'bg-green-50 text-green-700 ring-green-600/10', paused: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20' }[seq.status];
+              return (
+                <div key={seq.id} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">{seq.name}</h3>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset capitalize ${statusCls}`}>{seq.status}</span>
+                    <span className="text-[11px] text-gray-400">
+                      Trigger: {{ manual: 'Manual', new_relationship: 'New relationship', tag_applied: `Tag "${seq.trigger_value}"` }[seq.trigger_type]}
+                      {' · '}{activeEnr.length} enrolled{enrolled.length !== activeEnr.length ? ` (${enrolled.length} total)` : ''}
+                      {' · '}Last run: {seq.last_run_at ? new Date(seq.last_run_at).toLocaleString() : 'never'}
+                    </span>
+                    <div className="ml-auto flex flex-wrap gap-2 text-[12px] font-medium">
+                      {seq.status !== 'active' && <button onClick={() => handleSetSequenceStatus(seq, 'active')} className="px-3 py-1 rounded-full bg-green-600 text-white hover:opacity-90">{seq.status === 'paused' ? 'Resume' : 'Activate'}</button>}
+                      {seq.status === 'active' && <button onClick={() => handleSetSequenceStatus(seq, 'paused')} className="px-3 py-1 rounded-full bg-yellow-500 text-white hover:opacity-90">Pause</button>}
+                      <button onClick={() => handleDuplicateSequence(seq)} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Duplicate</button>
+                      <button onClick={() => handleDeleteSequence(seq)} className="text-red-500 hover:text-red-700">Delete</button>
+                    </div>
+                  </div>
+
+                  {/* STEPS (vertical editor) */}
+                  <div className="space-y-2">
+                    {steps.map((st, i) => (
+                      <div key={st.id}>
+                        {(i > 0 || st.wait_days > 0) && (
+                          <div className="flex items-center gap-2 pl-4 py-1 text-[11px] font-semibold text-gray-400">
+                            <span className="w-px h-4 bg-gray-200 dark:bg-gray-700" /> Wait {st.wait_days} day{st.wait_days === 1 ? '' : 's'}{i === 0 ? ' after enrollment' : ''}
+                          </div>
+                        )}
+                        <div className="flex items-start gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl bg-gray-50/50 dark:bg-gray-800/40 group">
+                          <span className="w-6 h-6 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{st.subject}</p>
+                            <p className="text-[12px] text-gray-500 line-clamp-2 whitespace-pre-wrap">{st.body}</p>
+                            <p className="text-[10px] text-gray-400 mt-1">Opens — · Replies — · Bounces — <span className="italic">(no data yet — needs a tracking backend)</span></p>
+                          </div>
+                          <button onClick={() => handleDeleteSequenceStep(st)} className="text-[11px] font-medium text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100">Delete</button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Add step */}
+                    {seqStepDraft?.sequenceId === seq.id ? (
+                      <form onSubmit={handleAddSequenceStep} className="border border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-3 space-y-2 text-[13px]">
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <label className="flex items-center gap-1.5 text-[12px] text-gray-500">Wait
+                            <input type="number" min="0" value={seqStepDraft.wait_days} onChange={e => setSeqStepDraft({ ...seqStepDraft, wait_days: e.target.value })} className="w-16 px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none" />
+                            days, then send:
+                          </label>
+                          {emailTemplates.length > 0 && (
+                            <select onChange={e => { const t = emailTemplates.find(x => String(x.id) === e.target.value); if (t) setSeqStepDraft({ ...seqStepDraft, subject: t.subject, body: t.body }); }} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
+                              <option value="">Use template…</option>
+                              {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                            </select>
+                          )}
+                        </div>
+                        <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={seqStepDraft.subject} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                        <textarea rows={3} required placeholder="Body" value={seqStepDraft.body} onChange={e => setSeqStepDraft({ ...seqStepDraft, body: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setSeqStepDraft(null)} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+                          <button type="submit" className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Step</button>
+                        </div>
+                      </form>
+                    ) : (
+                      <button onClick={() => setSeqStepDraft({ sequenceId: seq.id, wait_days: steps.length === 0 ? 0 : 3, subject: '', body: '' })} className="w-full px-3 py-2 text-[12px] font-medium text-gray-500 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl hover:border-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">+ Add step {steps.length > 0 ? `(step ${steps.length + 1})` : '(first email)'}</button>
+                    )}
+                  </div>
+
+                  {/* Enroll / Run */}
+                  <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-800">
+                    <select value={enrollPick[seq.id] || ''} onChange={e => setEnrollPick(prev => ({ ...prev, [seq.id]: e.target.value }))} className="px-3 py-1.5 text-[13px] border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none min-w-[180px]">
+                      <option value="">— pick relationship —</option>
+                      {clients.filter(c => c.email).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    <button onClick={() => enrollPick[seq.id] && enrollClientInSequence(seq, enrollPick[seq.id])} disabled={!enrollPick[seq.id]} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">▶ Enroll / Run</button>
+                    {activeEnr.length > 0 && (
+                      <span className="text-[11px] text-gray-400">Next sends: {activeEnr.slice(0, 3).map(en => `${clients.find(c => c.id === en.client_id)?.name || '?'} → ${en.next_send_at}`).join(' · ')}{activeEnr.length > 3 ? ' …' : ''}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-[12px] text-yellow-800 dark:text-yellow-300">
+              ⚠️ Sends open a pre-filled compose tab (same Gmail/Default-app setting as Send Email) — you click send, so deliverability stays on your own account. Fully hands-off sending needs an email API key (e.g. Resend) + a scheduled job; the schema is already built for it.
             </div>
           </div>
         )}

@@ -1,0 +1,5 @@
+-- N8N email sequence workflows (APPLIED LIVE 2026-07-07 via MCP: n8n_email_sequences)
+-- email_sequences (status draft/active/paused; trigger manual/new_relationship/tag_applied)
+-- sequence_steps (ordered, wait_days, subject, body)
+-- sequence_enrollments (per-relationship progress: current_step, next_send_at, status)
+-- All three RLS-enabled with owner policies. See the MCP migration for full DDL.
