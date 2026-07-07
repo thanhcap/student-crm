@@ -494,6 +494,10 @@ export default function App() {
   const [seqStepDraft, setSeqStepDraft] = useState(null); // { sequenceId, wait_days, subject, body }
   const [enrollPick, setEnrollPick] = useState({}); // sequenceId -> clientId
 
+  // G1 — GMAIL SYNC STATES
+  const [gmailConn, setGmailConn] = useState(null);
+  const [gmailSyncing, setGmailSyncing] = useState(false);
+
   // FEATURE 11 — WEBHOOKS STATES
   const [webhooks, setWebhooks] = useState([]);
   const [showWebhookForm, setShowWebhookForm] = useState(false);
@@ -835,8 +839,18 @@ export default function App() {
       fetchGoals(session.user.id),
       fetchSavedViews(session.user.id),
       fetchCustomReports(session.user.id),
-      fetchSequences(session.user.id)
+      fetchSequences(session.user.id),
+      fetchGmailConn(session.user.id)
     ]);
+    // G1 — post-OAuth landing feedback
+    const qp = new URLSearchParams(window.location.search);
+    if (qp.get('gmail') === 'connected') {
+      showToast('Gmail connected — emails will sync as activities.', 'success');
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (qp.get('gmail_error')) {
+      showToast(`Gmail connect failed: ${qp.get('gmail_error')}`, 'error');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
     // Workspace depends on the session user; invite acceptance needs the email
     await fetchWorkspace(session.user.id, session.user.email);
   }
@@ -1365,6 +1379,51 @@ export default function App() {
         .eq('id', rule.id);
       setAutomationRules(prev => prev.map(r => r.id === rule.id ? { ...r, run_count: (r.run_count || 0) + 1 } : r));
     }
+  }
+
+  // ==========================================
+  // G1 — GMAIL SYNC
+  // ==========================================
+
+  async function fetchGmailConn(userId) {
+    const { data } = await supabase.from('gmail_sync_tokens').select('id, gmail_address, connected_at, last_synced_at').eq('user_id', userId).maybeSingle();
+    setGmailConn(data || null);
+  }
+
+  function handleConnectGmail() {
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    if (!clientId) { showToast('NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set in .env.local.', 'error'); return; }
+    const redirect = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/gmail-oauth`;
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
+      client_id: clientId, redirect_uri: redirect, response_type: 'code',
+      scope: 'https://www.googleapis.com/auth/gmail.readonly',
+      access_type: 'offline', prompt: 'consent', state: user.id,
+    })}`;
+  }
+
+  function handleDisconnectGmail() {
+    showConfirm('Disconnect Gmail', 'Stop syncing Gmail messages as activities? Already-synced activities are kept.', 'Disconnect', 'danger',
+      async () => {
+        const { error } = await supabase.from('gmail_sync_tokens').delete().eq('user_id', user.id);
+        if (!error) setGmailConn(null);
+      });
+  }
+
+  async function handleGmailSyncNow() {
+    setGmailSyncing(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/gmail-sync`, {
+      method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+    }).catch(() => null);
+    const out = res ? await res.json().catch(() => ({})) : {};
+    if (res?.ok) {
+      showToast(`Gmail sync complete — ${out.synced ?? 0} new email activit${(out.synced ?? 0) === 1 ? 'y' : 'ies'}.`, 'success');
+      fetchActivities(user.id);
+      fetchGmailConn(user.id);
+    } else {
+      showToast(`Gmail sync failed: ${out.error || 'network error'}${out.error === 'server_not_configured' || out.detail ? ' — check GOOGLE_CLIENT_SECRET in Supabase function secrets' : ''}`, 'error');
+    }
+    setGmailSyncing(false);
   }
 
   // ==========================================
@@ -5232,6 +5291,32 @@ export default function App() {
                   {myRole !== 'owner' && (
                     <button onClick={handleLeaveWorkspace} className="px-4 py-2 text-[13px] font-medium text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100">Leave Workspace</button>
                   )}
+                </>
+              )}
+            </div>
+
+            {/* G1 — GMAIL SYNC */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <h2 className="text-[15px] font-bold text-gray-900 mb-2">Gmail Sync</h2>
+              {!gmailConn ? (
+                <>
+                  <p className="text-[13px] text-gray-500 mb-4">Connect Gmail (read-only) to automatically log emails to and from your relationships as Email activities.</p>
+                  <button onClick={handleConnectGmail} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Connect Gmail for automatic activity sync</button>
+                </>
+              ) : (
+                <>
+                  <p className="text-[13px] text-gray-500 mb-4">
+                    Connected{gmailConn.gmail_address ? <> as <span className="font-semibold text-gray-900">{gmailConn.gmail_address}</span></> : ''} · since {new Date(gmailConn.connected_at).toLocaleDateString()}
+                    {gmailConn.last_synced_at ? <> · last synced {new Date(gmailConn.last_synced_at).toLocaleString()}</> : ' · never synced yet'}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={handleGmailSyncNow} disabled={gmailSyncing} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                      {gmailSyncing && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                      {gmailSyncing ? 'Syncing…' : 'Sync now'}
+                    </button>
+                    <button onClick={handleDisconnectGmail} className="px-4 py-2 text-[13px] font-medium text-red-600 bg-red-50 border border-red-100 rounded-xl hover:bg-red-100">Disconnect</button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-3">Scans the last 7 days for messages to/from relationship emails; duplicates are skipped automatically. Scheduled background sync can be added with pg_cron once you want it.</p>
                 </>
               )}
             </div>

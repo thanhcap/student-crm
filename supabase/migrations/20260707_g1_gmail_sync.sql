@@ -1,0 +1,5 @@
+-- G1 Gmail sync (APPLIED LIVE 2026-07-07 via MCP: g1_gmail_sync)
+-- gmail_sync_tokens (unique per user, RLS owner policy)
+-- activities.gmail_message_id + partial unique index for dedupe
+-- Edge Functions deployed: gmail-oauth (verify_jwt=false, OAuth callback),
+-- gmail-sync (verify_jwt=true, on-demand poll).

@@ -189,3 +189,10 @@ Root cause was NOT G1/G2/G23 (those are Gmail-sync/Twilio features awaiting cred
 6. **Dark placeholders** — global theme-aware input/select/textarea colors + AA placeholder tokens in globals.css (fixes every form, not just Add Relationship).
 7. **Workspace creation** — schema drift again: code wrote `workspace_members.accepted`/`invited_email` which didn't exist; columns added live (policies verified present).
 8. **Country fields** — Add form, Edit modal, and Settings profile country inputs are now datalist comboboxes backed by a 195-country list (type-to-filter or browse). ASSUMPTION: native datalist (allows free text but always offers valid options) over a custom locked combobox.
+
+## fable/g1-gmail-sync — G1: Two-Way Gmail Sync (read side)
+- `gmail_sync_tokens` table + `activities.gmail_message_id` dedupe index (applied live, RLS).
+- Edge Functions deployed: **gmail-oauth** (public callback: code→refresh-token exchange, stores token, redirects back with ?gmail=connected) and **gmail-sync** (JWT-verified: refreshes access token, queries Gmail for last-7-days messages to/from each relationship email in 15-address chunks, inserts deduped Email activities, stamps last_synced_at).
+- Settings → "Gmail Sync" card: Connect (OAuth w/ gmail.readonly, offline+consent), connected state w/ address + last sync, Sync now, Disconnect. Client ID in `.env.local` (NEXT_PUBLIC_GOOGLE_CLIENT_ID).
+- USER STEPS REQUIRED: (1) add redirect URI to the Google OAuth client; (2) set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET as Supabase Edge Function secrets; (3) optionally APP_URL secret for the post-OAuth redirect. Scheduled polling via pg_cron = follow-up; "Sync now" works immediately.
+- SECURITY NOTE: OAuth `state` carries the user id unsigned — acceptable for single-user use; sign it before multi-tenant production.
