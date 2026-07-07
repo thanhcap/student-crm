@@ -24,7 +24,7 @@ function ConfirmDialog({ isOpen, title, message, confirmLabel, confirmVariant = 
 
   return (
     <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 dark:border-gray-700 overflow-hidden animate-in zoom-in-95 duration-200 p-6 sm:p-8">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 dark:border-gray-800 overflow-hidden animate-in zoom-in-95 duration-200 p-6 sm:p-8">
         <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">{title}</h3>
         <p className="text-[13px] text-gray-500 mt-2 leading-relaxed">{message}</p>
         <div className="flex gap-3 pt-6 mt-6 border-t border-gray-100">
@@ -151,6 +151,50 @@ function TagPill({ tag, onRemove }) {
       {tag.name}
       {onRemove && <button onClick={() => onRemove(tag.id)} className="hover:opacity-70 ml-0.5">Ã—</button>}
     </span>
+  );
+}
+
+// PART E â€” stage accent colors (kanban card left borders)
+const STAGE_COLORS = {
+  New: '#3B82F6', Contacted: '#F97316', Engaged: '#6366F1', Active: '#22C55E', Inactive: '#9CA3AF',
+  Prospect: '#9CA3AF', Proposal: '#3B82F6', Negotiation: '#F59E0B', 'Contract Sent': '#8B5CF6', Won: '#22C55E', Lost: '#EF4444',
+};
+
+// PART E â€” reusable empty state with abstract inline-SVG illustration
+function EmptyState({ title, desc, ctaLabel, onCta }) {
+  return (
+    <div className="flex flex-col items-center text-center py-10 px-6">
+      <svg viewBox="0 0 120 80" className="w-28 h-20 mb-4 text-gray-200 dark:text-gray-700" fill="none" aria-hidden="true">
+        <rect x="18" y="14" width="84" height="14" rx="7" fill="currentColor" opacity="0.6" />
+        <rect x="18" y="34" width="60" height="14" rx="7" fill="currentColor" />
+        <rect x="18" y="54" width="72" height="14" rx="7" fill="currentColor" opacity="0.4" />
+        <circle cx="104" cy="61" r="12" fill="currentColor" opacity="0.8" />
+        <path d="M100 61l3 3 5-6" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <p className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">{title}</p>
+      {desc && <p className="text-[13px] text-gray-400 mt-1 max-w-xs leading-relaxed">{desc}</p>}
+      {ctaLabel && onCta && (
+        <button onClick={onCta} className="mt-4 px-4 py-2 text-[13px] font-semibold text-white dark:text-gray-900 bg-gray-900 dark:bg-white rounded-xl hover:opacity-90 shadow-sm transition-opacity">{ctaLabel}</button>
+      )}
+    </div>
+  );
+}
+
+// PART E â€” skeleton loading rows (replaces bare "Loading..." text)
+function SkeletonRows({ rows = 5 }) {
+  return (
+    <div className="p-6 space-y-4" aria-busy="true" aria-label="Loading">
+      {[...Array(rows)].map((_, i) => (
+        <div key={i} className="flex items-center gap-4 animate-pulse">
+          <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 shrink-0" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 rounded-full bg-gray-100 dark:bg-gray-800" style={{ width: `${55 + ((i * 17) % 35)}%` }} />
+            <div className="h-2.5 rounded-full bg-gray-100 dark:bg-gray-800" style={{ width: `${30 + ((i * 23) % 30)}%` }} />
+          </div>
+          <div className="w-16 h-5 rounded-full bg-gray-100 dark:bg-gray-800 shrink-0" />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -2642,7 +2686,7 @@ export default function App() {
 
   if (appStep === 'LOADING') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] text-gray-900 font-sans">
+      <div className="min-h-screen flex items-center justify-center bg-[#FAFAFA] dark:bg-[#0A0A0A] text-gray-900 dark:text-gray-100 font-sans">
         <div className="flex flex-col items-center gap-4">
           <div className="w-5 h-5 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
           <span className="text-[13px] font-medium tracking-wide text-gray-500">Initializing workspace...</span>
@@ -2652,7 +2696,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] dark:bg-gray-950 text-gray-900 dark:text-gray-100 font-sans flex flex-col selection:bg-gray-900 selection:text-white relative">
+    <div className="min-h-screen bg-[#FAFAFA] dark:bg-[#0A0A0A] text-gray-900 dark:text-gray-100 font-sans flex flex-col selection:bg-gray-900 selection:text-white relative">
       
       {/* GLOBAL SEARCH COMMAND PALETTE */}
       {showGlobalSearch && (
@@ -2714,8 +2758,87 @@ export default function App() {
         </div>
       )}
       
-      {/* PREMIUM TOP NAVIGATION BAR */}
-      <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40 shadow-sm">
+      {/* PART E â€” LEFT SIDEBAR (desktop, 240px) */}
+      {user && (
+        <aside className="hidden md:flex flex-col fixed inset-y-0 left-0 w-60 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 z-40">
+          {/* Logo */}
+          <div className="flex items-center gap-2.5 px-5 h-16 shrink-0 border-b border-gray-100 dark:border-gray-800">
+            <div className="w-6 h-6 bg-gray-900 dark:bg-gray-100 rounded-md" />
+            <span className="text-[15px] font-semibold tracking-tight">Student CRM</span>
+          </div>
+          {/* Nav items */}
+          <nav className="flex-1 overflow-y-auto px-3 py-4 flex flex-col gap-0.5">
+            {[
+              ['DASHBOARD', 'Dashboard'],
+              ['CLIENTS', 'Relationships'],
+              ['DEALS', 'Deals'],
+              ['GLOBAL_TASKS', 'Tasks'],
+              ['CALENDAR', 'Calendar'],
+              ['REPORTS', 'Reports'],
+              ['SETTINGS', 'Settings'],
+            ].map(([step, label]) => (
+              <button key={step} onClick={() => setAppStep(step)} className={`text-left px-3 py-2 rounded-xl text-[13px] font-medium transition-all ${appStep === step ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-semibold' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>
+                {label}
+              </button>
+            ))}
+          </nav>
+          {/* Utilities + user block */}
+          <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-800 space-y-0.5">
+            <button onClick={() => setShowGlobalSearch(true)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
+              <span className="flex items-center gap-2"><SearchIcon /> Search</span>
+              <span className="text-[10px] font-semibold border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 rounded text-gray-400">âŒ˜K</span>
+            </button>
+            <div className="relative">
+              <button onClick={() => setShowNotifications(!showNotifications)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
+                <span className="flex items-center gap-2"><BellIcon /> Notifications</span>
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="text-[10px] font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5">{notifications.filter(n => !n.read).length}</span>
+                )}
+              </button>
+              {showNotifications && (
+                <div className="absolute left-full bottom-0 ml-3 w-80 bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-800 overflow-hidden z-50">
+                  <div className="p-3 bg-gray-50/80 dark:bg-gray-800/80 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+                    <span className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">Notifications</span>
+                    {notifications.filter(n => !n.read).length > 0 && (
+                      <button onClick={() => notifications.forEach(n => !n.read && handleMarkNotificationRead(n.id, n.reference_id, n.type))} className="text-[11px] text-indigo-600 font-medium hover:underline">Mark all read</button>
+                    )}
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <EmptyState title="All caught up" desc="Notifications about tasks and birthdays will appear here." />
+                    ) : (
+                      notifications.slice(0, 10).map(n => (
+                        <div key={n.id} onClick={() => handleMarkNotificationRead(n.id, n.reference_id, n.type)} className={`p-3 border-b border-gray-50 dark:border-gray-800 last:border-0 cursor-pointer transition-colors ${n.read ? 'bg-white dark:bg-gray-900 opacity-60' : 'bg-indigo-50/30 dark:bg-indigo-900/10 hover:bg-indigo-50/50'}`}>
+                          <p className="text-[12px] font-medium text-gray-900 dark:text-gray-100 leading-snug">{n.message}</p>
+                          <p className="text-[10px] text-gray-400 mt-1">{new Date(n.created_at).toLocaleDateString()}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <button onClick={toggleDarkMode} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
+              {darkMode ? 'â˜€ï¸ Light mode' : 'ðŸŒ™ Dark mode'}
+            </button>
+            <div className="flex items-center gap-2.5 px-3 pt-3 mt-1 border-t border-gray-100 dark:border-gray-800">
+              <span className="w-8 h-8 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-bold flex items-center justify-center shrink-0">
+                {(profile.username || user.email || '?').slice(0, 2).toUpperCase()}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-semibold text-gray-900 dark:text-gray-100 truncate">{profile.username || user.email}</p>
+                <p className="text-[10px] text-gray-400 truncate">{workspace ? workspace.name : 'Solo workspace'}</p>
+              </div>
+              <button onClick={handleLogout} title="Log out" className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 p-1 transition-colors">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {/* TOP NAVIGATION BAR (mobile when logged in; all sizes when logged out) */}
+      <nav className={`bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-40 shadow-sm ${user ? 'md:hidden' : ''}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-14 items-center">
             <div className="flex items-center gap-8">
@@ -2852,12 +2975,13 @@ export default function App() {
         </button>
       )}
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-        
+      <main className={`flex-1 w-full px-4 sm:px-6 lg:px-8 py-8 sm:py-12 ${user ? 'md:pl-[268px]' : ''}`}>
+        <div className="max-w-7xl mx-auto w-full">
+
         {/* VIEW: LOG IN */}
         {appStep === 'LOG_IN' && (
           <div className="max-w-[400px] mx-auto mt-10 sm:mt-20">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 sm:p-10">
+            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-8 sm:p-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-1">Welcome back</h2>
               <p className="text-[13px] text-gray-500 mb-6">Enter your credentials to access your workspace.</p>
               
@@ -2895,7 +3019,7 @@ export default function App() {
                     </button>
                   </div>
                 </div>
-                <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
+                <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
                   {authLoading ? 'Signing in...' : 'Sign In'}
                 </button>
               </form>
@@ -2906,7 +3030,7 @@ export default function App() {
         {/* VIEW: SIGN UP */}
         {appStep === 'SIGN_UP' && (
           <div className="max-w-[400px] mx-auto mt-10 sm:mt-20">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 sm:p-10">
+            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-8 sm:p-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-1">Create an account</h2>
               <p className="text-[13px] text-gray-500 mb-6">Enter your details below to get started.</p>
 
@@ -2943,7 +3067,7 @@ export default function App() {
                     <p className="text-[11px] text-red-500 mt-1">Passwords do not match</p>
                   )}
                 </div>
-                <button type="submit" disabled={authLoading || (confirmPassword.length > 0 && password !== confirmPassword)} className="w-full py-2.5 px-4 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center disabled:opacity-50 disabled:hover:bg-gray-900">
+                <button type="submit" disabled={authLoading || (confirmPassword.length > 0 && password !== confirmPassword)} className="w-full py-2.5 px-4 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center disabled:opacity-50 disabled:hover:bg-gray-900">
                   {authLoading ? 'Creating Account...' : 'Sign Up'}
                 </button>
               </form>
@@ -2954,7 +3078,7 @@ export default function App() {
         {/* VIEW: VERIFY OTP */}
         {appStep === 'VERIFY_OTP' && (
           <div className="max-w-[400px] mx-auto mt-10 sm:mt-20">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 sm:p-10">
+            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-8 sm:p-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-1">Check your email</h2>
               <p className="text-[13px] text-gray-500 mb-6">We sent a verification code to {email}.</p>
               
@@ -2969,7 +3093,7 @@ export default function App() {
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Verification Code</label>
                   <input type="text" value={otpToken} onChange={(e) => setOtpToken(e.target.value)} required placeholder="123456" className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors tracking-widest text-center" />
                 </div>
-                <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
+                <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
                   {authLoading ? 'Verifying...' : 'Verify Email'}
                 </button>
               </form>
@@ -2980,7 +3104,7 @@ export default function App() {
         {/* VIEW: FORGOT PASSWORD */}
         {appStep === 'FORGOT_PASSWORD' && (
           <div className="max-w-[400px] mx-auto mt-10 sm:mt-20">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 sm:p-10">
+            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-8 sm:p-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-1">Reset Password</h2>
               <p className="text-[13px] text-gray-500 mb-6">Enter your email and we'll send you a reset link.</p>
               
@@ -2999,7 +3123,7 @@ export default function App() {
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Email address</label>
                     <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                   </div>
-                  <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
+                  <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
                     {authLoading ? 'Sending...' : 'Send Reset Link'}
                   </button>
                 </form>
@@ -3012,13 +3136,13 @@ export default function App() {
         {appStep === 'DASHBOARD' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Overview</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Overview</h1>
               <p className="text-[13px] text-gray-500">Monitor your workspace activity and relationship directory.</p>
             </div>
 
             {/* ONBOARDING CHECKLIST (Feature 30) */}
             {!onboardingComplete && !onboardingDismissed && (
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm animate-in fade-in">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow animate-in fade-in">
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div>
                     <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">Welcome to your CRM! Get started in 4 steps:</h3>
@@ -3049,7 +3173,7 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               
               {/* Activity Chart */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 lg:col-span-1 flex flex-col">
+              <div className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 lg:col-span-1 flex flex-col">
                 <h3 className="text-[14px] font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-indigo-500"></span> Activity This Week
                 </h3>
@@ -3070,7 +3194,7 @@ export default function App() {
               </div>
 
               {/* Tasks Widgets */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
                   <h3 className="text-[14px] font-semibold text-gray-900 mb-4 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-red-500"></span> Overdue Tasks
@@ -3107,27 +3231,27 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm">
+              <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Total records</p>
                 <p className="text-2xl font-bold tracking-tight text-gray-900 mt-1">{clients.length}</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm">
+              <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">High Priority</p>
                 <p className="text-2xl font-bold tracking-tight text-gray-900 mt-1">{clients.filter(c => c.relationship === 'High').length}</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm">
+              <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Active Stage</p>
                 <p className="text-2xl font-bold tracking-tight text-gray-900 mt-1">{clients.filter(c => c.status === 'Active').length}</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm">
+              <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">New Stage</p>
                 <p className="text-2xl font-bold tracking-tight text-gray-900 mt-1">{clients.filter(c => c.status === 'New').length}</p>
               </div>
-              <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Open Deals</p>
                 <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{openDealsCount}</p>
               </div>
-              <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Pipeline Value</p>
                 <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{fmtMoney(pipelineValue)}</p>
               </div>
@@ -3136,7 +3260,7 @@ export default function App() {
             {/* NEW WIDGETS ROW: Streak, Goals, Top Leads, Health, Sources */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {/* Your Streak (Feature 17) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3">
                   <span>ðŸ”¥</span> Your Streak
                 </h3>
@@ -3156,7 +3280,7 @@ export default function App() {
               </div>
 
               {/* Monthly Goals (Feature 26) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5"><span>ðŸŽ¯</span> Monthly Goals</h3>
                   <button onClick={() => setShowGoalForm(true)} className="text-[12px] font-medium text-indigo-600 hover:underline">Set Goals</button>
@@ -3182,7 +3306,7 @@ export default function App() {
               </div>
 
               {/* Top Leads (Feature 6) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>â­</span> Top Leads</h3>
                 {topLeads.length === 0 ? (
                   <p className="text-[13px] text-gray-400 py-2">Add relationships to see lead scores.</p>
@@ -3200,7 +3324,7 @@ export default function App() {
               </div>
 
               {/* Relationship Health (Feature 19) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ’—</span> Relationship Health</h3>
                 <div className="space-y-2">
                   {[['Excellent', 'bg-green-500'], ['Good', 'bg-teal-500'], ['Fair', 'bg-yellow-400'], ['At Risk', 'bg-orange-500'], ['Critical', 'bg-red-500']].map(([label, color]) => {
@@ -3221,7 +3345,7 @@ export default function App() {
               </div>
 
               {/* Top Sources (Feature 25) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ“</span> Top Sources</h3>
                 {(() => {
                   const top = CLIENT_SOURCES.map(s => [s, clients.filter(c => c.source === s).length]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
@@ -3244,7 +3368,7 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
               {/* Birthdays */}
-              <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm space-y-4 flex flex-col">
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
                   <span>ðŸŽ‚</span> Birthdays (Next 30 Days)
                 </h3>
@@ -3263,7 +3387,7 @@ export default function App() {
               </div>
 
               {/* Recent Activity */}
-              <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm space-y-4 flex flex-col">
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
                   <span>âš¡</span> Recently Added Profiles
                 </h3>
@@ -3287,7 +3411,7 @@ export default function App() {
               </div>
 
               {/* Stale Clients */}
-              <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm space-y-4 flex flex-col">
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
                   <span>â„ï¸</span> Stale Relationships (&gt;30 Days)
                 </h3>
@@ -3323,7 +3447,7 @@ export default function App() {
             )}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-1">CRM Pipeline</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 mb-1">CRM Pipeline</h1>
                 <p className="text-[13px] text-gray-500">Manage relationship data, pipeline stages, custom fields, and records.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -3341,7 +3465,7 @@ export default function App() {
 
             {/* ADD CLIENT FORM */}
             {canEdit && (
-            <div id="add-client-form" className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm space-y-4">
+            <div id="add-client-form" className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4">
               <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400">Add New Student Profile Card</h3>
               {crmErrorMessage && <div className="p-2 bg-red-50 text-red-700 text-[12px] rounded-lg border border-red-100">{crmErrorMessage}</div>}
               
@@ -3408,7 +3532,7 @@ export default function App() {
                   {duplicateWarning && !forceSaveDuplicate && (
                     <button type="button" onClick={() => setForceSaveDuplicate(true)} className="px-3 py-2 text-[12px] font-medium text-yellow-700 bg-white border border-yellow-300 rounded-lg hover:bg-yellow-50 whitespace-nowrap">Save anyway</button>
                   )}
-                  <button type="submit" disabled={!!duplicateWarning && !forceSaveDuplicate} className="px-5 py-2 font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm transition-all whitespace-nowrap disabled:opacity-50 disabled:hover:bg-gray-900">Save Relationship</button>
+                  <button type="submit" disabled={!!duplicateWarning && !forceSaveDuplicate} className="px-5 py-2 font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm transition-all whitespace-nowrap disabled:opacity-50 disabled:hover:bg-gray-900">Save Relationship</button>
                 </div>
               </form>
             </div>
@@ -3571,23 +3695,24 @@ export default function App() {
 
             {/* DATA VIEW CONTAINER */}
             {loadingClients ? (
-              <div className="p-12 text-center text-[13px] text-gray-400 bg-white rounded-2xl border border-gray-200">Loading records...</div>
+              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm"><SkeletonRows rows={6} /></div>
             ) : filteredAndSortedClients.length === 0 ? (
-              <div className="p-12 text-center bg-white rounded-2xl border border-gray-200">
+              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
                 {clients.length === 0 ? (
-                  <>
-                    <p className="text-[14px] font-semibold text-gray-900">No relationships yet</p>
-                    <p className="text-[13px] text-gray-400 mt-1">Add your first relationship to start tracking.</p>
-                    <button onClick={() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' })} className="mt-4 px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Your First Relationship</button>
-                  </>
+                  <EmptyState
+                    title="No relationships yet"
+                    desc="Add your first relationship to start tracking."
+                    ctaLabel="Add Your First Relationship"
+                    onCta={() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' })}
+                  />
                 ) : (
-                  <p className="text-[13px] text-gray-400">No matching records found. Try adjusting your filters.</p>
+                  <EmptyState title="No matching records" desc="Try adjusting or clearing your filters." ctaLabel="Clear all filters" onCta={clearAllFilters} />
                 )}
               </div>
             ) : (
               viewMode === 'table' ? (
                 /* ------------------- TABLE VIEW ------------------- */
-                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in">
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden animate-in fade-in">
                   {/* FEATURE 12 â€” mobile card layout */}
                   <div className="block md:hidden space-y-3 p-3">
                     {paginatedClients.map(client => {
@@ -3600,7 +3725,7 @@ export default function App() {
                             <p className="text-[12px] text-gray-500 break-all">{client.email}</p>
                             <div className="flex flex-wrap items-center gap-2 mt-2">
                               <span className="text-[11px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">{client.status}</span>
-                              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${client.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' : client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{client.relationship}</span>
+                              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ring-inset ${client.relationship === 'High' ? 'bg-red-50 text-red-700 ring-red-600/10' : client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 ring-orange-600/10' : 'bg-blue-50 text-blue-700 ring-blue-600/10'}`}>{client.relationship}</span>
                               <ScoreBar score={client.leadScore || 0} />
                             </div>
                             <div className="flex gap-4 mt-3 text-[13px] font-medium">
@@ -3664,10 +3789,10 @@ export default function App() {
                                 </div>
                               </td>
                               <td className="p-4">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                                  client.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' :
-                                  client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-100' :
-                                  'bg-blue-50 text-blue-700 border-blue-100'
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ring-inset ${
+                                  client.relationship === 'High' ? 'bg-red-50 text-red-700 ring-red-600/10' :
+                                  client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 ring-orange-600/10' :
+                                  'bg-blue-50 text-blue-700 ring-blue-600/10'
                                 }`}>
                                   {client.relationship || 'Low'}
                                 </span>
@@ -3692,8 +3817,8 @@ export default function App() {
                               <td className="p-4">
                                 {(() => {
                                   const h = healthByClientId[client.id];
-                                  const cls = { Excellent: 'bg-green-50 text-green-700 border-green-100', Good: 'bg-teal-50 text-teal-700 border-teal-100', Fair: 'bg-yellow-50 text-yellow-700 border-yellow-100', 'At Risk': 'bg-orange-50 text-orange-700 border-orange-100', Critical: 'bg-red-50 text-red-700 border-red-100' }[h] || 'bg-gray-50 text-gray-500 border-gray-100';
-                                  return <button onClick={() => setFilterHealth(h)} className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}>{h}</button>;
+                                  const cls = { Excellent: 'bg-green-50 text-green-700 ring-green-600/10', Good: 'bg-teal-50 text-teal-700 ring-teal-600/10', Fair: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20', 'At Risk': 'bg-orange-50 text-orange-700 ring-orange-600/10', Critical: 'bg-red-50 text-red-700 ring-red-600/10' }[h] || 'bg-gray-50 text-gray-500 border-gray-100';
+                                  return <button onClick={() => setFilterHealth(h)} className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ring-inset ${cls}`}>{h}</button>;
                                 })()}
                               </td>
                               <td className="p-4 text-right font-normal">
@@ -3738,7 +3863,7 @@ export default function App() {
                     return (
                       <div
                         key={stage}
-                        className="flex-shrink-0 w-72 md:w-80 bg-gray-200/50 rounded-2xl flex flex-col border border-gray-200"
+                        className="flex-shrink-0 w-[280px] bg-gray-200/50 rounded-2xl flex flex-col border border-gray-100"
                         style={{ scrollSnapAlign: 'start' }}
                         onDragOver={handleDragOver}
                         onDrop={e => handleDrop(e, stage)}
@@ -3758,14 +3883,15 @@ export default function App() {
                                 draggable
                                 onDragStart={e => handleDragStart(e, client.id)}
                                 onClick={() => setViewingClient(client)}
-                                className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-sm hover:shadow transition-shadow cursor-grab active:cursor-grabbing flex flex-col gap-2 relative group"
+                                className="bg-white dark:bg-gray-900 p-3.5 rounded-xl border border-gray-100 dark:border-gray-800 border-l-4 shadow-sm hover:shadow-md active:shadow-lg transition-shadow cursor-grab active:cursor-grabbing flex flex-col gap-2 relative group"
+                                style={{ borderLeftColor: STAGE_COLORS[stage] || '#9CA3AF' }}
                               >
                                 <div className="flex justify-between items-start">
                                   <p className="text-[13px] font-bold text-gray-900 leading-tight pr-4">{client.name}</p>
-                                  <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
-                                    client.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' :
-                                    client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-100' :
-                                    'bg-blue-50 text-blue-700 border-blue-100'
+                                  <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ring-1 ring-inset ${
+                                    client.relationship === 'High' ? 'bg-red-50 text-red-700 ring-red-600/10' :
+                                    client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 ring-orange-600/10' :
+                                    'bg-blue-50 text-blue-700 ring-blue-600/10'
                                   }`}>{client.relationship}</span>
                                 </div>
                                 <div className="text-[11px] text-gray-500 truncate">{client.email}</div>
@@ -3796,11 +3922,11 @@ export default function App() {
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Deals Pipeline</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Deals Pipeline</h1>
                 <p className="text-[13px] text-gray-500">Track opportunities, forecast revenue, and close more deals.</p>
               </div>
               {canEdit && (
-                <button onClick={() => { resetDealForm(); setShowDealForm(true); }} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">+ New Deal</button>
+                <button onClick={() => { resetDealForm(); setShowDealForm(true); }} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">+ New Deal</button>
               )}
             </div>
 
@@ -3811,7 +3937,7 @@ export default function App() {
                 ['Won', fmtMoney(wonValue)],
                 ['Deal Count', deals.length],
               ].map(([label, value]) => (
-                <div key={label} className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                <div key={label} className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
                   <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{value}</p>
                 </div>
@@ -3827,10 +3953,13 @@ export default function App() {
             )}
 
             {deals.length === 0 ? (
-              <div className="p-12 text-center bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700">
-                <p className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">No deals yet</p>
-                <p className="text-[13px] text-gray-400 mt-1">Create your first deal to start tracking your pipeline.</p>
-                {canEdit && <button onClick={() => { resetDealForm(); setShowDealForm(true); }} className="mt-4 px-4 py-2 text-[13px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Create Deal</button>}
+              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                <EmptyState
+                  title="No deals yet"
+                  desc="Create your first deal to start tracking your pipeline."
+                  ctaLabel={canEdit ? 'Create Deal' : undefined}
+                  onCta={canEdit ? () => { resetDealForm(); setShowDealForm(true); } : undefined}
+                />
               </div>
             ) : (
               <div className="flex gap-4 overflow-x-auto pb-4 animate-in fade-in" style={{ scrollSnapType: 'x mandatory' }}>
@@ -3838,7 +3967,7 @@ export default function App() {
                   const stageDeals = deals.filter(d => d.stage === stage);
                   const stageValue = stageDeals.reduce((s, d) => s + (parseFloat(d.value) || 0), 0);
                   return (
-                    <div key={stage} className="flex-shrink-0 w-72 md:w-80 bg-gray-200/50 dark:bg-gray-800/60 rounded-2xl flex flex-col border border-gray-200 dark:border-gray-700"
+                    <div key={stage} className="flex-shrink-0 w-[280px] bg-gray-200/50 dark:bg-gray-800/60 rounded-2xl flex flex-col border border-gray-100 dark:border-gray-800"
                       style={{ scrollSnapAlign: 'start' }}
                       onDragOver={handleDragOver} onDrop={e => handleDealDrop(e, stage)}>
                       <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-100/50 dark:bg-gray-800 rounded-t-2xl flex justify-between items-center">
@@ -3856,10 +3985,11 @@ export default function App() {
                           const dealClient = clients.find(c => c.id === deal.client_id);
                           return (
                             <div key={deal.id} draggable onDragStart={e => handleDealDragStart(e, deal.id)}
-                              className="bg-white dark:bg-gray-800 p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow transition-shadow cursor-grab active:cursor-grabbing flex flex-col gap-2 group">
+                              className="bg-white dark:bg-gray-900 p-3.5 rounded-xl border border-gray-100 dark:border-gray-800 border-l-4 shadow-sm hover:shadow-md active:shadow-lg transition-shadow cursor-grab active:cursor-grabbing flex flex-col gap-2 group"
+                              style={{ borderLeftColor: STAGE_COLORS[stage] || '#9CA3AF' }}>
                               <div className="flex justify-between items-start gap-2">
                                 <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{deal.title}</p>
-                                <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-800">{deal.probability}%</span>
+                                <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 ring-1 ring-inset ring-indigo-600/20 dark:ring-indigo-400/30">{deal.probability}%</span>
                               </div>
                               <div className="text-[11px] text-gray-500 truncate">{dealClient?.name || 'Unknown relationship'}</div>
                               <div className="flex items-center justify-between">
@@ -3897,7 +4027,7 @@ export default function App() {
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Reports</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Reports</h1>
                 <p className="text-[13px] text-gray-500">Analytics across relationships, activities, deals, and tasks.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -3930,14 +4060,14 @@ export default function App() {
             )}
 
             {/* PART C1 â€” CUSTOM REPORT BUILDER */}
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">Build Custom Report</h3>
                 <div className="flex flex-wrap items-center gap-2">
                   {/* PART C5 â€” CSV export of the displayed table */}
-                  <button onClick={exportCustomReportCSV} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm">Export CSV</button>
+                  <button onClick={exportCustomReportCSV} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm">Export CSV</button>
                   {savingReportName === null ? (
-                    <button onClick={() => setSavingReportName('')} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Save this report</button>
+                    <button onClick={() => setSavingReportName('')} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Save this report</button>
                   ) : (
                     <form onSubmit={e => { e.preventDefault(); handleSaveCustomReport(savingReportName); }} className="inline-flex items-center gap-1">
                       <input autoFocus type="text" placeholder="Report name..." value={savingReportName} onChange={e => setSavingReportName(e.target.value)} className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-[12px] focus:outline-none" />
@@ -4019,7 +4149,7 @@ export default function App() {
                 ['Task Completion', `${reportStats.taskCompletionRate}%`, () => setAppStep('GLOBAL_TASKS')],
                 ['Avg Act/Relationship', reportStats.avgActivitiesPerClient, () => { clearAllFilters(); setAppStep('CLIENTS'); }],
               ].map(([label, value, onClick]) => (
-                <button key={label} onClick={onClick} className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm text-left hover:shadow-md hover:border-gray-300 dark:hover:border-gray-500 transition-all">
+                <button key={label} onClick={onClick} className="bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm text-left hover:shadow-md hover:border-gray-300 dark:hover:border-gray-500 transition-all">
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
                   <p className="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{value}</p>
                   {compareReports && comparisonStats?.[label] && (
@@ -4031,7 +4161,7 @@ export default function App() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Chart 1 â€” Activity by type */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Activity by Type</h3>
                 <div className="space-y-3">
                   {Object.entries(reportStats.activityByType).map(([type, count]) => {
@@ -4051,7 +4181,7 @@ export default function App() {
               </div>
 
               {/* Chart 2 â€” Pipeline funnel */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Pipeline Funnel</h3>
                 <div className="space-y-3">
                   {PIPELINE_STAGES.map(stage => {
@@ -4071,7 +4201,7 @@ export default function App() {
               </div>
 
               {/* Chart 3 â€” Deal stages */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Deal Stages</h3>
                 <div className="space-y-2">
                   {DEAL_STAGES.map(stage => {
@@ -4095,7 +4225,7 @@ export default function App() {
               </div>
 
               {/* Chart 4 â€” Clients added over time */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow flex flex-col">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Relationships Added (8 Weeks)</h3>
                 <div className="flex-1 flex items-end gap-2 h-32 mt-auto pb-2">
                   {reportStats.clientsAddedByWeek.map((w, i) => {
@@ -4114,7 +4244,7 @@ export default function App() {
               </div>
 
               {/* Chart 5 â€” Clients by source (Feature 25) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Relationships by Source</h3>
                 <div className="space-y-3">
                   {CLIENT_SOURCES.map(source => {
@@ -4134,7 +4264,7 @@ export default function App() {
               </div>
 
               {/* Table â€” Most active clients */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Most Active Relationships</h3>
                 {reportStats.topClientsByActivity.length === 0 ? (
                   <p className="text-[13px] text-gray-400">No activities logged in this range.</p>
@@ -4174,7 +4304,7 @@ export default function App() {
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Calendar</h1>
+                  <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Calendar</h1>
                   <p className="text-[13px] text-gray-500">Tasks, activities, birthdays, and deal close dates in one view.</p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -4186,11 +4316,11 @@ export default function App() {
               </div>
 
               {calendarView === 'month' ? (
-                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-4 sm:p-6">
+                <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow p-4 sm:p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <button onClick={() => setCalendarDate(new Date(y, m - 1, 1))} className="px-3 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">&larr; Prev</button>
+                    <button onClick={() => setCalendarDate(new Date(y, m - 1, 1))} className="px-3 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">&larr; Prev</button>
                     <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">{calendarDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h3>
-                    <button onClick={() => setCalendarDate(new Date(y, m + 1, 1))} className="px-3 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">Next &rarr;</button>
+                    <button onClick={() => setCalendarDate(new Date(y, m + 1, 1))} className="px-3 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">Next &rarr;</button>
                   </div>
                   <div className="grid grid-cols-7 gap-1 text-center mb-1">
                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
@@ -4218,7 +4348,7 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow p-6 space-y-4">
                   {next30.filter(ds => eventsOn(ds).length > 0).length === 0 && (
                     <p className="text-[13px] text-gray-400 text-center py-8">Nothing scheduled in the next 30 days.</p>
                   )}
@@ -4248,7 +4378,7 @@ export default function App() {
 
               {/* SELECTED DAY PANEL */}
               {calendarView === 'month' && selectedCalendarDay && (
-                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6 space-y-4 animate-in fade-in">
+                <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow p-6 space-y-4 animate-in fade-in">
                   <div className="flex items-center justify-between">
                     <h3 className="text-[14px] font-bold text-gray-900 dark:text-gray-100">{new Date(selectedCalendarDay + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
                     <button onClick={() => setSelectedCalendarDay(null)} className="text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-bold">&times;</button>
@@ -4298,7 +4428,7 @@ export default function App() {
                       <select name="calTaskClient" className="px-2 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:outline-none">
                         {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
-                      <button type="submit" disabled={!newTaskTitle} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50 shadow-sm">Add Task</button>
+                      <button type="submit" disabled={!newTaskTitle} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 disabled:opacity-50 shadow-sm">Add Task</button>
                     </form>
                   )}
                 </div>
@@ -4324,22 +4454,22 @@ export default function App() {
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <button onClick={() => { setTimelineClient(null); setAppStep('CLIENTS'); }} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">&larr; Back to Relationships</button>
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{tc.name}</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">{tc.name}</h1>
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{tc.status}</span>
-                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${tc.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' : tc.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tc.relationship}</span>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset ${tc.relationship === 'High' ? 'bg-red-50 text-red-700 ring-red-600/10' : tc.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 ring-orange-600/10' : 'bg-blue-50 text-blue-700 ring-blue-600/10'}`}>{tc.relationship}</span>
                 <ScoreBar score={tc.leadScore || 0} />
-                {canEdit && <button onClick={() => setEditingClient(tc)} className="ml-auto px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Edit</button>}
+                {canEdit && <button onClick={() => setEditingClient(tc)} className="ml-auto px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Edit</button>}
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="space-y-4">
-                  <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-2 text-[13px]">
+                  <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow space-y-2 text-[13px]">
                     <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Relationship Info</h3>
                     <p className="break-all"><span className="text-gray-400">Email:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.email}</span></p>
                     <p><span className="text-gray-400">Phone:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.phone_number || 'â€”'}</span></p>
                     <p><span className="text-gray-400">Country:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.country || 'â€”'}</span></p>
                     <p><span className="text-gray-400">Source:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.source || 'â€”'}</span></p>
                   </div>
-                  <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                  <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                     <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Deals ({tcDeals.length})</h3>
                     {tcDeals.length === 0 ? <p className="text-[12px] text-gray-400 italic">No deals.</p> : tcDeals.map(d => (
                       <div key={d.id} className="flex justify-between py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0 text-[13px]">
@@ -4348,7 +4478,7 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-                  <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                  <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                     <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Open Tasks ({tcTasks.filter(t => t.status === 'pending').length})</h3>
                     {tcTasks.filter(t => t.status === 'pending').length === 0 ? <p className="text-[12px] text-gray-400 italic">No open tasks.</p> : tcTasks.filter(t => t.status === 'pending').map(t => (
                       <div key={t.id} className="flex justify-between py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0 text-[13px]">
@@ -4358,7 +4488,7 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-                <div className="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <div className="lg:col-span-2 bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-4">Full History</h3>
                   {events.length === 0 ? (
                     <p className="text-[13px] text-gray-400 text-center py-8">No history yet â€” log an activity to get started.</p>
@@ -4394,7 +4524,7 @@ export default function App() {
                       } else showToast(`Error logging activity: ${error?.message}`, 'error');
                     }} className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-700 flex gap-2">
                       <textarea placeholder="Log an activity..." value={activityDesc} onChange={e => setActivityDesc(e.target.value)} rows={2} className="flex-1 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:outline-none" />
-                      <button type="submit" className="px-3 text-[12px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Log</button>
+                      <button type="submit" className="px-3 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Log</button>
                     </form>
                   )}
                 </div>
@@ -4408,7 +4538,7 @@ export default function App() {
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-1">Task Management</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 mb-1">Task Management</h1>
                 <p className="text-[13px] text-gray-500">Track and manage all client action items.</p>
               </div>
               <div className="flex gap-2">
@@ -4417,13 +4547,15 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-6 space-y-4">
               {tasks.filter(t => t.status === tasksFilter).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).length === 0 && (
                 tasks.length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-[14px] font-semibold text-gray-900">No tasks yet</p>
-                    <p className="text-[13px] text-gray-500 mt-1">Create tasks to stay on top of your follow-ups â€” open a client profile to add one.</p>
-                  </div>
+                  <EmptyState
+                    title="No tasks yet"
+                    desc="Create tasks to stay on top of your follow-ups â€” open a relationship profile to add one."
+                    ctaLabel="Go to Relationships"
+                    onCta={() => setAppStep('CLIENTS')}
+                  />
                 ) : (
                   <p className="text-center text-[13px] text-gray-500 py-8">No {tasksFilter} tasks found.</p>
                 )
@@ -4459,25 +4591,25 @@ export default function App() {
         {appStep === 'SETTINGS' && (
           <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 pb-12">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-1">Account Settings</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 mb-1">Account Settings</h1>
               <p className="text-[13px] text-gray-500">Manage your profile, security preferences, system configuration, and custom CRM fields.</p>
             </div>
 
             {settingsMessage.text && (
-              <div className={`p-4 rounded-xl text-[13px] font-medium border ${settingsMessage.type === 'error' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-green-50 text-green-700 border-green-100'}`}>
+              <div className={`p-4 rounded-xl text-[13px] font-medium ring-1 ring-inset ${settingsMessage.type === 'error' ? 'bg-red-50 text-red-700 ring-red-600/10' : 'bg-green-50 text-green-700 ring-green-600/10'}`}>
                 {settingsMessage.text}
               </div>
             )}
 
             {/* FEATURE 10 â€” Team & Workspace (first section) */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Team & Workspace</h2>
               {!workspace ? (
                 <>
                   <p className="text-[13px] text-gray-500 mb-4">You're in solo mode. Create a workspace to invite teammates and share your CRM.</p>
                   <form onSubmit={handleCreateWorkspace} className="flex flex-wrap gap-2 max-w-md">
                     <input type="text" placeholder="Workspace name..." value={newWorkspaceName} onChange={e => setNewWorkspaceName(e.target.value)} className="flex-1 min-w-[160px] px-3 py-2 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" required />
-                    <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Create Workspace</button>
+                    <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Workspace</button>
                   </form>
                 </>
               ) : (
@@ -4509,7 +4641,7 @@ export default function App() {
                   {['owner', 'admin'].includes(myRole) && (
                     <form onSubmit={handleInviteMember} className="flex flex-wrap gap-2 max-w-md mb-4">
                       <input type="email" placeholder="teammate@company.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} className="flex-1 min-w-[160px] px-3 py-2 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" required />
-                      <button type="submit" disabled={inviteLoading} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50">{inviteLoading ? 'Inviting...' : 'Invite'}</button>
+                      <button type="submit" disabled={inviteLoading} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">{inviteLoading ? 'Inviting...' : 'Invite'}</button>
                     </form>
                   )}
                   {myRole !== 'owner' && (
@@ -4520,7 +4652,7 @@ export default function App() {
             </div>
 
             {/* Profile Information Block */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-5">Profile Information</h2>
               <form onSubmit={handleUpdateProfile} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -4542,13 +4674,13 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex justify-end pt-2">
-                  <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Save Profile Updates</button>
+                  <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">Save Profile Updates</button>
                 </div>
               </form>
             </div>
 
             {/* NEW: Custom Fields Configuration */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-5">
                 <div>
                   <h2 className="text-[15px] font-bold text-gray-900">Custom Fields</h2>
@@ -4600,20 +4732,20 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="flex items-end justify-end">
-                      <button type="submit" className="w-full sm:w-auto px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Add Field</button>
+                      <button type="submit" className="w-full sm:w-auto px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">Add Field</button>
                     </div>
                   )}
                 </div>
                 {newCfType === 'select' && (
                   <div className="flex justify-end mt-3">
-                    <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Add Dropdown Field</button>
+                    <button type="submit" className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">Add Dropdown Field</button>
                   </div>
                 )}
               </form>
             </div>
 
             {/* Data Admin Tools */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-5">Data Tools</h2>
               <button onClick={runStatusMigration} className="px-4 py-2 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">
                 Migrate Legacy "Active/Inactive" Status to New Pipeline Stages
@@ -4622,7 +4754,7 @@ export default function App() {
             </div>
 
             {/* FEATURE 4 â€” Email Templates */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Templates</h2>
               <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer. Delivery uses Resend's sandbox sender (onboarding@resend.dev) â€” verify your own domain in Resend before production use, or emails may land in spam.</p>
               <div className="space-y-2 mb-5">
@@ -4647,20 +4779,20 @@ export default function App() {
                 <input type="text" required placeholder="Subject â€” supports {{name}} {{email}} {{phone}} {{stage}}" value={templateSubject} onChange={e => setTemplateSubject(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
                 <textarea rows={4} required placeholder="Body" value={templateBody} onChange={e => setTemplateBody(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
                 <div className="flex justify-end gap-2">
-                  {editingTemplate && <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(''); setTemplateBody(''); }} className="px-4 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>}
-                  <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">{editingTemplate ? 'Save Changes' : 'Add Template'}</button>
+                  {editingTemplate && <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(''); setTemplateBody(''); }} className="px-4 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>}
+                  <button type="submit" className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">{editingTemplate ? 'Save Changes' : 'Add Template'}</button>
                 </div>
               </form>
             </div>
 
             {/* FEATURE 5 â€” Automation Rules */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h2 className="text-[15px] font-bold text-gray-900">Automation Rules</h2>
                   <p className="text-[12px] text-gray-500 mt-1">When something happens in your CRM, do something automatically.</p>
                 </div>
-                <button onClick={() => setShowRuleForm(!showRuleForm)} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm shrink-0">{showRuleForm ? 'Close' : 'Add Rule'}</button>
+                <button onClick={() => setShowRuleForm(!showRuleForm)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm shrink-0">{showRuleForm ? 'Close' : 'Add Rule'}</button>
               </div>
               <div className="space-y-2 mb-4">
                 {automationRules.length === 0 ? (
@@ -4759,14 +4891,14 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex justify-end">
-                    <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Create Rule</button>
+                    <button type="submit" className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Rule</button>
                   </div>
                 </form>
               )}
             </div>
 
             {/* FEATURE 9 â€” Tags */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-4">Tags</h2>
               <div className="space-y-2 mb-5">
                 {tags.length === 0 ? (
@@ -4796,18 +4928,18 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-                <button type="submit" className="px-4 py-2 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Tag</button>
+                <button type="submit" className="px-4 py-2 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Tag</button>
               </form>
             </div>
 
             {/* FEATURE 11 â€” Webhooks & Integrations */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h2 className="text-[15px] font-bold text-gray-900">Webhooks & Integrations</h2>
                   <p className="text-[12px] text-gray-500 mt-1">POST CRM events to any URL. Payloads are signed with HMAC-SHA256 (X-CRM-Signature) when a secret is set.</p>
                 </div>
-                <button onClick={() => setShowWebhookForm(!showWebhookForm)} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm shrink-0">{showWebhookForm ? 'Close' : 'Add Webhook'}</button>
+                <button onClick={() => setShowWebhookForm(!showWebhookForm)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm shrink-0">{showWebhookForm ? 'Close' : 'Add Webhook'}</button>
               </div>
               <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 mb-4 text-[12px] text-orange-800">
                 <strong>Zapier tip:</strong> create a Zap with a "Catch Hook" trigger, paste the hook URL here, and pick the events to forward. Every event arrives as JSON: <code className="font-mono text-[11px]">{'{ event, payload, timestamp }'}</code>.
@@ -4849,17 +4981,17 @@ export default function App() {
                     ))}
                   </div>
                   <div className="flex justify-end">
-                    <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Webhook</button>
+                    <button type="submit" className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Webhook</button>
                   </div>
                 </form>
               )}
             </div>
 
             {/* FEATURE 26 â€” Goals management */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-4">
                 <h2 className="text-[15px] font-bold text-gray-900">Monthly Goals</h2>
-                <button onClick={() => setShowGoalForm(true)} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Set Goal</button>
+                <button onClick={() => setShowGoalForm(true)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Set Goal</button>
               </div>
               {goals.length === 0 ? (
                 <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No goals yet.</p>
@@ -4879,7 +5011,7 @@ export default function App() {
             </div>
 
             {/* Password Security Block */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-5">Security & Authentication</h2>
               <form onSubmit={handleUpdatePassword} className="space-y-4 max-w-md">
                 <div>
@@ -4910,20 +5042,20 @@ export default function App() {
                   </div>
                 </div>
                 <div className="pt-2">
-                  <button type="submit" className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm">Update Password</button>
+                  <button type="submit" className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors shadow-sm">Update Password</button>
                 </div>
               </form>
             </div>
 
             {/* Data Management Block */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Data Management</h2>
               <p className="text-[13px] text-gray-500 mb-5">Manually trigger a sync to generate any pending notifications for tasks and birthdays.</p>
               <div className="space-y-3">
                 <button 
                   onClick={handleResyncNotifications} 
                   disabled={notificationSyncLoading}
-                  className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm disabled:opacity-50 disabled:hover:bg-gray-900 flex items-center gap-2"
+                  className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm disabled:opacity-50 disabled:hover:bg-gray-900 flex items-center gap-2"
                 >
                   {notificationSyncLoading && (
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -4947,6 +5079,7 @@ export default function App() {
           </div>
         )}
 
+        </div>
       </main>
 
       {/* --- MODALS --- */}
@@ -5111,7 +5244,7 @@ export default function App() {
                     </div>
                   )}
                   {clientFiles.filter(f => f.client_id === viewingClient.id).length === 0 ? (
-                    <p className="text-[12px] text-gray-400 italic text-center py-4">No files attached yet.</p>
+                    <EmptyState title="No files yet" desc="Drop a file above or click to upload attachments for this relationship." />
                   ) : (
                     clientFiles.filter(f => f.client_id === viewingClient.id).map(f => (
                       <div key={f.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 rounded-xl">
@@ -5137,7 +5270,7 @@ export default function App() {
                     <button onClick={() => { resetDealForm(); setDealClientId(String(viewingClient.id)); setShowDealForm(true); }} className="w-full px-3 py-2 text-[12px] font-medium text-gray-700 border border-dashed border-gray-300 rounded-xl hover:border-gray-400 hover:text-gray-900 transition-colors">+ Add Deal for {viewingClient.name}</button>
                   )}
                   {deals.filter(d => d.client_id === viewingClient.id).length === 0 ? (
-                    <p className="text-[12px] text-gray-400 italic text-center py-4">No deals yet. Create your first deal to start tracking your pipeline.</p>
+                    <EmptyState title="No deals yet" desc="Create your first deal to start tracking your pipeline." />
                   ) : (
                     deals.filter(d => d.client_id === viewingClient.id).map(d => (
                       <div key={d.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 rounded-xl">
@@ -5171,7 +5304,7 @@ export default function App() {
                   {newTaskRecurrence && (
                     <input type="date" title="Repeat end date" value={newTaskRecurrenceEnd} onChange={e => setNewTaskRecurrenceEnd(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600" />
                   )}
-                  <button type="submit" className="px-3 py-1.5 min-h-[44px] md:min-h-0 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Add</button>
+                  <button type="submit" className="px-3 py-1.5 min-h-[44px] md:min-h-0 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">Add</button>
                 </form>
 
                 <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
@@ -5222,7 +5355,9 @@ export default function App() {
                 {/* Structured Activity List (Scrollable max-h-96) */}
                 <div className="max-h-96 overflow-y-auto space-y-3 pr-2">
                   {activities.filter(a => a.client_id === viewingClient.id && (activityFilterType === 'All' || a.activity_type === activityFilterType)).length === 0 ? (
-                    <p className="text-[12px] text-gray-400 italic text-center py-4 border border-dashed border-gray-200 rounded-xl">No structured activity entries matching filter.</p>
+                    <div className="border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+                      <EmptyState title="No activity yet" desc="Log a call, email, meeting, or note below to build this timeline." />
+                    </div>
                   ) : (
                     activities.filter(a => a.client_id === viewingClient.id && (activityFilterType === 'All' || a.activity_type === activityFilterType)).map(act => (
                       <div key={act.id} className="p-3 border border-gray-100 bg-gray-50/50 rounded-xl group relative">
@@ -5296,7 +5431,7 @@ export default function App() {
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <textarea placeholder="Record details, meeting minutes, or email content..." value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className="flex-1 px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                    <button type="submit" className="sm:w-24 font-medium text-[12px] text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm self-end sm:self-stretch">Log Entry</button>
+                    <button type="submit" className="sm:w-24 font-medium text-[12px] text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm self-end sm:self-stretch">Log Entry</button>
                   </div>
                 </form>
               </div>
@@ -5308,7 +5443,7 @@ export default function App() {
               {/* FEATURE 4 â€” email composer trigger */}
               <button type="button" onClick={() => { setEmailTo(viewingClient.email || ''); setShowEmailComposer(true); }} className="px-4 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">Send Email</button>
               {/* FEATURE 21 â€” PDF export */}
-              <button type="button" onClick={() => handleExportPDF(viewingClient)} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Export PDF</button>
+              <button type="button" onClick={() => handleExportPDF(viewingClient)} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Export PDF</button>
               <button type="button" onClick={() => { 
                 setEditingClient(viewingClient); 
                 setViewingClient(null);
@@ -5319,7 +5454,7 @@ export default function App() {
                 });
                 setFormCustomValues(cfs);
               }} className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors shadow-sm">Edit Relationship</button>
-              <button type="button" onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Close</button>
+              <button type="button" onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Close</button>
             </div>
 
           </div>
@@ -5329,7 +5464,7 @@ export default function App() {
       {/* EDITING MODAL */}
       {editingClient && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden animate-in scale-in-from-95 duration-200 max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden animate-in scale-in-from-95 duration-200 max-h-[90vh] flex flex-col">
             
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Edit Relationship</h3>
@@ -5418,10 +5553,10 @@ export default function App() {
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-2">
-                <button type="button" onClick={() => setEditingClient(null)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                <button type="button" onClick={() => setEditingClient(null)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 border border-transparent rounded-lg hover:bg-gray-800 transition-colors shadow-sm">
+                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 border border-transparent rounded-xl hover:opacity-90 transition-colors shadow-sm">
                   Save Changes
                 </button>
               </div>
@@ -5449,7 +5584,7 @@ export default function App() {
                 <input type="email" value={deleteAccountEmail} onChange={(e) => setDeleteAccountEmail(e.target.value)} placeholder={user?.email} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400" />
               </div>
               <div className="flex w-full gap-3 pt-2">
-                <button onClick={() => {setShowDeleteModal(false); setDeleteAccountEmail('');}} className="flex-1 py-2.5 text-[13px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button onClick={() => {setShowDeleteModal(false); setDeleteAccountEmail('');}} className="flex-1 py-2.5 text-[13px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Cancel</button>
                 <button onClick={handleDeleteAccount} disabled={deleteAccountEmail !== user?.email || authLoading} className="flex-1 py-2.5 text-[13px] font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:hover:bg-red-600 shadow-sm">
                   {authLoading ? 'Deleting...' : 'Delete Permanently'}
                 </button>
@@ -5462,7 +5597,7 @@ export default function App() {
       {/* DEAL FORM MODAL (Feature 1) */}
       {showDealForm && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowDealForm(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">{editingDeal ? 'Edit Deal' : 'New Deal'}</h3>
               <button onClick={() => setShowDealForm(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
@@ -5504,8 +5639,8 @@ export default function App() {
                 <textarea rows={2} value={dealNotes} onChange={e => setDealNotes(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button type="button" onClick={() => setShowDealForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button type="submit" disabled={dealSaving} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                <button type="button" onClick={() => setShowDealForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+                <button type="submit" disabled={dealSaving} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50 flex items-center gap-2">
                   {dealSaving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                   {editingDeal ? 'Save Changes' : 'Create Deal'}
                 </button>
@@ -5518,7 +5653,7 @@ export default function App() {
       {/* EMAIL COMPOSER MODAL (Feature 4) */}
       {showEmailComposer && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowEmailComposer(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Send Email</h3>
               <button onClick={() => setShowEmailComposer(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
@@ -5560,8 +5695,8 @@ export default function App() {
               </div>
               <div className="flex flex-wrap justify-end gap-3 pt-3 border-t border-gray-100">
                 <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(emailSubject); setTemplateBody(emailBody); setAppStep('SETTINGS'); setShowEmailComposer(false); showToast('Finish saving the template in Settings â†’ Email Templates.', 'success'); }} className="px-3 py-2 text-[12px] font-medium text-gray-500 hover:text-gray-800 mr-auto">Save as template</button>
-                <button type="button" onClick={() => setShowEmailComposer(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">
+                <button type="button" onClick={() => setShowEmailComposer(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">
                   Open Draft in New Tab
                 </button>
               </div>
@@ -5573,7 +5708,7 @@ export default function App() {
       {/* BULK EMAIL MODAL (Feature 18) */}
       {showBulkEmailModal && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Email {selectedClientIds.length} relationships</h3>
               <button onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
@@ -5600,8 +5735,8 @@ export default function App() {
               </div>
               {bulkEmailProgress && <p className="text-[12px] font-medium text-indigo-600">{bulkEmailProgress}</p>}
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button type="button" disabled={bulkEmailSending} onClick={() => setShowBulkEmailModal(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
-                <button type="submit" disabled={bulkEmailSending} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                <button type="button" disabled={bulkEmailSending} onClick={() => setShowBulkEmailModal(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={bulkEmailSending} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50 flex items-center gap-2">
                   {bulkEmailSending && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                   Open {selectedClientIds.length} Draft{selectedClientIds.length === 1 ? '' : 's'}
                 </button>
@@ -5651,8 +5786,8 @@ export default function App() {
               </table>
             </div>
             <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex justify-end gap-2">
-              <button onClick={() => { setShowImportPreview(false); setImportPreviewData([]); }} disabled={importLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
-              <button onClick={handleConfirmImport} disabled={importLoading || importPreviewData.filter(r => r.checked && !r.error).length === 0} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
+              <button onClick={() => { setShowImportPreview(false); setImportPreviewData([]); }} disabled={importLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              <button onClick={handleConfirmImport} disabled={importLoading || importPreviewData.filter(r => r.checked && !r.error).length === 0} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50 flex items-center gap-2">
                 {importLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                 Import {importPreviewData.filter(r => r.checked && !r.error).length} selected rows
               </button>
@@ -5711,10 +5846,10 @@ export default function App() {
               )}
             </div>
             <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex justify-end gap-2">
-              {mergeStep === 2 && <button onClick={() => setMergeStep(1)} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 mr-auto disabled:opacity-50">&larr; Back</button>}
-              <button onClick={() => setShowMergeTool(false)} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              {mergeStep === 2 && <button onClick={() => setMergeStep(1)} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 mr-auto disabled:opacity-50">&larr; Back</button>}
+              <button onClick={() => setShowMergeTool(false)} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">Cancel</button>
               {mergeStep === 1 ? (
-                <button onClick={() => setMergeStep(2)} disabled={!mergeTarget} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50">Next</button>
+                <button onClick={() => setMergeStep(2)} disabled={!mergeTarget} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">Next</button>
               ) : (
                 <button onClick={handleExecuteMerge} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 shadow-sm disabled:opacity-50 flex items-center gap-2">
                   {mergeLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
@@ -5749,8 +5884,8 @@ export default function App() {
                 <input type="number" min="1" required value={goalTarget} onChange={e => setGoalTarget(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button type="button" onClick={() => setShowGoalForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Save Goal</button>
+                <button type="button" onClick={() => setShowGoalForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Save Goal</button>
               </div>
             </form>
           </div>
@@ -5760,7 +5895,7 @@ export default function App() {
       {/* KEYBOARD HELP MODAL (Feature 28) */}
       {showKeyboardHelp && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[140] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowKeyboardHelp(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Keyboard Shortcuts</h3>
               <button onClick={() => setShowKeyboardHelp(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
@@ -5791,7 +5926,7 @@ export default function App() {
 
       {/* Fixed "?" shortcut hint button (Feature 28) */}
       {user && (
-        <button onClick={() => setShowKeyboardHelp(true)} className="fixed bottom-6 left-4 md:bottom-8 md:left-8 z-40 w-9 h-9 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-full shadow-md text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 font-bold text-[14px] transition-colors" title="Keyboard shortcuts (?)">?</button>
+        <button onClick={() => setShowKeyboardHelp(true)} className="fixed bottom-6 left-4 md:bottom-8 md:left-[264px] z-40 w-9 h-9 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-full shadow-md text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 font-bold text-[14px] transition-colors" title="Keyboard shortcuts (?)">?</button>
       )}
 
       {/* CONFIRM DIALOG MODAL */}

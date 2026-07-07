@@ -29,14 +29,14 @@
 /* Base DOM Configuration — theme-aware (was hardcoded to the dark palette,
    which made light mode impossible) */
 body {
-  background-color: #f9fafb;
+  background-color: #FAFAFA; /* PART E spec */
   color: #111827;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   letter-spacing: -0.01em;
 }
 .dark body {
-  background-color: #030712;
+  background-color: #0A0A0A; /* PART E spec */
   color: #f3f4f6;
 }
 

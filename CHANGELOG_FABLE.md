@@ -89,3 +89,19 @@ Couldn't run `next build` in this environment (sandbox can't fetch the Linux SWC
 NOT touched (verified by post-pass grep audit — every remaining "Client"/"client" hit is internal): `.from('clients')`, `client_id`, `viewingClient`/`editingClient`/etc., `appStep==='CLIENTS'`, webhook event *values* (`client.created`…), goal-type *values* (`new_clients`), the `relationship` Priority column, localStorage keys, and code comments.
 
 **Manual test:** click through nav, Relationships page, a profile modal, merge tool, bulk bar, Reports, Settings — no visible "Client" anywhere; add/edit/delete still work (only strings changed).
+
+## fable/visual-redesign — Part E: visual polish pass
+**Line count: 5,821 → 5,956 (+135). Styling/JSX-structure only — zero handler changes.**
+
+- **Left sidebar (240px)** replaces the top nav on desktop: logo top, nav middle, then search (⌘K), notifications (fly-out panel), dark-mode toggle, and a user block (avatar initials, name, workspace name, logout) at the bottom. Top bar + hamburger drawer kept for mobile; top bar still serves logged-out pages. Main content offset `md:pl-[268px]`; the "?" shortcut hint moved right of the sidebar.
+- **Backgrounds**: #FAFAFA light / #0A0A0A dark (root div + body CSS).
+- **Cards** (all `rounded-2xl` containers, 50+): borders → gray-100 / dark gray-800, dark surface → gray-900, `hover:shadow-md transition-shadow` added.
+- **Typography**: all 8 page `<h1>`s → weight 600 (semibold).
+- **Buttons**: 33 primary buttons → `rounded-xl` + `hover:opacity-90`, `font-semibold`; 16 ghost buttons → `rounded-xl`.
+- **Badges**: priority/health/probability/settings-message badges → pill + `ring-1 ring-inset` soft rings instead of hard borders (21 conversions).
+- **Kanban**: columns fixed at 280px; cards get a colored left border matching their stage (`STAGE_COLORS` map covers both relationship and deal stages) and a stronger shadow while dragging.
+- **Empty states**: new `EmptyState` component (abstract inline-SVG illustration + heading + CTA) used for: relationships list (both no-data and no-match), Deals page, Tasks page, sidebar notifications, profile Files/Deals tabs, and the activity timeline.
+- **Modals**: the 5 `max-w-lg` modals normalized to `max-w-2xl` (all already rounded-2xl with scrollable body + footer; confirm/goal dialogs intentionally stay `max-w-md`).
+- **Skeletons**: new `SkeletonRows` component replaces the bare "Loading records..." text on the relationships list.
+
+**Manual test:** desktop → left sidebar with working nav/search/notifications/dark toggle/logout; resize to mobile → hamburger drawer still works; kanban cards show stage-colored left edges; empty a filter to see the new empty states; reload while data loads to catch skeleton rows; open Deal/Email/Edit modals → consistent width.
