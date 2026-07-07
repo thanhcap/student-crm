@@ -27,3 +27,21 @@ Dead-code cleanup:
 Verification: `grep -ri outcome src/` → 0 matches; ESLint parses the full file with no syntax errors (remaining findings pre-existing).
 
 **Manual test (run in browser):** log an activity from a client profile, send a single email, send a bulk email — confirm no "Could not find the 'outcome' column of 'activities'" error and that each action inserts an activity row.
+
+## fable/fix-schema-drift — align live DB with code
+**Line count: 5,480 → 5,482 (+2, two comments)**
+
+Applied migration `fix_schema_drift` directly to the live Supabase project (verified via a fresh `information_schema` query afterwards); copy kept at `supabase/migrations/20260707_fix_schema_drift.sql`:
+- `clients` + `source`, `quick_note` (Add Client insert and Quick Notes were failing exactly like the outcome bug)
+- `profiles` + `current_streak`, `longest_streak`, `last_active_date` (streaks)
+- `tasks` + `recurrence`, `recurrence_end_date` (recurring tasks)
+- `automation_rules`: `action_value` text → jsonb, + `run_count`, `last_run_at`
+- `custom_field_definitions`: renamed `field_options` → `select_options` (matches code; data preserved)
+- `client_files` + `file_type`, `storage_path`; `file_url` made nullable (code never sends it)
+- Created missing `webhooks` table with RLS owner policy
+
+Code fixes (uuid ids were being parseInt'd → NaN):
+- `handleDealDrop`: compare `String(d.id) === idStr` (deal drag-and-drop between stages was broken — `deals.id` is uuid)
+- Email composer template picker: compare uuid as string (`email_templates.id` is uuid)
+
+**Manual test:** add a client with a Source selected → row saves; drag a deal to another stage → it sticks after reload; pick an email template in the composer → subject/body populate.

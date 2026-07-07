@@ -892,7 +892,8 @@ export default function App() {
     e.preventDefault();
     const idStr = e.dataTransfer.getData('text/deal-id');
     if (!idStr) return;
-    const deal = deals.find(d => d.id === parseInt(idStr, 10));
+    // deals.id is a uuid string — never parseInt it
+    const deal = deals.find(d => String(d.id) === idStr);
     if (deal && deal.stage !== targetStage) await handleUpdateDealStage(deal, targetStage);
   };
 
@@ -5195,7 +5196,8 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Template</label>
                   <select onChange={e => {
-                    const t = emailTemplates.find(x => x.id === parseInt(e.target.value, 10));
+                    // email_templates.id is a uuid string — never parseInt it
+                    const t = emailTemplates.find(x => String(x.id) === e.target.value);
                     if (t) { setEmailSubject(t.subject); setEmailBody(t.body); }
                   }} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
                     <option value="">-- Choose a template --</option>
