@@ -137,7 +137,7 @@ function ScoreBar({ score }) {
   return (
     <div className="flex items-center gap-2 w-24">
       <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-        <div className={`h-full rounded-full ${col}`} style={{ width: `${score}%` }} />
+        <div className={`anim-grow-w h-full rounded-full ${col}`} style={{ width: `${score}%` }} />
       </div>
       <span className="text-[11px] font-bold text-gray-500 w-5 text-right">{score}</span>
     </div>
@@ -153,6 +153,10 @@ function TagPill({ tag, onRemove }) {
     </span>
   );
 }
+
+// Country/region combobox source — full country list, rendered as a <datalist>
+// so every country field supports type-to-filter AND click-to-browse.
+const COUNTRY_LIST = ['Afghanistan','Albania','Algeria','Andorra','Angola','Antigua and Barbuda','Argentina','Armenia','Australia','Austria','Azerbaijan','Bahamas','Bahrain','Bangladesh','Barbados','Belarus','Belgium','Belize','Benin','Bhutan','Bolivia','Bosnia and Herzegovina','Botswana','Brazil','Brunei','Bulgaria','Burkina Faso','Burundi','Cabo Verde','Cambodia','Cameroon','Canada','Central African Republic','Chad','Chile','China','Colombia','Comoros','Congo (DRC)','Congo (Republic)','Costa Rica','Croatia','Cuba','Cyprus','Czechia','Denmark','Djibouti','Dominica','Dominican Republic','Ecuador','Egypt','El Salvador','Equatorial Guinea','Eritrea','Estonia','Eswatini','Ethiopia','Fiji','Finland','France','Gabon','Gambia','Georgia','Germany','Ghana','Greece','Grenada','Guatemala','Guinea','Guinea-Bissau','Guyana','Haiti','Honduras','Hong Kong','Hungary','Iceland','India','Indonesia','Iran','Iraq','Ireland','Israel','Italy','Ivory Coast','Jamaica','Japan','Jordan','Kazakhstan','Kenya','Kiribati','Kosovo','Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Lesotho','Liberia','Libya','Liechtenstein','Lithuania','Luxembourg','Macau','Madagascar','Malawi','Malaysia','Maldives','Mali','Malta','Marshall Islands','Mauritania','Mauritius','Mexico','Micronesia','Moldova','Monaco','Mongolia','Montenegro','Morocco','Mozambique','Myanmar','Namibia','Nauru','Nepal','Netherlands','New Zealand','Nicaragua','Niger','Nigeria','North Korea','North Macedonia','Norway','Oman','Pakistan','Palau','Palestine','Panama','Papua New Guinea','Paraguay','Peru','Philippines','Poland','Portugal','Qatar','Romania','Russia','Rwanda','Saint Kitts and Nevis','Saint Lucia','Saint Vincent and the Grenadines','Samoa','San Marino','Sao Tome and Principe','Saudi Arabia','Senegal','Serbia','Seychelles','Sierra Leone','Singapore','Slovakia','Slovenia','Solomon Islands','Somalia','South Africa','South Korea','South Sudan','Spain','Sri Lanka','Sudan','Suriname','Sweden','Switzerland','Syria','Taiwan','Tajikistan','Tanzania','Thailand','Timor-Leste','Togo','Tonga','Trinidad and Tobago','Tunisia','Turkey','Turkmenistan','Tuvalu','Uganda','Ukraine','United Arab Emirates','United Kingdom','United States','Uruguay','Uzbekistan','Vanuatu','Vatican City','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe'];
 
 // G11 — one-click automation recipes (pre-configured automation_rules rows)
 const AUTOMATION_RECIPES = [
@@ -255,6 +259,26 @@ function formatFileSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Animations â€” number counts up instead of snapping (respects reduced motion)
+function CountUp({ value, suffix = '' }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const target = Number(value) || 0;
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setN(target); return; }
+    let raf;
+    const t0 = performance.now();
+    const dur = 600;
+    const tick = (t) => {
+      const p = Math.min((t - t0) / dur, 1);
+      setN(Math.round(target * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{n}{suffix}</>;
 }
 
 export default function App() {
@@ -3158,8 +3182,11 @@ export default function App() {
         </button>
       )}
 
-      <main className={`flex-1 w-full px-4 sm:px-6 lg:px-8 py-8 sm:py-12 ${user ? 'md:pl-[268px]' : ''}`}>
-        <div className="max-w-7xl mx-auto w-full">
+      {/* FIX: page padding lives on the inner wrapper so it can never fight the
+          sidebar offset (md:pl-60) for padding-left â€” content always sits beside
+          the 240px nav at every breakpoint, no horizontal scrollbar. */}
+      <main className={`flex-1 w-full min-w-0 ${user ? 'md:pl-60' : ''}`}>
+        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
 
         {/* VIEW: LOG IN */}
         {appStep === 'LOG_IN' && (
@@ -3362,9 +3389,9 @@ export default function App() {
                 </h3>
                 <div className="flex-1 flex items-end gap-2 h-32 mt-auto pb-2">
                   {chartData.map(d => (
-                    <div key={d.date} className="flex-1 flex flex-col items-center gap-2 group relative">
+                    <div key={d.date} className="hover-lift flex-1 flex flex-col items-center gap-2 group relative">
                       <div className="w-full bg-indigo-100 rounded-sm relative overflow-hidden" style={{ height: '100px' }}>
-                        <div className="absolute bottom-0 w-full bg-indigo-500 transition-all duration-500" style={{ height: `${(d.count / maxChartVal) * 100}%` }}></div>
+                        <div className="anim-grow-h absolute bottom-0 w-full bg-indigo-500 transition-all duration-500" style={{ height: `${(d.count / maxChartVal) * 100}%` }}></div>
                       </div>
                       <span className="text-[10px] text-gray-400">{d.label}</span>
                       {/* Tooltip */}
@@ -3441,7 +3468,7 @@ export default function App() {
             </div>
 
             {/* NEW WIDGETS ROW: Streak, Goals, Top Leads, Health, Sources */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="anim-stagger grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {/* Your Streak (Feature 17) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3">
@@ -3473,13 +3500,13 @@ export default function App() {
                 ) : (
                   <div className="space-y-3">
                     {goalProgress.map(g => (
-                      <div key={g.id} className="relative">
+                      <div key={g.id} className="relative hover-lift rounded-lg">
                         <div className="flex justify-between text-[12px] mb-1">
                           <span className="font-medium text-gray-700 dark:text-gray-300">{{ new_clients: 'New Relationships', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</span>
-                          <span className="font-bold text-gray-900 dark:text-gray-100">{g.current} of {g.target_value} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${g.pct >= 100 ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'}`}>{g.pct}%</span></span>
+                          <span className="font-bold text-gray-900 dark:text-gray-100"><CountUp value={g.current} /> of {g.target_value} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${g.pct >= 100 ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'}`}><CountUp value={g.pct} suffix="%" /></span></span>
                         </div>
                         <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
-                          <div className={`h-full rounded-full transition-all duration-500 ${g.pct >= 100 ? 'bg-green-500' : g.pct >= 50 ? 'bg-blue-500' : 'bg-yellow-400'}`} style={{ width: `${g.pct}%` }} />
+                          <div className={`anim-grow-w h-full rounded-full transition-all duration-500 ${g.pct >= 100 ? 'bg-green-500' : g.pct >= 50 ? 'bg-blue-500' : 'bg-yellow-400'}`} style={{ width: `${g.pct}%` }} />
                         </div>
                         {g.pct >= 100 && <span className="goal-confetti absolute -top-1 right-0 text-[14px]">🎉</span>}
                       </div>
@@ -3496,7 +3523,7 @@ export default function App() {
                 ) : (
                   <div className="space-y-2.5">
                     {topLeads.map(c => (
-                      <div key={c.id} className="flex items-center justify-between gap-2">
+                      <div key={c.id} className="hover-lift rounded-lg px-1 flex items-center justify-between gap-2 hover:bg-gray-50 dark:hover:bg-gray-800/50">
                         <span className="text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate flex-1">{c.name}</span>
                         <ScoreBar score={c.leadScore} />
                         <button onClick={() => { setViewingClient(c); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 font-medium shrink-0">View</button>
@@ -3519,7 +3546,7 @@ export default function App() {
                         <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-16 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{label}</span>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-6 text-right">{count}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                          <div className={`h-full rounded-full ${color}`} style={{ width: `${(count / total) * 100}%` }} />
+                          <div className={`anim-grow-w h-full rounded-full ${color}`} style={{ width: `${(count / total) * 100}%` }} />
                         </div>
                       </button>
                     );
@@ -3703,7 +3730,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                <input type="text" placeholder="Country" value={clientCountry} onChange={e => setClientCountry(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                <input type="text" list="country-list" placeholder="Country" value={clientCountry} onChange={e => setClientCountry(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="text" placeholder="Phone Number" value={clientPhone} onChange={e => setClientPhone(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="url" placeholder="LinkedIn URL" value={clientLinkedin} onChange={e => setClientLinkedin(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
 
@@ -4351,7 +4378,7 @@ export default function App() {
                         <button key={row.label} onClick={() => drillCustomDimension(row.label)} disabled={customDimension === 'Month Added'} className="w-full flex items-center gap-3 group disabled:cursor-default">
                           <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-28 truncate text-left group-hover:text-gray-900 dark:group-hover:text-gray-100" title={row.label}>{row.label}</span>
                           <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
-                            <div className="h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(row.value / max) * 100}%` }} />
+                            <div className="anim-grow-w h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(row.value / max) * 100}%` }} />
                           </div>
                           <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-16 text-right">{fmtCustomValue(row.value)}</span>
                         </button>
@@ -4413,7 +4440,7 @@ export default function App() {
                       <button key={type} onClick={() => { setCalendarView('agenda'); setAppStep('CALENDAR'); }} className="w-full flex items-center gap-3 group" title="See activities in the Calendar agenda">
                         <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-16 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{type}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
-                          <div className={`h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${(count / max) * 100}%` }} />
+                          <div className={`anim-grow-w h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${(count / max) * 100}%` }} />
                         </div>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
                       </button>
@@ -4433,7 +4460,7 @@ export default function App() {
                       <button key={stage} onClick={() => { clearAllFilters(); setFilterStatus(stage); setAppStep('CLIENTS'); }} className="w-full flex items-center gap-3 group" title={`View ${stage} relationships`}>
                         <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-20 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{stage}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
-                          <div className="h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
+                          <div className="anim-grow-w h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
                         </div>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
                       </button>
@@ -4455,7 +4482,7 @@ export default function App() {
                         <span className="text-[12px] text-gray-500 w-8 text-left">{s.count}</span>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-20 text-left">{fmtMoney(s.value)}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                          <div className="h-full rounded-full bg-gray-900 dark:bg-gray-300" style={{ width: `${pct}%` }} />
+                          <div className="anim-grow-w h-full rounded-full bg-gray-900 dark:bg-gray-300" style={{ width: `${pct}%` }} />
                         </div>
                       </button>
                     );
@@ -4473,9 +4500,9 @@ export default function App() {
                   {reportStats.clientsAddedByWeek.map((w, i) => {
                     const max = Math.max(...reportStats.clientsAddedByWeek.map(x => x.count), 1);
                     return (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-2 group relative">
+                      <div key={i} className="hover-lift flex-1 flex flex-col items-center gap-2 group relative">
                         <div className="w-full bg-indigo-100 dark:bg-indigo-900/40 rounded-sm relative overflow-hidden" style={{ height: '100px' }}>
-                          <div className="absolute bottom-0 w-full bg-indigo-500 transition-all duration-500" style={{ height: `${(w.count / max) * 100}%` }} />
+                          <div className="anim-grow-h absolute bottom-0 w-full bg-indigo-500 transition-all duration-500" style={{ height: `${(w.count / max) * 100}%` }} />
                         </div>
                         <span className="text-[9px] text-gray-400">{w.label}</span>
                         <div className="absolute -top-8 bg-gray-900 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{w.count}</div>
@@ -4496,7 +4523,7 @@ export default function App() {
                       <button key={source} onClick={() => { clearAllFilters(); setFilterSource(source); setAppStep('CLIENTS'); }} className="w-full flex items-center gap-3 group" title={`View relationships from ${source}`}>
                         <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-24 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{source}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
-                          <div className="h-full rounded-full bg-teal-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
+                          <div className="anim-grow-w h-full rounded-full bg-teal-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
                         </div>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
                       </button>
@@ -4908,7 +4935,7 @@ export default function App() {
                   </div>
                   <div>
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Country / Region</label>
-                    <input type="text" value={profile.country} onChange={e => setProfile({...profile, country: e.target.value})} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    <input type="text" list="country-list" value={profile.country} onChange={e => setProfile({...profile, country: e.target.value})} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
                   </div>
                   <div>
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">LinkedIn Profile</label>
@@ -5804,7 +5831,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Country</label>
-                  <input type="text" value={editingClient.country || ''} onChange={e => setEditingClient({...editingClient, country: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                  <input type="text" list="country-list" value={editingClient.country || ''} onChange={e => setEditingClient({...editingClient, country: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Phone</label>
@@ -6295,6 +6322,11 @@ export default function App() {
       {user && (
         <button onClick={() => setShowKeyboardHelp(true)} className="fixed bottom-6 left-4 md:bottom-8 md:left-[264px] z-40 w-9 h-9 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-full shadow-md text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 font-bold text-[14px] transition-colors" title="Keyboard shortcuts (?)">?</button>
       )}
+
+      {/* Country combobox options (shared by all country fields) */}
+      <datalist id="country-list">
+        {COUNTRY_LIST.map(c => <option key={c} value={c} />)}
+      </datalist>
 
       {/* CONFIRM DIALOG MODAL */}
       <ConfirmDialog
