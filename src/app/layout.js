@@ -18,7 +18,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata = {
   title: 'Student CRM // Workspace',
-  description: 'Premium administrative interface engineered for client pipelines.',
+  description: 'Premium administrative interface engineered for relationship pipelines.',
 };
 
 export default function RootLayout({ children }) {

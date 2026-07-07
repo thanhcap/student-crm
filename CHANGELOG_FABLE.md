@@ -80,3 +80,12 @@ Couldn't run `next build` in this environment (sandbox can't fetch the Linux SWC
 - **C5 Export & Scheduled Email** — "Export CSV" dumps the displayed custom table client-side; ✉ toggle on each saved pill cycles off → weekly → monthly (`send_frequency` column). **FOLLOW-UP:** actual email delivery needs a scheduled Supabase Edge Function; this repo currently has NO edge functions and no `supabase/functions/daily-notifications` (page.js references one, but none is deployed) — flagging rather than wiring pg_cron in this session.
 
 **Manual test:** Reports → build "Source × Total Deal Value" → chart+table render; Save as "Deal value by source" → pill appears, reload restores it via click; toggle Compare → delta badges appear on tiles; click a funnel bar → Relationships pre-filtered; click a Deal Stages row → Deals shows only that stage; Export CSV downloads the table.
+
+## fable/relationship-rename — Part D: UI-only "Client" → "Relationship"
+**Line count: unchanged (5,821); layout.js description updated**
+
+~75 user-facing strings renamed via exact-literal replacement (script counted every match against an expected count): nav items, page headings/subtitles, buttons, modal titles, table headers, toasts, empty states, confirm dialogs, webhook event labels, automation trigger/action labels, goal-type labels, keyboard-help entries, CSV export filename, Reports tile labels (incl. matching `comparisonStats` keys so C2 badges still line up).
+
+NOT touched (verified by post-pass grep audit — every remaining "Client"/"client" hit is internal): `.from('clients')`, `client_id`, `viewingClient`/`editingClient`/etc., `appStep==='CLIENTS'`, webhook event *values* (`client.created`…), goal-type *values* (`new_clients`), the `relationship` Priority column, localStorage keys, and code comments.
+
+**Manual test:** click through nav, Relationships page, a profile modal, merge tool, bulk bar, Reports, Settings — no visible "Client" anywhere; add/edit/delete still work (only strings changed).

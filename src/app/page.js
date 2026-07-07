@@ -91,9 +91,9 @@ const DEAL_STAGES = ['Prospect', 'Proposal', 'Negotiation', 'Contract Sent', 'Wo
 const TAG_COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#3B82F6', '#8B5CF6', '#EC4899', '#6B7280'];
 const CLIENT_SOURCES = ['LinkedIn', 'Referral', 'Website', 'Cold Outreach', 'Event', 'Other'];
 const WEBHOOK_EVENTS = [
-  { value: 'client.created', label: 'Client created' },
-  { value: 'client.updated', label: 'Client updated' },
-  { value: 'client.deleted', label: 'Client deleted' },
+  { value: 'client.created', label: 'Relationship created' },
+  { value: 'client.updated', label: 'Relationship updated' },
+  { value: 'client.deleted', label: 'Relationship deleted' },
   { value: 'deal.created', label: 'Deal created' },
   { value: 'deal.won', label: 'Deal won' },
   { value: 'deal.lost', label: 'Deal lost' },
@@ -103,7 +103,7 @@ const WEBHOOK_EVENTS = [
 const DEFAULT_ACTIVITY_TEMPLATES = [
   { name: 'Quick call', type: 'Call', desc: 'Spoke for 15 minutes. Discussed next steps.' },
   { name: 'Follow-up email', type: 'Email', desc: 'Sent follow-up email after last meeting.' },
-  { name: 'Intro meeting', type: 'Meeting', desc: '30-minute intro meeting. Client is interested.' },
+  { name: 'Intro meeting', type: 'Meeting', desc: '30-minute intro meeting. They are interested.' },
   { name: 'Voicemail', type: 'Note', desc: 'Left voicemail. Will try again next week.' },
 ];
 
@@ -1201,7 +1201,7 @@ export default function App() {
       if (rule.action_type === 'change_stage') {
         await supabase.from('clients').update({ status: rule.action_value?.stage }).eq('id', clientId);
         setClients(prev => prev.map(c => c.id === clientId ? { ...c, status: rule.action_value.stage } : c));
-        showToast(`Automation: moved client to "${rule.action_value?.stage}".`, 'success');
+        showToast(`Automation: moved relationship to "${rule.action_value?.stage}".`, 'success');
       }
       if (rule.action_type === 'send_email') {
         const target = clients.find(c => c.id === clientId);
@@ -1319,7 +1319,7 @@ export default function App() {
 
   function handleDeleteTag(tag) {
     const count = Object.values(clientTagMap).filter(ids => ids.includes(tag.id)).length;
-    showConfirm('Delete Tag', `Delete tag "${tag.name}"? It will be removed from ${count} client(s).`, 'Delete', 'danger',
+    showConfirm('Delete Tag', `Delete tag "${tag.name}"? It will be removed from ${count} relationship(s).`, 'Delete', 'danger',
       async () => {
         const { error } = await supabase.from('tags').delete().eq('id', tag.id);
         if (!error) {
@@ -1467,7 +1467,7 @@ export default function App() {
       // Delete the source client
       await supabase.from('clients').delete().eq('id', mergeSource.id);
       await Promise.all([fetchClients(user.id), fetchActivities(user.id), fetchTasks(user.id), fetchDeals(user.id)]);
-      showToast('Clients merged successfully.', 'success');
+      showToast('Relationships merged successfully.', 'success');
       setShowMergeTool(false); setMergeSource(null); setMergeTarget(null); setMergeStep(1); setMergeFieldChoices({}); setMergeSearch('');
     } catch (err) {
       showToast(`Merge failed: ${err.message}`, 'error');
@@ -1846,7 +1846,7 @@ export default function App() {
     const fieldName = customFieldDefs.find(f => f.id === id)?.field_name || 'Field';
     showConfirm(
       'Delete Custom Field',
-      `WARNING: Deleting the field "${fieldName}" will permanently delete all data stored in it for all clients. This action cannot be undone.`,
+      `WARNING: Deleting the field "${fieldName}" will permanently delete all data stored in it for all relationships. This action cannot be undone.`,
       'Delete Field',
       'danger',
       async () => {
@@ -1990,9 +1990,9 @@ export default function App() {
   }
 
   function handleDeleteClient(clientId) {
-    const clientName = clients.find(c => c.id === clientId)?.name || 'Client';
+    const clientName = clients.find(c => c.id === clientId)?.name || 'Relationship';
     showConfirm(
-      'Delete Client',
+      'Delete Relationship',
       `Are you sure you want to delete "${clientName}"? This action cannot be undone.`,
       'Delete',
       'danger',
@@ -2178,8 +2178,8 @@ export default function App() {
 
   const handleBulkDelete = () => {
     showConfirm(
-      'Delete Multiple Clients',
-      `You are about to delete ${selectedClientIds.length} client(s). This action cannot be undone.`,
+      'Delete Multiple Relationships',
+      `You are about to delete ${selectedClientIds.length} relationship(s). This action cannot be undone.`,
       'Delete All',
       'danger',
       async () => {
@@ -2198,7 +2198,7 @@ export default function App() {
     const { error } = await supabase.from('clients').update({ status: newStatus }).in('id', selectedClientIds);
     if (!error) {
       setClients(clients.map(c => selectedClientIds.includes(c.id) ? { ...c, status: newStatus } : c));
-      showToast(`Updated ${selectedClientIds.length} clients.`, 'success');
+      showToast(`Updated ${selectedClientIds.length} relationships.`, 'success');
       setSelectedClientIds([]);
     } else {
       showToast(`Bulk Status Error: ${error.message}`, 'error');
@@ -2224,7 +2224,7 @@ export default function App() {
     ].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a'); link.href = url; link.setAttribute('download', 'crm_clients_export.csv');
+    const link = document.createElement('a'); link.href = url; link.setAttribute('download', 'crm_relationships_export.csv');
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
@@ -2282,7 +2282,7 @@ export default function App() {
     const { data, error } = await supabase.from('clients').insert(inserts).select();
     if (data && !error) {
       setClients(prev => [...data, ...prev]);
-      showToast(`Imported ${data.length} clients. ${importPreviewData.length - data.length} skipped.`, 'success');
+      showToast(`Imported ${data.length} relationships. ${importPreviewData.length - data.length} skipped.`, 'success');
       setShowImportPreview(false);
       setImportPreviewData([]);
     } else {
@@ -2525,12 +2525,12 @@ export default function App() {
     const tasksThen = tasks.filter(t => new Date(t.created_at || t.due_date) < cutoff);
 
     return {
-      'Clients Total': [clientsNow, clientsThen],
+      'Relationships': [clientsNow, clientsThen],
       'Activities': [actsCur, actsPrev],
       'Pipeline $': [pipeNow, pipeThen],
       'Win Rate': [winRateOf(deals.filter(d => ['Won', 'Lost'].includes(d.stage))), winRateOf(closedThen)],
       'Task Completion': [tcOf(tasks), tcOf(tasksThen)],
-      'Avg Act/Client': [clientsNow > 0 ? actsCur / clientsNow : 0, clientsThen > 0 ? actsPrev / clientsThen : 0],
+      'Avg Act/Relationship': [clientsNow > 0 ? actsCur / clientsNow : 0, clientsThen > 0 ? actsPrev / clientsThen : 0],
     };
   }, [compareReports, reportRange, activities, clients, deals, tasks]);
 
@@ -2576,7 +2576,7 @@ export default function App() {
 
   // FEATURE 30 â€” onboarding
   const onboardingSteps = [
-    { title: 'Add your first client', desc: 'Start tracking relationships.', done: clients.length > 0 },
+    { title: 'Add your first relationship', desc: 'Start tracking relationships.', done: clients.length > 0 },
     { title: 'Log your first activity', desc: 'Open a client and log an activity.', done: activities.length > 0 },
     { title: 'Create your first task', desc: 'Stay on top of follow-ups.', done: tasks.length > 0 },
     { title: 'Explore your dashboard', desc: 'Look around for 30 seconds.', done: dashboardExplored },
@@ -2660,7 +2660,7 @@ export default function App() {
           <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] border border-gray-100" onClick={e => e.stopPropagation()}>
             <div className="flex items-center px-4 py-3 border-b border-gray-100 bg-gray-50/50">
               <SearchIcon className="text-gray-400" />
-              <input type="text" autoFocus placeholder="Search clients, emails, activity notes... (Cmd+K)" value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} className="w-full bg-transparent border-none focus:ring-0 px-3 py-1 text-[15px] outline-none placeholder-gray-400" />
+              <input type="text" autoFocus placeholder="Search relationships, emails, activity notes... (Cmd+K)" value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} className="w-full bg-transparent border-none focus:ring-0 px-3 py-1 text-[15px] outline-none placeholder-gray-400" />
               <button onClick={() => setShowGlobalSearch(false)} className="text-[10px] font-bold text-gray-400 bg-gray-200 px-2 py-1 rounded hover:bg-gray-300">ESC</button>
             </div>
             
@@ -2672,7 +2672,7 @@ export default function App() {
                   {/* CLIENT MATCHES */}
                   {globalSearchResults.clients.length > 0 && (
                     <div>
-                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3 mb-2">Clients</h4>
+                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3 mb-2">Relationships</h4>
                       {globalSearchResults.clients.map(c => (
                         <button key={c.id} onClick={() => handleSearchSelection('client', c)} className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors text-left group">
                           <div>
@@ -2694,7 +2694,7 @@ export default function App() {
                         return (
                           <button key={a.id} onClick={() => handleSearchSelection('activity', a)} className="w-full flex flex-col p-3 hover:bg-gray-50 rounded-xl transition-colors text-left group gap-1">
                             <div className="flex justify-between w-full items-center">
-                              <span className="text-[12px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{parentClient?.name || 'Unknown Client'}</span>
+                              <span className="text-[12px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{parentClient?.name || 'Unknown Relationship'}</span>
                               <span className="text-[11px] text-gray-400">{a.activity_date}</span>
                             </div>
                             <p className="text-[13px] text-gray-800 line-clamp-2 leading-snug">{a.description}</p>
@@ -2728,7 +2728,7 @@ export default function App() {
                 <div className="hidden md:flex items-center gap-1">
                   {[
                     ['DASHBOARD', 'Dashboard'],
-                    ['CLIENTS', 'Clients Pipeline'],
+                    ['CLIENTS', 'Relationships'],
                     ['DEALS', 'Deals'],
                     ['GLOBAL_TASKS', 'Tasks'],
                     ['CALENDAR', 'Calendar'],
@@ -2819,7 +2819,7 @@ export default function App() {
             <div className="px-4 py-3 flex flex-col gap-1">
               {[
                 ['DASHBOARD', 'Dashboard'],
-                ['CLIENTS', 'Clients Pipeline'],
+                ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
                 ['GLOBAL_TASKS', 'Tasks'],
                 ['CALENDAR', 'Calendar'],
@@ -2846,7 +2846,7 @@ export default function App() {
             }
           }}
           className="fixed bottom-6 right-4 md:bottom-8 md:right-8 z-50 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 p-4 rounded-full shadow-xl hover:bg-gray-800 dark:hover:bg-white hover:scale-105 transition-all active:scale-95 group flex items-center justify-center"
-          title="Add New Client"
+          title="Add New Relationship"
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
         </button>
@@ -3013,7 +3013,7 @@ export default function App() {
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Overview</h1>
-              <p className="text-[13px] text-gray-500">Monitor your workspace activity and client directory.</p>
+              <p className="text-[13px] text-gray-500">Monitor your workspace activity and relationship directory.</p>
             </div>
 
             {/* ONBOARDING CHECKLIST (Feature 30) */}
@@ -3036,7 +3036,7 @@ export default function App() {
                       <div className="flex-1">
                         <p className={`text-[13px] font-semibold ${step.done ? 'text-green-800 dark:text-green-300 line-through' : 'text-gray-900 dark:text-gray-100'}`}>{step.title}</p>
                         <p className="text-[11px] text-gray-500 mt-0.5">{step.desc}</p>
-                        {!step.done && i === 0 && <button onClick={() => { setAppStep('CLIENTS'); setTimeout(() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' }), 100); }} className="mt-1.5 text-[12px] font-semibold text-indigo-600 hover:underline">Add Client &rarr;</button>}
+                        {!step.done && i === 0 && <button onClick={() => { setAppStep('CLIENTS'); setTimeout(() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' }), 100); }} className="mt-1.5 text-[12px] font-semibold text-indigo-600 hover:underline">Add Relationship &rarr;</button>}
                         {!step.done && i === 2 && <button onClick={() => setAppStep('GLOBAL_TASKS')} className="mt-1.5 text-[12px] font-semibold text-indigo-600 hover:underline">Go to Tasks &rarr;</button>}
                       </div>
                     </div>
@@ -3083,7 +3083,7 @@ export default function App() {
                           <p className="text-[13px] font-medium text-red-600 truncate max-w-[150px]">{task.title}</p>
                           <p className="text-[11px] text-gray-500">Due: {task.due_date}</p>
                         </div>
-                        <button onClick={() => { setViewingClient(clients.find(c => c.id === task.client_id)); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-900 font-medium hover:underline shrink-0">View Client</button>
+                        <button onClick={() => { setViewingClient(clients.find(c => c.id === task.client_id)); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-900 font-medium hover:underline shrink-0">View Relationship</button>
                       </div>
                     ))}
                   </div>
@@ -3098,7 +3098,7 @@ export default function App() {
                     {tasks.filter(t => t.status === 'pending' && t.due_date === todayStr).slice(0,4).map(task => (
                       <div key={task.id} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                         <p className="text-[13px] font-medium text-gray-900 truncate max-w-[150px]">{task.title}</p>
-                        <button onClick={() => { setViewingClient(clients.find(c => c.id === task.client_id)); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-900 font-medium hover:underline shrink-0">View Client</button>
+                        <button onClick={() => { setViewingClient(clients.find(c => c.id === task.client_id)); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-900 font-medium hover:underline shrink-0">View Relationship</button>
                       </div>
                     ))}
                   </div>
@@ -3168,7 +3168,7 @@ export default function App() {
                     {goalProgress.map(g => (
                       <div key={g.id} className="relative">
                         <div className="flex justify-between text-[12px] mb-1">
-                          <span className="font-medium text-gray-700 dark:text-gray-300">{{ new_clients: 'New Clients', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</span>
+                          <span className="font-medium text-gray-700 dark:text-gray-300">{{ new_clients: 'New Relationships', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</span>
                           <span className="font-bold text-gray-900 dark:text-gray-100">{g.current} of {g.target_value} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${g.pct >= 100 ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'}`}>{g.pct}%</span></span>
                         </div>
                         <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
@@ -3185,7 +3185,7 @@ export default function App() {
               <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>â­</span> Top Leads</h3>
                 {topLeads.length === 0 ? (
-                  <p className="text-[13px] text-gray-400 py-2">Add clients to see lead scores.</p>
+                  <p className="text-[13px] text-gray-400 py-2">Add relationships to see lead scores.</p>
                 ) : (
                   <div className="space-y-2.5">
                     {topLeads.map(c => (
@@ -3225,7 +3225,7 @@ export default function App() {
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ“</span> Top Sources</h3>
                 {(() => {
                   const top = CLIENT_SOURCES.map(s => [s, clients.filter(c => c.source === s).length]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
-                  if (top.length === 0) return <p className="text-[13px] text-gray-400 py-2">No sources recorded yet â€” set a source when adding clients.</p>;
+                  if (top.length === 0) return <p className="text-[13px] text-gray-400 py-2">No sources recorded yet â€” set a source when adding relationships.</p>;
                   return (
                     <div className="space-y-2.5">
                       {top.map(([source, count]) => (
@@ -3289,11 +3289,11 @@ export default function App() {
               {/* Stale Clients */}
               <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>â„ï¸</span> Stale Clients (&gt;30 Days)
+                  <span>â„ï¸</span> Stale Relationships (&gt;30 Days)
                 </h3>
                 <div className="space-y-2.5 flex-1">
                   {staleClients.length === 0 ? (
-                    <p className="text-[13px] text-gray-400 py-2">All active clients have recent activity. Great job!</p>
+                    <p className="text-[13px] text-gray-400 py-2">All active relationships have recent activity. Great job!</p>
                   ) : (
                     staleClients.map(c => (
                       <button key={c.id} onClick={() => {setViewingClient(c); setAppStep('CLIENTS');}} className="w-full flex items-center justify-between p-2.5 rounded-lg border border-red-50 bg-red-50/40 hover:bg-red-50 transition-colors text-left group">
@@ -3318,13 +3318,13 @@ export default function App() {
             {/* FEATURE 10 â€” read-only banner for viewers */}
             {isViewer && (
               <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-[13px] font-medium text-blue-800">
-                ðŸ‘ï¸ Read-only access â€” you can view clients but not edit them. Ask a workspace admin for a higher role.
+                ðŸ‘ï¸ Read-only access â€” you can view relationships but not edit them. Ask a workspace admin for a higher role.
               </div>
             )}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-1">CRM Pipeline</h1>
-                <p className="text-[13px] text-gray-500">Manage client data, pipeline stages, custom fields, and records.</p>
+                <p className="text-[13px] text-gray-500">Manage relationship data, pipeline stages, custom fields, and records.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {/* Kanban Toggle */}
@@ -3353,7 +3353,7 @@ export default function App() {
                   {duplicateWarning && (
                     <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg mt-1">
                       <span className="text-[12px] text-yellow-800">
-                        âš ï¸ A client with this email already exists:
+                        âš ï¸ A relationship with this email already exists:
                         <button type="button" onClick={() => setViewingClient(duplicateWarning)} className="font-semibold ml-1 underline">{duplicateWarning.name}</button>
                       </span>
                     </div>
@@ -3408,7 +3408,7 @@ export default function App() {
                   {duplicateWarning && !forceSaveDuplicate && (
                     <button type="button" onClick={() => setForceSaveDuplicate(true)} className="px-3 py-2 text-[12px] font-medium text-yellow-700 bg-white border border-yellow-300 rounded-lg hover:bg-yellow-50 whitespace-nowrap">Save anyway</button>
                   )}
-                  <button type="submit" disabled={!!duplicateWarning && !forceSaveDuplicate} className="px-5 py-2 font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm transition-all whitespace-nowrap disabled:opacity-50 disabled:hover:bg-gray-900">Save Client</button>
+                  <button type="submit" disabled={!!duplicateWarning && !forceSaveDuplicate} className="px-5 py-2 font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm transition-all whitespace-nowrap disabled:opacity-50 disabled:hover:bg-gray-900">Save Relationship</button>
                 </div>
               </form>
             </div>
@@ -3557,7 +3557,7 @@ export default function App() {
             {/* BULK ACTIONS BAR (Table mode only) */}
             {viewMode === 'table' && selectedClientIds.length > 0 && (
               <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-center justify-between animate-in fade-in">
-                <span className="text-[13px] font-medium text-blue-800">{selectedClientIds.length} clients selected</span>
+                <span className="text-[13px] font-medium text-blue-800">{selectedClientIds.length} relationships selected</span>
                 <div className="flex flex-wrap items-center gap-2">
                   <select onChange={e => {if(e.target.value) handleBulkStatusUpdate(e.target.value); e.target.value='';}} className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-md text-[12px] font-medium hover:bg-gray-50 outline-none">
                     <option value="">Change Status...</option>
@@ -3576,9 +3576,9 @@ export default function App() {
               <div className="p-12 text-center bg-white rounded-2xl border border-gray-200">
                 {clients.length === 0 ? (
                   <>
-                    <p className="text-[14px] font-semibold text-gray-900">No clients yet</p>
-                    <p className="text-[13px] text-gray-400 mt-1">Add your first client to start tracking relationships.</p>
-                    <button onClick={() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' })} className="mt-4 px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Your First Client</button>
+                    <p className="text-[14px] font-semibold text-gray-900">No relationships yet</p>
+                    <p className="text-[13px] text-gray-400 mt-1">Add your first relationship to start tracking.</p>
+                    <button onClick={() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' })} className="mt-4 px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Your First Relationship</button>
                   </>
                 ) : (
                   <p className="text-[13px] text-gray-400">No matching records found. Try adjusting your filters.</p>
@@ -3628,7 +3628,7 @@ export default function App() {
                           <th className="p-4 w-10 text-center">
                             <input type="checkbox" checked={paginatedClients.length > 0 && paginatedClients.every(c => selectedClientIds.includes(c.id))} onChange={(e) => handleSelectAll(e, paginatedClients)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
                           </th>
-                          <th className="p-4">Client</th>
+                          <th className="p-4">Relationship</th>
                           <th className="p-4">Tags</th>
                           <th className="p-4">Priority</th>
                           <th className="p-4">Score</th>
@@ -3861,7 +3861,7 @@ export default function App() {
                                 <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{deal.title}</p>
                                 <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-800">{deal.probability}%</span>
                               </div>
-                              <div className="text-[11px] text-gray-500 truncate">{dealClient?.name || 'Unknown client'}</div>
+                              <div className="text-[11px] text-gray-500 truncate">{dealClient?.name || 'Unknown relationship'}</div>
                               <div className="flex items-center justify-between">
                                 <span className="text-[13px] font-bold text-gray-900 dark:text-gray-100">{fmtMoney(deal.value)}</span>
                                 {deal.close_date && <span className="text-[10px] text-gray-400">Close: {deal.close_date}</span>}
@@ -3898,7 +3898,7 @@ export default function App() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Reports</h1>
-                <p className="text-[13px] text-gray-500">Analytics across clients, activities, deals, and tasks.</p>
+                <p className="text-[13px] text-gray-500">Analytics across relationships, activities, deals, and tasks.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="bg-gray-200/50 dark:bg-gray-800 p-1 rounded-lg flex items-center gap-1">
@@ -4012,12 +4012,12 @@ export default function App() {
             {/* Stat tiles â€” clickable (C3) with prior-period deltas (C2) */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               {[
-                ['Clients Total', clients.length, () => { clearAllFilters(); setAppStep('CLIENTS'); }],
+                ['Relationships', clients.length, () => { clearAllFilters(); setAppStep('CLIENTS'); }],
                 ['Activities', reportStats.activitiesInRange.length, () => { clearAllFilters(); setFilterHasActivity(reportRange === '7' ? 'last_7' : 'last_30'); setAppStep('CLIENTS'); }],
                 ['Pipeline $', fmtMoney(pipelineValue), () => { setDealsStageFilter(''); setAppStep('DEALS'); }],
                 ['Win Rate', `${reportStats.winRate}%`, () => { setDealsStageFilter('Won'); setAppStep('DEALS'); }],
                 ['Task Completion', `${reportStats.taskCompletionRate}%`, () => setAppStep('GLOBAL_TASKS')],
-                ['Avg Act/Client', reportStats.avgActivitiesPerClient, () => { clearAllFilters(); setAppStep('CLIENTS'); }],
+                ['Avg Act/Relationship', reportStats.avgActivitiesPerClient, () => { clearAllFilters(); setAppStep('CLIENTS'); }],
               ].map(([label, value, onClick]) => (
                 <button key={label} onClick={onClick} className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm text-left hover:shadow-md hover:border-gray-300 dark:hover:border-gray-500 transition-all">
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
@@ -4096,7 +4096,7 @@ export default function App() {
 
               {/* Chart 4 â€” Clients added over time */}
               <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col">
-                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Clients Added (8 Weeks)</h3>
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Relationships Added (8 Weeks)</h3>
                 <div className="flex-1 flex items-end gap-2 h-32 mt-auto pb-2">
                   {reportStats.clientsAddedByWeek.map((w, i) => {
                     const max = Math.max(...reportStats.clientsAddedByWeek.map(x => x.count), 1);
@@ -4115,7 +4115,7 @@ export default function App() {
 
               {/* Chart 5 â€” Clients by source (Feature 25) */}
               <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Clients by Source</h3>
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Relationships by Source</h3>
                 <div className="space-y-3">
                   {CLIENT_SOURCES.map(source => {
                     const count = reportStats.clientsBySource[source] || 0;
@@ -4135,7 +4135,7 @@ export default function App() {
 
               {/* Table â€” Most active clients */}
               <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Most Active Clients</h3>
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Most Active Relationships</h3>
                 {reportStats.topClientsByActivity.length === 0 ? (
                   <p className="text-[13px] text-gray-400">No activities logged in this range.</p>
                 ) : (
@@ -4322,7 +4322,7 @@ export default function App() {
           ].sort((a, b) => new Date(b.sort || b.date || 0) - new Date(a.sort || a.date || 0));
           return (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <button onClick={() => { setTimelineClient(null); setAppStep('CLIENTS'); }} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">&larr; Back to Clients</button>
+              <button onClick={() => { setTimelineClient(null); setAppStep('CLIENTS'); }} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">&larr; Back to Relationships</button>
               <div className="flex flex-wrap items-center gap-3">
                 <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{tc.name}</h1>
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{tc.status}</span>
@@ -4333,7 +4333,7 @@ export default function App() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="space-y-4">
                   <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-2 text-[13px]">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Client Info</h3>
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Relationship Info</h3>
                     <p className="break-all"><span className="text-gray-400">Email:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.email}</span></p>
                     <p><span className="text-gray-400">Phone:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.phone_number || 'â€”'}</span></p>
                     <p><span className="text-gray-400">Country:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.country || 'â€”'}</span></p>
@@ -4444,7 +4444,7 @@ export default function App() {
                         <div className="text-[12px] text-gray-500 mt-0.5">
                           Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span> 
                           &nbsp;â€¢&nbsp; 
-                          Client: <button onClick={() => { setViewingClient(client); setAppStep('CLIENTS'); }} className="text-gray-900 font-medium hover:underline">{client?.name || 'Unknown'}</button>
+                          Relationship: <button onClick={() => { setViewingClient(client); setAppStep('CLIENTS'); }} className="text-gray-900 font-medium hover:underline">{client?.name || 'Unknown'}</button>
                         </div>
                       </div>
                     </div>
@@ -4552,7 +4552,7 @@ export default function App() {
               <div className="flex justify-between items-start mb-5">
                 <div>
                   <h2 className="text-[15px] font-bold text-gray-900">Custom Fields</h2>
-                  <p className="text-[12px] text-gray-500 mt-1">Add education-specific tracking metrics (School, Major, Grad Year) or other personalized data fields for your clients.</p>
+                  <p className="text-[12px] text-gray-500 mt-1">Add education-specific tracking metrics (School, Major, Grad Year) or other personalized data fields for your relationships.</p>
                 </div>
               </div>
               
@@ -4667,7 +4667,7 @@ export default function App() {
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No automation rules yet.</p>
                 ) : automationRules.map(r => {
                   const triggerLabel = {
-                    stage_change: `Client moves to "${r.trigger_value}"`,
+                    stage_change: `Relationship moves to "${r.trigger_value}"`,
                     deal_stage_change: `Deal moves to "${r.trigger_value}"`,
                     no_activity_days: `No activity for ${r.trigger_value} days`,
                     task_overdue: 'A task becomes overdue',
@@ -4675,7 +4675,7 @@ export default function App() {
                   const actionLabel = {
                     create_task: `Create task "${r.action_value?.title || 'Follow up'}"`,
                     send_notification: 'Send a notification',
-                    change_stage: `Move client to "${r.action_value?.stage}"`,
+                    change_stage: `Move relationship to "${r.action_value?.stage}"`,
                     send_email: 'Send an email',
                   }[r.action_type] || r.action_type;
                   return (
@@ -4698,7 +4698,7 @@ export default function App() {
                     <div>
                       <label className="block text-[11px] font-medium text-gray-700 mb-1">When (trigger)</label>
                       <select value={newRule.triggerType} onChange={e => setNewRule({ ...newRule, triggerType: e.target.value, triggerValue: '' })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700">
-                        <option value="stage_change">Client stage changes to...</option>
+                        <option value="stage_change">Relationship stage changes to...</option>
                         <option value="deal_stage_change">Deal stage changes to...</option>
                         <option value="no_activity_days">No activity for N days (daily check)</option>
                         <option value="task_overdue">Task becomes overdue (daily check)</option>
@@ -4720,7 +4720,7 @@ export default function App() {
                       )}
                       <p className="text-[11px] text-gray-400 mt-1.5">
                         {{
-                          stage_change: 'Fires immediately when a client is dragged or edited into this stage.',
+                          stage_change: 'Fires immediately when a relationship is dragged or edited into this stage.',
                           deal_stage_change: 'Fires immediately when a deal moves to this stage.',
                           no_activity_days: 'Evaluated by the daily notification job.',
                           task_overdue: 'Evaluated by the daily notification job.',
@@ -4732,7 +4732,7 @@ export default function App() {
                       <select value={newRule.actionType} onChange={e => setNewRule({ ...newRule, actionType: e.target.value, actionValue: {} })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700">
                         <option value="create_task">Create a task</option>
                         <option value="send_notification">Send a notification</option>
-                        <option value="change_stage">Change client stage</option>
+                        <option value="change_stage">Change relationship stage</option>
                         <option value="send_email">Send an email</option>
                       </select>
                       {newRule.actionType === 'create_task' && (
@@ -4770,14 +4770,14 @@ export default function App() {
               <h2 className="text-[15px] font-bold text-gray-900 mb-4">Tags</h2>
               <div className="space-y-2 mb-5">
                 {tags.length === 0 ? (
-                  <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No tags yet â€” create tags to segment your clients.</p>
+                  <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No tags yet â€” create tags to segment your relationships.</p>
                 ) : tags.map(t => {
                   const count = Object.values(clientTagMap).filter(ids => ids.includes(t.id)).length;
                   return (
                     <div key={t.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
                       <span className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
                       <span className="text-[13px] font-semibold text-gray-900 flex-1">{t.name}</span>
-                      <span className="text-[11px] text-gray-400">{count} client{count === 1 ? '' : 's'}</span>
+                      <span className="text-[11px] text-gray-400">{count} relationship{count === 1 ? '' : 's'}</span>
                       <button onClick={() => handleDeleteTag(t)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>
                     </div>
                   );
@@ -4868,7 +4868,7 @@ export default function App() {
                   {[...goals].sort((a, b) => (b.month || '').localeCompare(a.month || '')).map(g => (
                     <div key={g.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
                       <div className="flex-1">
-                        <p className="text-[13px] font-semibold text-gray-900">{{ new_clients: 'New Clients', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</p>
+                        <p className="text-[13px] font-semibold text-gray-900">{{ new_clients: 'New Relationships', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</p>
                         <p className="text-[11px] text-gray-400">{new Date(g.month + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} Â· Target: {g.target_value}</p>
                       </div>
                       <button onClick={() => handleDeleteGoal(g.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>
@@ -4941,7 +4941,7 @@ export default function App() {
             {/* Danger Zone Block */}
             <div className="bg-red-50 p-6 sm:p-8 rounded-2xl border border-red-100">
               <h2 className="text-[15px] font-bold text-red-900 mb-2">Danger Zone</h2>
-              <p className="text-[13px] text-red-700 mb-5">Permanently remove your account and all associated client data from the servers. This action is irreversible.</p>
+              <p className="text-[13px] text-red-700 mb-5">Permanently remove your account and all associated relationship data from the servers. This action is irreversible.</p>
               <button onClick={() => setShowDeleteModal(true)} className="px-4 py-2 text-[13px] font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors shadow-sm">Delete Account</button>
             </div>
           </div>
@@ -4964,7 +4964,7 @@ export default function App() {
                     {clientsWithScores.find(c => c.id === viewingClient.id)?.leadScore ?? 0}
                   </span>
                 </div>
-                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Client Profile</p>
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Relationship Profile</p>
                 {/* FEATURE 9 â€” tags on profile */}
                 <div className="flex flex-wrap items-center gap-1 mt-1.5">
                   {(clientTagMap[viewingClient.id] || []).map(tid => {
@@ -5085,7 +5085,7 @@ export default function App() {
                     {quickNoteSaving ? 'Saving...' : quickNoteSaved ? <span className="text-green-600">Saved âœ“</span> : ''}
                   </span>
                 </div>
-                <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this client â€” auto-saves as you type..." disabled={!canEdit} className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-xl bg-yellow-50/50 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
+                <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this relationship â€” auto-saves as you type..." disabled={!canEdit} className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-xl bg-yellow-50/50 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
               </div>
 
               {/* FEATURE 7 â€” PROFILE TAB BAR */}
@@ -5155,7 +5155,7 @@ export default function App() {
               {/* TAB: TASKS */}
               {activeProfileTab === 'tasks' && (
               <div>
-                <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-3">Tasks for this Client</h4>
+                <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-3">Tasks for this Relationship</h4>
 
                 <form onSubmit={(e) => handleCreateTask(e, viewingClient.id)} className="flex flex-wrap gap-2 mb-3">
                   <input type="text" placeholder="New task title..." value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className="flex-1 min-w-[140px] px-3 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none" required />
@@ -5176,7 +5176,7 @@ export default function App() {
 
                 <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                   {tasks.filter(t => t.client_id === viewingClient.id).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).length === 0 && (
-                    <p className="text-[12px] text-gray-400 italic">No tasks created for this client profile yet.</p>
+                    <p className="text-[12px] text-gray-400 italic">No tasks created for this relationship profile yet.</p>
                   )}
                   {tasks.filter(t => t.client_id === viewingClient.id).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).map(task => {
                     const isOverdue = task.status === 'pending' && new Date(task.due_date) < new Date(todayStr);
@@ -5318,7 +5318,7 @@ export default function App() {
                   cfs[def.id] = existing ? existing.value : '';
                 });
                 setFormCustomValues(cfs);
-              }} className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors shadow-sm">Edit Client</button>
+              }} className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors shadow-sm">Edit Relationship</button>
               <button type="button" onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Close</button>
             </div>
 
@@ -5332,7 +5332,7 @@ export default function App() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden animate-in scale-in-from-95 duration-200 max-h-[90vh] flex flex-col">
             
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Edit Client</h3>
+              <h3 className="text-[15px] font-bold text-gray-900">Edit Relationship</h3>
               <button onClick={() => setEditingClient(null)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
 
@@ -5442,7 +5442,7 @@ export default function App() {
               </div>
               <div>
                 <h3 className="text-xl font-bold text-gray-900">Delete Account Permanently</h3>
-                <p className="text-[13px] text-gray-500 mt-2 leading-relaxed">You are about to permanently delete your account and all associated client data from our servers. This action cannot be undone.</p>
+                <p className="text-[13px] text-gray-500 mt-2 leading-relaxed">You are about to permanently delete your account and all associated relationship data from our servers. This action cannot be undone.</p>
               </div>
               <div className="w-full bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3 mt-4">
                 <p className="text-[12px] font-medium text-gray-700 text-left">Please type your email address <strong className="text-gray-900 select-all">{user?.email}</strong> to confirm:</p>
@@ -5474,9 +5474,9 @@ export default function App() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Client *</label>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Relationship *</label>
                   <select required value={dealClientId} onChange={e => setDealClientId(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
-                    <option value="">-- Select client --</option>
+                    <option value="">-- Select relationship --</option>
                     {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
@@ -5575,7 +5575,7 @@ export default function App() {
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Email {selectedClientIds.length} clients</h3>
+              <h3 className="text-[15px] font-bold text-gray-900">Email {selectedClientIds.length} relationships</h3>
               <button onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
             <form onSubmit={handleBulkSendEmail} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
@@ -5666,14 +5666,14 @@ export default function App() {
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !mergeLoading && setShowMergeTool(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Merge Client â€” Step {mergeStep} of 2</h3>
+              <h3 className="text-[15px] font-bold text-gray-900">Merge Relationship â€” Step {mergeStep} of 2</h3>
               <button onClick={() => !mergeLoading && setShowMergeTool(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
             <div className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
               {mergeStep === 1 && (
                 <>
-                  <p className="text-gray-600">Merging <span className="font-bold text-gray-900">{mergeSource.name}</span> into another client. Select the <span className="font-semibold">target</span> client to keep:</p>
-                  <input type="text" autoFocus placeholder="Search clients..." value={mergeSearch} onChange={e => setMergeSearch(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                  <p className="text-gray-600">Merging <span className="font-bold text-gray-900">{mergeSource.name}</span> into another relationship. Select the <span className="font-semibold">target</span> relationship to keep:</p>
+                  <input type="text" autoFocus placeholder="Search relationships..." value={mergeSearch} onChange={e => setMergeSearch(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
                   <div className="max-h-64 overflow-y-auto space-y-1.5">
                     {clients.filter(c => c.id !== mergeSource.id && ((c.name || '').toLowerCase().includes(mergeSearch.toLowerCase()) || (c.email || '').toLowerCase().includes(mergeSearch.toLowerCase()))).slice(0, 10).map(c => (
                       <button key={c.id} onClick={() => setMergeTarget(c)} className={`w-full flex items-center justify-between p-3 rounded-xl border text-left transition-colors ${mergeTarget?.id === c.id ? 'border-gray-900 bg-gray-50' : 'border-gray-100 hover:border-gray-300'}`}>
@@ -5738,7 +5738,7 @@ export default function App() {
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Goal Type</label>
                 <select value={goalType} onChange={e => setGoalType(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
-                  <option value="new_clients">New Clients</option>
+                  <option value="new_clients">New Relationships</option>
                   <option value="activities_logged">Activities Logged</option>
                   <option value="deals_closed">Deals Closed</option>
                   <option value="tasks_completed">Tasks Completed</option>
@@ -5768,7 +5768,7 @@ export default function App() {
             <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6 text-[13px]">
               <div>
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">Navigation</h4>
-                {[['Alt+1', 'Dashboard'], ['Alt+2', 'Clients'], ['Alt+3', 'Tasks'], ['Alt+4', 'Reports'], ['Alt+5', 'Calendar']].map(([k, d]) => (
+                {[['Alt+1', 'Dashboard'], ['Alt+2', 'Relationships'], ['Alt+3', 'Tasks'], ['Alt+4', 'Reports'], ['Alt+5', 'Calendar']].map(([k, d]) => (
                   <div key={k} className="flex justify-between items-center py-1.5">
                     <span className="text-gray-600">{d}</span>
                     <kbd className="text-[11px] font-bold bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 text-gray-600">{k}</kbd>
@@ -5777,7 +5777,7 @@ export default function App() {
               </div>
               <div>
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">Actions</h4>
-                {[['âŒ˜K / Ctrl+K', 'Global search'], ['âŒ˜N / Ctrl+N', 'New client (on Clients page)'], ['?', 'Show shortcuts'], ['Esc', 'Close / dismiss']].map(([k, d]) => (
+                {[['âŒ˜K / Ctrl+K', 'Global search'], ['âŒ˜N / Ctrl+N', 'New relationship (on Relationships page)'], ['?', 'Show shortcuts'], ['Esc', 'Close / dismiss']].map(([k, d]) => (
                   <div key={k} className="flex justify-between items-center py-1.5 gap-3">
                     <span className="text-gray-600">{d}</span>
                     <kbd className="text-[11px] font-bold bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 text-gray-600 whitespace-nowrap">{k}</kbd>
