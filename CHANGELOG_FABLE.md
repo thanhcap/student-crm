@@ -69,3 +69,14 @@ Three compounding bugs made the toggle a no-op:
 Couldn't run `next build` in this environment (sandbox can't fetch the Linux SWC binary); ESLint parses both files cleanly.
 
 **Manual test:** load the app (defaults to light), click the moon icon → whole UI goes dark instantly; reload → stays dark; toggle back → stays light after reload.
+
+## fable/reports-deep — Part C: deep + custom reports
+**Line count: 5,514 → 5,821 (+307)**
+
+- **C1 Custom Report Builder** — panel above the fixed charts: Dimension (Stage/Priority/Source/Tag/Month Added) × Metric (Count/Total Deal Value/Avg Lead Score/Activity Count) × Date grouping (Day/Week/Month, active for "Month Added"). Renders a pure-Tailwind bar chart AND a table; recomputed via `useMemo` (`customReportData`). Activity Count respects the active 7d/30d/90d/1yr range.
+- **C2 Period Comparison** — "Compare to previous period" toggle next to the range selector; `comparisonStats` memo computes each tile's prior value (range metrics vs prior window; cumulative metrics vs data existing at the period boundary) and shows ▲/▼ % badges.
+- **C3 Drill-down** — every stat tile and chart bar is now a button: funnel bar → Relationships filtered by stage; source bar → Relationships filtered by source (new `filterSource` filter added to the advanced-filter engine, saved views, and More Filters panel); deal-stage row / Win Rate tile → Deals page filtered to that stage (new `dealsStageFilter` + banner with "Show all stages"); custom-report rows drill by their dimension.
+- **C4 Saved Custom Reports** — `custom_reports` table (applied live, RLS owner policy; `supabase/migrations/20260707_custom_reports.sql`). "Save this report" stores `{dimension, metric, dateGrouping, range}`; saved reports render as pills at the top of Reports; clicking restores the exact configuration.
+- **C5 Export & Scheduled Email** — "Export CSV" dumps the displayed custom table client-side; ✉ toggle on each saved pill cycles off → weekly → monthly (`send_frequency` column). **FOLLOW-UP:** actual email delivery needs a scheduled Supabase Edge Function; this repo currently has NO edge functions and no `supabase/functions/daily-notifications` (page.js references one, but none is deployed) — flagging rather than wiring pg_cron in this session.
+
+**Manual test:** Reports → build "Source × Total Deal Value" → chart+table render; Save as "Deal value by source" → pill appears, reload restores it via click; toggle Compare → delta badges appear on tiles; click a funnel bar → Relationships pre-filtered; click a Deal Stages row → Deals shows only that stage; Export CSV downloads the table.

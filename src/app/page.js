@@ -154,6 +154,20 @@ function TagPill({ tag, onRemove }) {
   );
 }
 
+// PART C2 â€” delta badge vs previous period
+function DeltaBadge({ current, prev }) {
+  if (prev == null) return null;
+  if (prev === 0 && current === 0) return <span className="text-[10px] font-semibold text-gray-400 block mt-0.5">â€” no change</span>;
+  const pct = prev === 0 ? 100 : Math.round(((current - prev) / Math.abs(prev)) * 100);
+  if (pct === 0) return <span className="text-[10px] font-semibold text-gray-400 block mt-0.5">â€” 0% vs last period</span>;
+  const up = pct > 0;
+  return (
+    <span className={`text-[10px] font-bold block mt-0.5 ${up ? 'text-green-600' : 'text-red-500'}`}>
+      {up ? 'â–²' : 'â–¼'} {Math.abs(pct)}% vs last period
+    </span>
+  );
+}
+
 function formatFileSize(bytes) {
   if (bytes == null) return 'â€”';
   if (bytes < 1024) return `${bytes} B`;
@@ -298,6 +312,15 @@ export default function App() {
   // FEATURE 3 â€” REPORTS STATE
   const [reportRange, setReportRange] = useState('30');
 
+  // PART C â€” CUSTOM REPORTS STATES
+  const [customDimension, setCustomDimension] = useState('Stage');
+  const [customMetric, setCustomMetric] = useState('Count');
+  const [customDateGrouping, setCustomDateGrouping] = useState('month');
+  const [customReports, setCustomReports] = useState([]);
+  const [savingReportName, setSavingReportName] = useState(null); // null = hidden, '' = open input
+  const [compareReports, setCompareReports] = useState(false); // C2 toggle
+  const [dealsStageFilter, setDealsStageFilter] = useState(''); // C3 drill-down target on Deals page
+
   // FEATURE 4 â€” EMAIL COMPOSER STATES
   const [showEmailComposer, setShowEmailComposer] = useState(false);
   const [emailTo, setEmailTo] = useState('');
@@ -418,6 +441,7 @@ export default function App() {
 
   // FEATURE 29 â€” ADVANCED FILTERS & SAVED VIEWS STATES
   const [filterDateAdded, setFilterDateAdded] = useState('');
+  const [filterSource, setFilterSource] = useState(''); // PART C3 â€” drill-down from Reports needs a source filter
   const [filterHasDeals, setFilterHasDeals] = useState(false);
   const [filterHasActivity, setFilterHasActivity] = useState('');
   const [filterScore, setFilterScore] = useState('');
@@ -680,7 +704,8 @@ export default function App() {
       fetchTags(session.user.id),
       fetchWebhooks(session.user.id),
       fetchGoals(session.user.id),
-      fetchSavedViews(session.user.id)
+      fetchSavedViews(session.user.id),
+      fetchCustomReports(session.user.id)
     ]);
     // Workspace depends on the session user; invite acceptance needs the email
     await fetchWorkspace(session.user.id, session.user.email);
@@ -736,6 +761,78 @@ export default function App() {
   async function fetchSavedViews(userId) {
     const { data } = await supabase.from('saved_views').select('*').eq('user_id', userId).order('created_at');
     if (data) setSavedViews(data);
+  }
+
+  // PART C4 â€” saved custom reports
+  async function fetchCustomReports(userId) {
+    const { data } = await supabase.from('custom_reports').select('*').eq('user_id', userId).order('created_at');
+    if (data) setCustomReports(data);
+  }
+
+  async function handleSaveCustomReport(name) {
+    if (!name.trim()) return;
+    const config = { dimension: customDimension, metric: customMetric, dateGrouping: customDateGrouping, range: reportRange };
+    const { data, error } = await supabase.from('custom_reports').insert([{ user_id: user.id, name: name.trim(), config }]).select();
+    if (!error && data) {
+      setCustomReports(prev => [...prev, data[0]]);
+      setSavingReportName(null);
+      showToast('Report saved.', 'success');
+    } else showToast(`Error saving report: ${error?.message}`, 'error');
+  }
+
+  function applyCustomReport(r) {
+    const c = r.config || {};
+    if (c.dimension) setCustomDimension(c.dimension);
+    if (c.metric) setCustomMetric(c.metric);
+    if (c.dateGrouping) setCustomDateGrouping(c.dateGrouping);
+    if (c.range) setReportRange(String(c.range));
+  }
+
+  function handleDeleteCustomReport(id) {
+    showConfirm('Delete Report', 'Delete this saved report?', 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('custom_reports').delete().eq('id', id);
+        if (!error) setCustomReports(prev => prev.filter(r => r.id !== id));
+      });
+  }
+
+  // PART C5 â€” cycle email frequency: off â†’ weekly â†’ monthly â†’ off.
+  // NOTE: only stores the flag; actual delivery needs a scheduled Edge Function (see CHANGELOG).
+  async function handleCycleReportFrequency(r) {
+    const next = !r.send_frequency ? 'weekly' : r.send_frequency === 'weekly' ? 'monthly' : null;
+    const { error } = await supabase.from('custom_reports').update({ send_frequency: next }).eq('id', r.id);
+    if (!error) {
+      setCustomReports(prev => prev.map(x => x.id === r.id ? { ...x, send_frequency: next } : x));
+      showToast(next ? `Email schedule set to ${next} (delivery wiring pending â€” see changelog).` : 'Email schedule turned off.', 'success');
+    } else showToast(`Error: ${error.message}`, 'error');
+  }
+
+  // PART C5 â€” client-side CSV export of the currently displayed custom report
+  function exportCustomReportCSV() {
+    const rows = [[customDimension, customMetric], ...customReportData.map(r => [
+      r.label,
+      customMetric === 'Avg Lead Score' ? r.value.toFixed(1) : r.value,
+    ])];
+    const csv = rows.map(row => row.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a'); link.href = url; link.setAttribute('download', 'custom_report.csv');
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  // PART C3 â€” drill from a custom-report row into the pre-filtered Relationships list
+  function drillCustomDimension(label) {
+    if (customDimension === 'Month Added') return; // no matching list filter
+    clearAllFilters();
+    if (customDimension === 'Stage') setFilterStatus(label);
+    if (customDimension === 'Priority') setFilterPriority(label);
+    if (customDimension === 'Source') setFilterSource(label);
+    if (customDimension === 'Tag') {
+      const t = tags.find(x => x.name === label);
+      if (t) setFilterTags([t.id]);
+    }
+    setAppStep('CLIENTS');
   }
 
   async function fetchClientFiles(clientId) {
@@ -1391,11 +1488,12 @@ export default function App() {
     setFilterScore(filters.filterScore ?? '');
     setFilterTags(filters.filterTags ?? []);
     setFilterHealth(filters.filterHealth ?? '');
+    setFilterSource(filters.filterSource ?? '');
   }
 
   async function handleSaveView(name) {
     if (!name.trim()) return;
-    const filters = { filterPriority, filterStatus, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterTags, filterHealth };
+    const filters = { filterPriority, filterStatus, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterTags, filterHealth, filterSource };
     const { data, error } = await supabase.from('saved_views').insert([{ user_id: user.id, name: name.trim(), filters }]).select();
     if (!error && data) {
       setSavedViews(prev => [...prev, data[0]]);
@@ -1415,7 +1513,7 @@ export default function App() {
   function clearAllFilters() {
     setFilterPriority('All'); setFilterStatus('All'); setFilterDateAdded('');
     setFilterHasDeals(false); setFilterHasActivity(''); setFilterScore('');
-    setFilterTags([]); setFilterHealth(''); setSearchTerm('');
+    setFilterTags([]); setFilterHealth(''); setFilterSource(''); setSearchTerm('');
   }
 
   // ==========================================
@@ -2258,6 +2356,8 @@ export default function App() {
         if (filterDateAdded === 'this_quarter') matchesDateAdded = created >= new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
       }
       const matchesHasDeals = !filterHasDeals || deals.some(d => d.client_id === client.id);
+      // PART C3 â€” source filter ('Unknown' matches clients with no source)
+      const matchesSource = !filterSource || (filterSource === 'Unknown' ? !client.source : client.source === filterSource);
       let matchesHasActivity = true;
       if (filterHasActivity) {
         const acts = activities.filter(a => a.client_id === client.id);
@@ -2272,7 +2372,7 @@ export default function App() {
       if (filterScore === 'high') matchesScore = client.leadScore >= 75;
       if (filterScore === 'medium') matchesScore = client.leadScore >= 50 && client.leadScore < 75;
       if (filterScore === 'low') matchesScore = client.leadScore < 50;
-      return matchesSearch && matchesPriority && matchesStatus && matchesTags && matchesHealth && matchesDateAdded && matchesHasDeals && matchesHasActivity && matchesScore;
+      return matchesSearch && matchesPriority && matchesStatus && matchesTags && matchesHealth && matchesDateAdded && matchesHasDeals && matchesHasActivity && matchesScore && matchesSource;
     }).sort((a, b) => {
       if (!a || !b) return 0;
       if (sortBy === 'created_at_desc') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
@@ -2282,11 +2382,11 @@ export default function App() {
       if (sortBy === 'score_desc') return b.leadScore - a.leadScore;
       if (sortBy === 'score_asc') return a.leadScore - b.leadScore;
       return 0;
-    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, deals, activities]);
+    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterSource, deals, activities]);
 
   const activeFilterCount = [
     filterPriority !== 'All', filterStatus !== 'All', filterDateAdded, filterHasDeals,
-    filterHasActivity, filterScore, filterTags.length > 0, filterHealth,
+    filterHasActivity, filterScore, filterTags.length > 0, filterHealth, filterSource,
   ].filter(Boolean).length;
 
   const BUILT_IN_VIEWS = [
@@ -2348,6 +2448,91 @@ export default function App() {
     CLIENT_SOURCES.forEach(s => { clientsBySource[s] = clients.filter(c => c.source === s).length; });
     return { activitiesInRange, activityByType, clientsByStage, dealsByStage, topClientsByActivity, clientsAddedByWeek, winRate, avgResponseTime, taskCompletionRate, avgActivitiesPerClient, clientsBySource };
   }, [reportRange, activities, clients, deals, tasks]);
+
+  // PART C1 â€” custom report: group clients by dimension, aggregate the chosen metric
+  const customReportData = useMemo(() => {
+    const days = parseInt(reportRange, 10);
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    const bucketsFor = (c) => {
+      if (customDimension === 'Stage') return [c.status || 'Unknown'];
+      if (customDimension === 'Priority') return [c.relationship || 'Unknown'];
+      if (customDimension === 'Source') return [c.source || 'Unknown'];
+      if (customDimension === 'Tag') {
+        const ids = clientTagMap[c.id] || [];
+        return ids.length ? ids.map(id => tags.find(t => t.id === id)?.name || 'Unknown') : ['Untagged'];
+      }
+      // Month Added â€” honors the Day/Week/Month grouping selector
+      const d = new Date(c.created_at || 0);
+      if (customDateGrouping === 'day') return [d.toISOString().split('T')[0]];
+      if (customDateGrouping === 'week') {
+        const w = new Date(d); w.setDate(w.getDate() - w.getDay());
+        return [`Wk of ${w.toISOString().split('T')[0]}`];
+      }
+      return [`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`];
+    };
+    const acc = {};
+    clientsWithScores.forEach(c => {
+      const cDealValue = deals.filter(d => d.client_id === c.id).reduce((s, d) => s + (parseFloat(d.value) || 0), 0);
+      const cActs = activities.filter(a => a.client_id === c.id && new Date(a.activity_date) >= cutoff).length;
+      bucketsFor(c).forEach(k => {
+        const b = acc[k] = acc[k] || { count: 0, dealValue: 0, scoreSum: 0, activityCount: 0 };
+        b.count++; b.dealValue += cDealValue; b.scoreSum += c.leadScore || 0; b.activityCount += cActs;
+      });
+    });
+    const metricVal = (b) =>
+      customMetric === 'Count' ? b.count
+      : customMetric === 'Total Deal Value' ? b.dealValue
+      : customMetric === 'Avg Lead Score' ? (b.count ? b.scoreSum / b.count : 0)
+      : b.activityCount; // Activity Count (within the selected range)
+    let rows = Object.entries(acc).map(([label, b]) => ({ label, value: metricVal(b) }));
+    const ordered = customDimension === 'Stage' ? PIPELINE_STAGES : customDimension === 'Priority' ? ['High', 'Medium', 'Low'] : null;
+    if (ordered) rows.sort((a, b) => ordered.indexOf(a.label) - ordered.indexOf(b.label));
+    else if (customDimension === 'Month Added') rows.sort((a, b) => a.label.localeCompare(b.label));
+    else rows.sort((a, b) => b.value - a.value);
+    return rows;
+  }, [customDimension, customMetric, customDateGrouping, reportRange, clientsWithScores, deals, activities, clientTagMap, tags]);
+
+  const fmtCustomValue = (v) =>
+    customMetric === 'Total Deal Value' ? fmtMoney(v)
+    : customMetric === 'Avg Lead Score' ? v.toFixed(1)
+    : v;
+
+  // PART C2 â€” each stat tile's value now vs its value as of one period ago.
+  // Range-based numbers (Activities, Avg Act/Client) compare current vs prior window;
+  // cumulative numbers (Clients, Pipeline, Win Rate, Task Completion) compare
+  // "now" vs "computed only on data that existed at the period boundary".
+  const comparisonStats = useMemo(() => {
+    if (!compareReports) return null;
+    const days = parseInt(reportRange, 10);
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    const prevCutoff = new Date(); prevCutoff.setDate(prevCutoff.getDate() - days * 2);
+    const inCur = (d) => d >= cutoff;
+    const inPrev = (d) => d >= prevCutoff && d < cutoff;
+
+    const actsCur = activities.filter(a => inCur(new Date(a.activity_date))).length;
+    const actsPrev = activities.filter(a => inPrev(new Date(a.activity_date))).length;
+    const clientsNow = clients.length;
+    const clientsThen = clients.filter(c => new Date(c.created_at) < cutoff).length;
+    const openVal = (list) => list.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + (parseFloat(d.value) || 0), 0);
+    const pipeNow = openVal(deals);
+    const pipeThen = openVal(deals.filter(d => new Date(d.created_at) < cutoff));
+    const winRateOf = (list) => {
+      const w = list.filter(d => d.stage === 'Won').length, l = list.filter(d => d.stage === 'Lost').length;
+      return (w + l) > 0 ? Math.round((w / (w + l)) * 100) : 0;
+    };
+    const closedThen = deals.filter(d => ['Won', 'Lost'].includes(d.stage) && new Date(d.close_date || d.created_at) < cutoff);
+    const tcOf = (list) => list.length > 0 ? Math.round((list.filter(t => t.status === 'done').length / list.length) * 100) : 0;
+    const tasksThen = tasks.filter(t => new Date(t.created_at || t.due_date) < cutoff);
+
+    return {
+      'Clients Total': [clientsNow, clientsThen],
+      'Activities': [actsCur, actsPrev],
+      'Pipeline $': [pipeNow, pipeThen],
+      'Win Rate': [winRateOf(deals.filter(d => ['Won', 'Lost'].includes(d.stage))), winRateOf(closedThen)],
+      'Task Completion': [tcOf(tasks), tcOf(tasksThen)],
+      'Avg Act/Client': [clientsNow > 0 ? actsCur / clientsNow : 0, clientsThen > 0 ? actsPrev / clientsThen : 0],
+    };
+  }, [compareReports, reportRange, activities, clients, deals, tasks]);
 
   // FEATURE 8 â€” calendar events
   const calendarEvents = useMemo(() => {
@@ -3340,6 +3525,14 @@ export default function App() {
                     {['Excellent', 'Good', 'Fair', 'At Risk', 'Critical'].map(h => <option key={h} value={h}>{h}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Source</label>
+                  <select value={filterSource} onChange={e => setFilterSource(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                    <option value="">Any</option>
+                    <option value="Unknown">Unknown / not set</option>
+                    {CLIENT_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
                 <div className="flex items-center gap-2">
                   <input id="filter-has-deals" type="checkbox" checked={filterHasDeals} onChange={e => setFilterHasDeals(e.target.checked)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
                   <label htmlFor="filter-has-deals" className="text-[12px] font-medium text-gray-700">Has at least one deal</label>
@@ -3625,6 +3818,14 @@ export default function App() {
               ))}
             </div>
 
+            {/* PART C3 â€” drill-down stage filter (set from Reports) */}
+            {dealsStageFilter && (
+              <div className="flex items-center gap-2 p-3 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 rounded-lg text-[13px] font-medium text-indigo-800 dark:text-indigo-300">
+                Showing only <span className="font-bold">{dealsStageFilter}</span> deals
+                <button onClick={() => setDealsStageFilter('')} className="ml-auto px-2 py-0.5 rounded-full bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-700 text-[12px] hover:bg-indigo-100">Show all stages Ã—</button>
+              </div>
+            )}
+
             {deals.length === 0 ? (
               <div className="p-12 text-center bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700">
                 <p className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">No deals yet</p>
@@ -3633,7 +3834,7 @@ export default function App() {
               </div>
             ) : (
               <div className="flex gap-4 overflow-x-auto pb-4 animate-in fade-in" style={{ scrollSnapType: 'x mandatory' }}>
-                {DEAL_STAGES.map(stage => {
+                {(dealsStageFilter ? DEAL_STAGES.filter(s => s === dealsStageFilter) : DEAL_STAGES).map(stage => {
                   const stageDeals = deals.filter(d => d.stage === stage);
                   const stageValue = stageDeals.reduce((s, d) => s + (parseFloat(d.value) || 0), 0);
                   return (
@@ -3699,26 +3900,132 @@ export default function App() {
                 <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Reports</h1>
                 <p className="text-[13px] text-gray-500">Analytics across clients, activities, deals, and tasks.</p>
               </div>
-              <div className="bg-gray-200/50 dark:bg-gray-800 p-1 rounded-lg flex items-center gap-1">
-                {[['7', '7d'], ['30', '30d'], ['90', '90d'], ['365', '1yr']].map(([v, label]) => (
-                  <button key={v} onClick={() => setReportRange(v)} className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-all ${reportRange === v ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>{label}</button>
-                ))}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="bg-gray-200/50 dark:bg-gray-800 p-1 rounded-lg flex items-center gap-1">
+                  {[['7', '7d'], ['30', '30d'], ['90', '90d'], ['365', '1yr']].map(([v, label]) => (
+                    <button key={v} onClick={() => setReportRange(v)} className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-all ${reportRange === v ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>{label}</button>
+                  ))}
+                </div>
+                {/* PART C2 â€” period comparison toggle */}
+                <button onClick={() => setCompareReports(!compareReports)} className={`px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-all ${compareReports ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 border-gray-900 dark:border-gray-100' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                  Compare to previous period {compareReports ? 'âœ“' : ''}
+                </button>
               </div>
             </div>
 
+            {/* PART C4 â€” saved report pills */}
+            {customReports.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Saved reports:</span>
+                {customReports.map(r => (
+                  <span key={r.id} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium">
+                    <button onClick={() => applyCustomReport(r)}>{r.name}</button>
+                    <button onClick={() => handleCycleReportFrequency(r)} title="Cycle email schedule: off â†’ weekly â†’ monthly" className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${r.send_frequency ? 'bg-indigo-600 text-white' : 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-400'}`}>
+                      âœ‰ {r.send_frequency === 'weekly' ? 'wk' : r.send_frequency === 'monthly' ? 'mo' : 'off'}
+                    </button>
+                    <button onClick={() => handleDeleteCustomReport(r.id)} className="hover:opacity-60">Ã—</button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* PART C1 â€” CUSTOM REPORT BUILDER */}
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">Build Custom Report</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* PART C5 â€” CSV export of the displayed table */}
+                  <button onClick={exportCustomReportCSV} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm">Export CSV</button>
+                  {savingReportName === null ? (
+                    <button onClick={() => setSavingReportName('')} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Save this report</button>
+                  ) : (
+                    <form onSubmit={e => { e.preventDefault(); handleSaveCustomReport(savingReportName); }} className="inline-flex items-center gap-1">
+                      <input autoFocus type="text" placeholder="Report name..." value={savingReportName} onChange={e => setSavingReportName(e.target.value)} className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-[12px] focus:outline-none" />
+                      <button type="submit" className="px-3 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-[12px] font-medium">Save</button>
+                      <button type="button" onClick={() => setSavingReportName(null)} className="text-gray-400 px-1">Ã—</button>
+                    </form>
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[13px]">
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Dimension (group by)</label>
+                  <select value={customDimension} onChange={e => setCustomDimension(e.target.value)} className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg bg-white p-2 text-gray-700 focus:outline-none">
+                    {['Stage', 'Priority', 'Source', 'Tag', 'Month Added'].map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Metric</label>
+                  <select value={customMetric} onChange={e => setCustomMetric(e.target.value)} className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg bg-white p-2 text-gray-700 focus:outline-none">
+                    {['Count', 'Total Deal Value', 'Avg Lead Score', 'Activity Count'].map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Date grouping {customDimension !== 'Month Added' && <span className="normal-case font-normal">(for "Month Added")</span>}</label>
+                  <select value={customDateGrouping} onChange={e => setCustomDateGrouping(e.target.value)} disabled={customDimension !== 'Month Added'} className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg bg-white p-2 text-gray-700 focus:outline-none disabled:opacity-50">
+                    {[['day', 'Day'], ['week', 'Week'], ['month', 'Month']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+              </div>
+              {customReportData.length === 0 ? (
+                <p className="text-[13px] text-gray-400 text-center py-6">No data for this configuration yet.</p>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Bar chart (same pure-Tailwind pattern as the fixed charts) */}
+                  <div className="space-y-2.5">
+                    {customReportData.map(row => {
+                      const max = Math.max(...customReportData.map(r => r.value), 1);
+                      return (
+                        <button key={row.label} onClick={() => drillCustomDimension(row.label)} disabled={customDimension === 'Month Added'} className="w-full flex items-center gap-3 group disabled:cursor-default">
+                          <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-28 truncate text-left group-hover:text-gray-900 dark:group-hover:text-gray-100" title={row.label}>{row.label}</span>
+                          <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+                            <div className="h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(row.value / max) * 100}%` }} />
+                          </div>
+                          <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-16 text-right">{fmtCustomValue(row.value)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Table */}
+                  <div className="overflow-y-auto max-h-64 border border-gray-100 dark:border-gray-700 rounded-xl">
+                    <table className="w-full text-left text-[12px]">
+                      <thead className="sticky top-0 bg-gray-50 dark:bg-gray-700">
+                        <tr className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                          <th className="p-2.5">{customDimension}</th>
+                          <th className="p-2.5 text-right">{customMetric}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                        {customReportData.map(row => (
+                          <tr key={row.label} onClick={() => drillCustomDimension(row.label)} className={customDimension !== 'Month Added' ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50' : ''}>
+                            <td className="p-2.5 font-semibold text-gray-900 dark:text-gray-100">{row.label}</td>
+                            <td className="p-2.5 text-right font-bold text-gray-900 dark:text-gray-100">{fmtCustomValue(row.value)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Stat tiles â€” clickable (C3) with prior-period deltas (C2) */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               {[
-                ['Clients Total', clients.length],
-                ['Activities', reportStats.activitiesInRange.length],
-                ['Pipeline $', fmtMoney(pipelineValue)],
-                ['Win Rate', `${reportStats.winRate}%`],
-                ['Task Completion', `${reportStats.taskCompletionRate}%`],
-                ['Avg Act/Client', reportStats.avgActivitiesPerClient],
-              ].map(([label, value]) => (
-                <div key={label} className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                ['Clients Total', clients.length, () => { clearAllFilters(); setAppStep('CLIENTS'); }],
+                ['Activities', reportStats.activitiesInRange.length, () => { clearAllFilters(); setFilterHasActivity(reportRange === '7' ? 'last_7' : 'last_30'); setAppStep('CLIENTS'); }],
+                ['Pipeline $', fmtMoney(pipelineValue), () => { setDealsStageFilter(''); setAppStep('DEALS'); }],
+                ['Win Rate', `${reportStats.winRate}%`, () => { setDealsStageFilter('Won'); setAppStep('DEALS'); }],
+                ['Task Completion', `${reportStats.taskCompletionRate}%`, () => setAppStep('GLOBAL_TASKS')],
+                ['Avg Act/Client', reportStats.avgActivitiesPerClient, () => { clearAllFilters(); setAppStep('CLIENTS'); }],
+              ].map(([label, value, onClick]) => (
+                <button key={label} onClick={onClick} className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm text-left hover:shadow-md hover:border-gray-300 dark:hover:border-gray-500 transition-all">
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
                   <p className="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{value}</p>
-                </div>
+                  {compareReports && comparisonStats?.[label] && (
+                    <DeltaBadge current={comparisonStats[label][0]} prev={comparisonStats[label][1]} />
+                  )}
+                </button>
               ))}
             </div>
 
@@ -3731,13 +4038,13 @@ export default function App() {
                     const max = Math.max(...Object.values(reportStats.activityByType), 1);
                     const color = { Note: 'bg-gray-400', Call: 'bg-blue-500', Email: 'bg-green-500', Meeting: 'bg-purple-500' }[type];
                     return (
-                      <div key={type} className="flex items-center gap-3">
-                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-16">{type}</span>
+                      <button key={type} onClick={() => { setCalendarView('agenda'); setAppStep('CALENDAR'); }} className="w-full flex items-center gap-3 group" title="See activities in the Calendar agenda">
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-16 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{type}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
                           <div className={`h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${(count / max) * 100}%` }} />
                         </div>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -3751,13 +4058,13 @@ export default function App() {
                     const count = reportStats.clientsByStage[stage] || 0;
                     const max = Math.max(...Object.values(reportStats.clientsByStage), 1);
                     return (
-                      <div key={stage} className="flex items-center gap-3">
-                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-20">{stage}</span>
+                      <button key={stage} onClick={() => { clearAllFilters(); setFilterStatus(stage); setAppStep('CLIENTS'); }} className="w-full flex items-center gap-3 group" title={`View ${stage} relationships`}>
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-20 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{stage}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
                           <div className="h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
                         </div>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -3771,14 +4078,14 @@ export default function App() {
                     const s = reportStats.dealsByStage[stage] || { count: 0, value: 0 };
                     const pct = deals.length > 0 ? Math.round((s.count / deals.length) * 100) : 0;
                     return (
-                      <div key={stage} className="flex items-center gap-3 py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0">
-                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-28">{stage}</span>
-                        <span className="text-[12px] text-gray-500 w-8">{s.count}</span>
-                        <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-20">{fmtMoney(s.value)}</span>
+                      <button key={stage} onClick={() => { setDealsStageFilter(stage); setAppStep('DEALS'); }} className="w-full flex items-center gap-3 py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0 group" title={`View ${stage} deals`}>
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-28 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{stage}</span>
+                        <span className="text-[12px] text-gray-500 w-8 text-left">{s.count}</span>
+                        <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-20 text-left">{fmtMoney(s.value)}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
                           <div className="h-full rounded-full bg-gray-900 dark:bg-gray-300" style={{ width: `${pct}%` }} />
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -3814,13 +4121,13 @@ export default function App() {
                     const count = reportStats.clientsBySource[source] || 0;
                     const max = Math.max(...Object.values(reportStats.clientsBySource), 1);
                     return (
-                      <div key={source} className="flex items-center gap-3">
-                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-24">{source}</span>
+                      <button key={source} onClick={() => { clearAllFilters(); setFilterSource(source); setAppStep('CLIENTS'); }} className="w-full flex items-center gap-3 group" title={`View relationships from ${source}`}>
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-24 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{source}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
                           <div className="h-full rounded-full bg-teal-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
                         </div>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
