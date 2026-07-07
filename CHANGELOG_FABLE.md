@@ -149,3 +149,12 @@ NOT touched (verified by post-pass grep audit — every remaining "Client"/"clie
 - Dashboard widget: MRR (Won recurring deals normalized to monthly, USD via G20 rates) + ARR (×12), and an "Upcoming Renewals (next 30 days)" list with one-click "Log renewal call" (opens the relationship with a pre-filled Call activity).
 
 **Manual test:** mark a Won deal recurring/monthly with a renewal next week → dashboard shows MRR/ARR and the renewal row; "Log renewal call" opens the profile with the Call note pre-filled.
+
+## fable/g18-referrals — G18: Referral Chain Tracking
+**Line count: +50 approx**
+
+- Migration `g18_referral_chain` applied live (`clients.referred_by_client_id bigint REFERENCES clients(id) ON DELETE SET NULL`); copy in `supabase/migrations/`.
+- Add form: "Referred by" dropdown of existing relationships; Edit modal: same (excludes self); both handlers persist it.
+- Relationship Profile: "Referral Network" card — "Referred by: [Name]" (clickable, jumps to that profile) and "Referrals made: N" with clickable pills per referred relationship. A real graph, distinct from the flat Source dropdown.
+
+**Manual test:** set A as referred-by on B → B's profile shows "Referred by: A"; A's profile shows "Referrals made: 1 [B]"; clicking navigates between profiles.

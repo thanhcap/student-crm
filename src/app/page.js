@@ -281,6 +281,7 @@ export default function App() {
   // PART F â€” company fields
   const [clientCompanyName, setClientCompanyName] = useState('');
   const [clientCompanyUrl, setClientCompanyUrl] = useState('');
+  const [clientReferredBy, setClientReferredBy] = useState(''); // G18
   const [crmErrorMessage, setCrmErrorMessage] = useState('');
 
   // TASK STATES
@@ -1973,7 +1974,8 @@ export default function App() {
       note_conversation: clientConversation || null, linkedin_url: clientLinkedin || null,
       birthday: clientBirthday || null, relationship: clientRelationship,
       source: clientSource || null,
-      company_name: clientCompanyName || null, company_url: clientCompanyUrl || null
+      company_name: clientCompanyName || null, company_url: clientCompanyUrl || null,
+      referred_by_client_id: clientReferredBy ? parseInt(clientReferredBy, 10) : null // G18 (clients.id is bigint)
     }]).select();
 
     if (!error && data) {
@@ -1996,7 +1998,7 @@ export default function App() {
       setName(''); setClientEmail(''); setNotes(''); setStatus('New');
       setClientCountry(''); setClientPhone(''); setClientConversation('');
       setClientLinkedin(''); setClientBirthday(''); setClientRelationship('Medium');
-      setClientCompanyName(''); setClientCompanyUrl('');
+      setClientCompanyName(''); setClientCompanyUrl(''); setClientReferredBy('');
       setClientSource(''); setForceSaveDuplicate(false); setDuplicateWarning(null);
       setFormCustomValues({});
       updateStreak();
@@ -2018,7 +2020,8 @@ export default function App() {
       note_conversation: editingClient.note_conversation || null, linkedin_url: editingClient.linkedin_url || null,
       birthday: editingClient.birthday || null, relationship: editingClient.relationship,
       source: editingClient.source || null,
-      company_name: editingClient.company_name || null, company_url: editingClient.company_url || null
+      company_name: editingClient.company_name || null, company_url: editingClient.company_url || null,
+      referred_by_client_id: editingClient.referred_by_client_id || null // G18
     }).eq('id', editingClient.id).select();
 
     // Update custom fields atomically: run all upserts/deletes in parallel and fail together
@@ -3611,6 +3614,12 @@ export default function App() {
                 {/* PART F â€” company fields */}
                 <input type="text" placeholder="Company Name" value={clientCompanyName} onChange={e => setClientCompanyName(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="text" placeholder="Company Website" value={clientCompanyUrl} onChange={e => setClientCompanyUrl(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+
+                {/* G18 â€” referral chain */}
+                <select value={clientReferredBy} onChange={e => setClientReferredBy(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
+                  <option value="">Referred by: â€”</option>
+                  {[...clients].sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(c => <option key={c.id} value={c.id}>Referred by: {c.name}</option>)}
+                </select>
                 
                 <div className="flex items-center gap-1">
                   <label className="text-[11px] font-medium text-gray-400 px-1 whitespace-nowrap">Birth:</label>
@@ -5372,6 +5381,34 @@ export default function App() {
                 )}
               </div>
 
+              {/* G18 â€” referral network */}
+              {(() => {
+                const referrer = viewingClient.referred_by_client_id ? clients.find(c => c.id === viewingClient.referred_by_client_id) : null;
+                const referrals = clients.filter(c => c.referred_by_client_id === viewingClient.id);
+                if (!referrer && referrals.length === 0) return null;
+                return (
+                  <div className="bg-gray-50/50 p-4 rounded-xl border border-gray-100 space-y-2">
+                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Referral Network</span>
+                    {referrer && (
+                      <p className="text-[13px]">
+                        <span className="text-gray-400">Referred by:</span>{' '}
+                        <button onClick={() => setViewingClient(referrer)} className="font-semibold text-indigo-600 hover:underline">{referrer.name}</button>
+                      </p>
+                    )}
+                    {referrals.length > 0 && (
+                      <div className="text-[13px]">
+                        <span className="text-gray-400">Referrals made: {referrals.length}</span>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {referrals.map(r => (
+                            <button key={r.id} onClick={() => setViewingClient(r)} className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/10 text-[12px] font-semibold hover:bg-indigo-100">{r.name}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* FEATURE 15 â€” QUICK NOTE (always visible, auto-saves) */}
               <div className="pt-4 border-t border-gray-100">
                 <div className="flex items-center justify-between mb-2">
@@ -5671,6 +5708,14 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Company Website</label>
                   <input type="text" value={editingClient.company_url || ''} onChange={e => setEditingClient({...editingClient, company_url: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                </div>
+                {/* G18 â€” referral chain */}
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Referred by</label>
+                  <select value={editingClient.referred_by_client_id || ''} onChange={e => setEditingClient({...editingClient, referred_by_client_id: e.target.value ? parseInt(e.target.value, 10) : null})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                    <option value="">â€” Nobody / unknown â€”</option>
+                    {[...clients].filter(c => c.id !== editingClient.id).sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Source</label>
