@@ -167,3 +167,11 @@ NOT touched (verified by post-pass grep audit — every remaining "Client"/"clie
 - **FOLLOW-UP:** `deal_close_approaching` and `no_activity_days` triggers store correctly but need the daily scheduled job to evaluate (same missing Edge Function flagged under C5).
 
 **Manual test:** Settings → enable the LinkedIn recipe → add a relationship with Source=LinkedIn → toast "priority set to High" and the row shows High priority; recipe button turns "Enabled ✓".
+
+## fable/g30-command-actions — G30: Command Bar Actions
+**Line count: +45 approx**
+
+- `parseCommandAction()` — keyword matching (no AI): "create deal for X", "log call/note/meeting/email with X", "add task for X", "email X"; X fuzzy-matches a relationship name.
+- Matching queries render an ⚡ Actions row above the existing search results (additive — search behavior unchanged); clicking or pressing Enter executes (opens the deal form pre-linked, the profile on the right tab with activity type pre-set, or the composer) and closes the palette.
+
+**Manual test:** ⌘K → type "create deal for <name>" → ⚡ action appears; Enter opens the New Deal modal with that relationship pre-selected; plain searches behave exactly as before.

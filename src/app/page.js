@@ -1812,6 +1812,30 @@ export default function App() {
     }
   }
 
+  // G30 â€” command actions in the âŒ˜K palette (simple keyword matching, additive
+  // to the existing search results â€” never replaces them)
+  function parseCommandAction(term) {
+    const m = term.match(/^(create deal for|log (?:call|note|meeting|email) with|add task for|email)\s+(.+)$/i);
+    if (!m) return null;
+    const namePart = m[2].trim().toLowerCase();
+    const target = clients.find(c => (c.name || '').toLowerCase().includes(namePart));
+    if (!target) return null;
+    const verb = m[1].toLowerCase();
+    const close = () => { setShowGlobalSearch(false); setGlobalSearchTerm(''); };
+    if (verb.startsWith('create deal')) {
+      return { label: `Create deal for ${target.name}`, run: () => { close(); resetDealForm(); setDealClientId(String(target.id)); setShowDealForm(true); } };
+    }
+    if (verb.startsWith('log')) {
+      const type = verb.includes('call') ? 'Call' : verb.includes('meeting') ? 'Meeting' : verb.includes('email') ? 'Email' : 'Note';
+      return { label: `Log ${type.toLowerCase()} with ${target.name}`, run: () => { close(); setActivityType(type); setActiveProfileTab('activity'); setViewingClient(target); setAppStep('CLIENTS'); } };
+    }
+    if (verb.startsWith('add task')) {
+      return { label: `Add task for ${target.name}`, run: () => { close(); setActiveProfileTab('tasks'); setViewingClient(target); setAppStep('CLIENTS'); } };
+    }
+    // email
+    return { label: `Email ${target.name}`, run: () => { close(); setViewingClient(target); setEmailTo(target.email || ''); setShowEmailComposer(true); setAppStep('CLIENTS'); } };
+  }
+
   function handleSearchSelection(type, item) {
     setShowGlobalSearch(false);
     setGlobalSearchTerm('');
@@ -2833,7 +2857,7 @@ export default function App() {
           <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] border border-gray-100" onClick={e => e.stopPropagation()}>
             <div className="flex items-center px-4 py-3 border-b border-gray-100 bg-gray-50/50">
               <SearchIcon className="text-gray-400" />
-              <input type="text" autoFocus placeholder="Search relationships, emails, activity notes... (Cmd+K)" value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} className="w-full bg-transparent border-none focus:ring-0 px-3 py-1 text-[15px] outline-none placeholder-gray-400" />
+              <input type="text" autoFocus placeholder='Search... or try "create deal for Sarah", "log call with Sarah"' value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { const a = parseCommandAction(globalSearchTerm); if (a) { e.preventDefault(); a.run(); } } }} className="w-full bg-transparent border-none focus:ring-0 px-3 py-1 text-[15px] outline-none placeholder-gray-400" />
               <button onClick={() => setShowGlobalSearch(false)} className="text-[10px] font-bold text-gray-400 bg-gray-200 px-2 py-1 rounded hover:bg-gray-300">ESC</button>
             </div>
             
@@ -2842,6 +2866,20 @@ export default function App() {
                 <p className="text-[13px] text-gray-400 p-4 text-center">Type at least 2 characters to search.</p>
               ) : (
                 <div className="space-y-4 p-2">
+                  {/* G30 â€” COMMAND ACTION (if the query parses as one) */}
+                  {(() => {
+                    const action = parseCommandAction(globalSearchTerm);
+                    if (!action) return null;
+                    return (
+                      <div>
+                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3 mb-2">Actions</h4>
+                        <button onClick={action.run} className="w-full flex items-center justify-between p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors text-left group">
+                          <span className="text-[14px] font-semibold text-indigo-800">âš¡ {action.label}</span>
+                          <span className="text-[11px] font-bold text-indigo-400 border border-indigo-200 px-1.5 py-0.5 rounded group-hover:bg-white">Run â†µ</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
                   {/* CLIENT MATCHES */}
                   {globalSearchResults.clients.length > 0 && (
                     <div>
