@@ -23,8 +23,17 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className="h-full antialiased dark">
-      <body className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} bg-bg-void text-text-primary h-full font-sans`}>
+    // suppressHydrationWarning: the inline script below may add `.dark` to
+    // <html> before React hydrates (prevents a light-mode flash for dark users).
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem('crm_dark_mode')==='true')document.documentElement.classList.add('dark')}catch(e){}`,
+          }}
+        />
+      </head>
+      <body className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} h-full font-sans`}>
         {children}
       </body>
     </html>

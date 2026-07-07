@@ -57,3 +57,15 @@ Code fixes (uuid ids were being parseInt'd → NaN):
 - **Note:** no `/api/*` routes exist in this repo and no `RESEND_API_KEY` is configured — the old fetch-based send ALWAYS failed ("Send failed." toast). Per spec, the "Send automatically instead" opt-in is omitted until Resend is actually set up. Remaining best-effort `/api/send-email` calls (workspace invite, automation send_email action) are silent no-ops — flagged as follow-up, same for `/api/ai-summary`, `/api/client-report`, `/api/webhook-dispatch`.
 
 **Manual test:** open a client → Send Email → "Open Draft in New Tab" opens Gmail compose pre-filled and logs a Drafted activity; toggle to "Default Mail App" (persists after reload); select 2+ clients → Bulk Email → tabs open ~300ms apart with progress text.
+
+## fable/fix-dark-mode — Feature 13 repair
+**page.js unchanged (5,514); globals.css 53 → 69; layout.js 32 → 42**
+
+Three compounding bugs made the toggle a no-op:
+1. Tailwind **v4** ships `dark:` bound to `prefers-color-scheme`, not the `.dark` class the toggle sets. Added `@custom-variant dark (&:where(.dark, .dark *));` to globals.css — the one-line v4 way to restore class-based dark mode.
+2. `layout.js` hardcoded `dark` on `<html>` — removed; replaced with a tiny pre-hydration inline script that applies `.dark` from `localStorage('crm_dark_mode')` before first paint (no flash; `suppressHydrationWarning` added).
+3. `body` was forced to a near-black palette (`bg-bg-void text-text-primary` + matching CSS) regardless of theme — body/scrollbar/focus-ring styles are now theme-aware; leftover design tokens kept in `@theme` for reference.
+
+Couldn't run `next build` in this environment (sandbox can't fetch the Linux SWC binary); ESLint parses both files cleanly.
+
+**Manual test:** load the app (defaults to light), click the moon icon → whole UI goes dark instantly; reload → stays dark; toggle back → stays light after reload.
