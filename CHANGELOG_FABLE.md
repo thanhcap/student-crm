@@ -158,3 +158,12 @@ NOT touched (verified by post-pass grep audit — every remaining "Client"/"clie
 - Relationship Profile: "Referral Network" card — "Referred by: [Name]" (clickable, jumps to that profile) and "Referrals made: N" with clickable pills per referred relationship. A real graph, distinct from the flat Source dropdown.
 
 **Manual test:** set A as referred-by on B → B's profile shows "Referred by: A"; A's profile shows "Referrals made: 1 [B]"; clicking navigates between profiles.
+
+## fable/g11-recipes — G11: One-Click Automation Recipes
+**Line count: +60 approx**
+
+- Recipes gallery in Settings → Automation Rules: 3 curated templates (deal-close reminder, LinkedIn → High priority, 30-days-no-contact alert). "Enable" inserts the fully-configured `automation_rules` row; already-enabled recipes show ✓ and are deduped by name.
+- Engine extension: new `set_priority` action + a `source_is` trigger fired from `handleAddClient`, so the LinkedIn recipe executes instantly client-side.
+- **FOLLOW-UP:** `deal_close_approaching` and `no_activity_days` triggers store correctly but need the daily scheduled job to evaluate (same missing Edge Function flagged under C5).
+
+**Manual test:** Settings → enable the LinkedIn recipe → add a relationship with Source=LinkedIn → toast "priority set to High" and the row shows High priority; recipe button turns "Enabled ✓".

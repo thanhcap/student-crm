@@ -154,6 +154,28 @@ function TagPill({ tag, onRemove }) {
   );
 }
 
+// G11 â€” one-click automation recipes (pre-configured automation_rules rows)
+const AUTOMATION_RECIPES = [
+  {
+    name: 'Remind me 3 days before a deal close date',
+    desc: 'Sends a notification when an open deal is 3 days from closing.',
+    note: 'Evaluated by the daily job',
+    rule: { trigger_type: 'deal_close_approaching', trigger_value: '3', action_type: 'send_notification', action_value: { message: 'A deal closes in 3 days â€” check in.' } },
+  },
+  {
+    name: 'LinkedIn relationships â†’ High priority',
+    desc: 'New relationships sourced from LinkedIn are automatically set to High priority.',
+    note: 'Runs instantly on add',
+    rule: { trigger_type: 'source_is', trigger_value: 'LinkedIn', action_type: 'set_priority', action_value: { priority: 'High' } },
+  },
+  {
+    name: 'Alert at 30 days without contact',
+    desc: 'Notifies you when a relationship goes 30 days without any logged activity.',
+    note: 'Evaluated by the daily job',
+    rule: { trigger_type: 'no_activity_days', trigger_value: '30', action_type: 'send_notification', action_value: { message: 'A relationship has gone 30 days without contact.' } },
+  },
+];
+
 // G17 â€” company logo via Google's public favicon endpoint (builds on Part F's company_url)
 function companyFaviconUrl(companyUrl, size = 64) {
   if (!companyUrl) return null;
@@ -1277,6 +1299,13 @@ export default function App() {
         }]);
         fetchNotifications(user.id);
       }
+      // G11 â€” set_priority action (used by the LinkedIn recipe)
+      if (rule.action_type === 'set_priority') {
+        const pr = rule.action_value?.priority || 'High';
+        await supabase.from('clients').update({ relationship: pr }).eq('id', clientId);
+        setClients(prev => prev.map(c => c.id === clientId ? { ...c, relationship: pr } : c));
+        showToast(`Automation: priority set to ${pr}.`, 'success');
+      }
       if (rule.action_type === 'change_stage') {
         await supabase.from('clients').update({ status: rule.action_value?.stage }).eq('id', clientId);
         setClients(prev => prev.map(c => c.id === clientId ? { ...c, status: rule.action_value.stage } : c));
@@ -1301,6 +1330,18 @@ export default function App() {
         .eq('id', rule.id);
       setAutomationRules(prev => prev.map(r => r.id === rule.id ? { ...r, run_count: (r.run_count || 0) + 1 } : r));
     }
+  }
+
+  // G11 â€” one-click insert of a pre-configured recipe rule
+  async function handleEnableRecipe(recipe) {
+    if (automationRules.some(r => r.name === recipe.name)) { showToast('Recipe already enabled.', 'error'); return; }
+    const { data, error } = await supabase.from('automation_rules').insert([{
+      user_id: user.id, name: recipe.name, enabled: true, ...recipe.rule,
+    }]).select();
+    if (!error && data) {
+      setAutomationRules(prev => [data[0], ...prev]);
+      showToast(`Recipe enabled: ${recipe.name}`, 'success');
+    } else showToast(`Error enabling recipe: ${error?.message}`, 'error');
   }
 
   async function handleCreateRule(e) {
@@ -2003,6 +2044,7 @@ export default function App() {
       setFormCustomValues({});
       updateStreak();
       dispatchWebhook('client.created', newClient);
+      if (newClient.source) executeAutomations('source_is', newClient.source, newClient.id); // G11
     } else if (error) {
       setCrmErrorMessage(`Database Sync Error: ${error.message}`);
     }
@@ -4969,6 +5011,28 @@ export default function App() {
                   );
                 })}
               </div>
+              {/* G11 â€” RECIPES GALLERY */}
+              <div className="mb-4">
+                <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-500 mb-2">Recipes â€” enable in one click</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {AUTOMATION_RECIPES.map(r => {
+                    const enabled = automationRules.some(x => x.name === r.name);
+                    return (
+                      <div key={r.name} className="p-3 border border-gray-100 rounded-xl bg-gray-50/50 flex flex-col gap-1.5">
+                        <p className="text-[13px] font-semibold text-gray-900">{r.name}</p>
+                        <p className="text-[11px] text-gray-500 flex-1">{r.desc}</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-gray-400">{r.note}</span>
+                          <button onClick={() => handleEnableRecipe(r)} disabled={enabled} className={`px-2.5 py-1 text-[11px] font-semibold rounded-full ${enabled ? 'bg-green-100 text-green-700' : 'bg-gray-900 text-white hover:opacity-90'}`}>
+                            {enabled ? 'Enabled âœ“' : 'Enable'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               {showRuleForm && (
                 <form onSubmit={handleCreateRule} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-[13px]">
                   <input type="text" required placeholder="Rule name (e.g. Follow up new engaged clients)" value={newRule.name} onChange={e => setNewRule({ ...newRule, name: e.target.value })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
