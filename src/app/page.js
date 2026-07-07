@@ -1640,26 +1640,42 @@ export default function App() {
   // FEATURE 21 â€” PDF EXPORT
   // ==========================================
 
-  async function handleExportPDF(client) {
-    const res = await fetch('/api/client-report', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client,
-        activities: activities.filter(a => a.client_id === client.id),
-        tasks: tasks.filter(t => t.client_id === client.id),
-        deals: deals.filter(d => d.client_id === client.id),
-      }),
-    }).catch(() => null);
-    if (res && res.ok) {
-      const html = await res.text();
-      const w = window.open('', '_blank');
-      if (w) {
-        w.document.write(html);
-        w.document.close();
-        showToast('Opening print dialog...', 'success');
-        setTimeout(() => w.print(), 400);
-      }
-    } else showToast('Report generation failed.', 'error');
+  // FIX: /api/client-report never existed, so export always failed. The report
+  // is now generated fully client-side and handed to the browser's print dialog.
+  function handleExportPDF(client) {
+    const acts = activities.filter(a => a.client_id === client.id);
+    const tks = tasks.filter(t => t.client_id === client.id && t.status === 'pending');
+    const dls = deals.filter(d => d.client_id === client.id);
+    const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const html = `<!DOCTYPE html><html><head><title>${esc(client.name)} â€” Relationship Report</title><style>
+      body{font-family:-apple-system,'Segoe UI',sans-serif;margin:40px;color:#111827}
+      h1{margin:0 0 4px;font-size:24px} .muted{color:#6b7280;font-size:12px}
+      h2{font-size:14px;border-bottom:1px solid #e5e7eb;padding-bottom:4px;margin-top:28px}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+      td,th{padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:left;vertical-align:top}
+      th{color:#9ca3af;text-transform:uppercase;font-size:10px;letter-spacing:.05em}
+      @media print{body{margin:16px}}
+    </style></head><body>
+      <h1>${esc(client.name)}</h1>
+      <p class="muted">${esc(client.email || '')}${client.phone_number ? ' Â· ' + esc(client.phone_number) : ''} Â· Stage: ${esc(client.status || 'â€”')} Â· Priority: ${esc(client.relationship || 'â€”')} Â· Generated ${new Date().toLocaleDateString()}</p>
+      <h2>Details</h2><table>
+        <tr><th>Country</th><td>${esc(client.country || 'â€”')}</td><th>Source</th><td>${esc(client.source || 'â€”')}</td></tr>
+        <tr><th>Company</th><td>${esc(client.company_name || 'â€”')}</td><th>Website</th><td>${esc(client.company_url || 'â€”')}</td></tr>
+        <tr><th>Birthday</th><td>${esc(client.birthday || 'â€”')}</td><th>LinkedIn</th><td>${esc(client.linkedin_url || 'â€”')}</td></tr>
+      </table>
+      <h2>Deals (${dls.length})</h2>
+      ${dls.length === 0 ? '<p class="muted">None.</p>' : `<table><tr><th>Title</th><th>Stage</th><th>Value</th><th>Close</th></tr>${dls.map(d => `<tr><td>${esc(d.title)}</td><td>${esc(d.stage)}</td><td>${esc(fmtCurrency(d.value, d.currency))}</td><td>${esc(d.close_date || 'â€”')}</td></tr>`).join('')}</table>`}
+      <h2>Open Tasks (${tks.length})</h2>
+      ${tks.length === 0 ? '<p class="muted">None.</p>' : `<table><tr><th>Task</th><th>Due</th></tr>${tks.map(t => `<tr><td>${esc(t.title)}</td><td>${esc(t.due_date)}</td></tr>`).join('')}</table>`}
+      <h2>Activity Timeline (${acts.length})</h2>
+      ${acts.length === 0 ? '<p class="muted">None.</p>' : `<table><tr><th>Date</th><th>Type</th><th>Notes</th></tr>${acts.map(a => `<tr><td>${esc(a.activity_date)}</td><td>${esc(a.activity_type)}</td><td>${esc(a.description)}</td></tr>`).join('')}</table>`}
+    </body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { showToast('Popup blocked â€” allow popups for this site to export.', 'error'); return; }
+    w.document.write(html);
+    w.document.close();
+    showToast('Opening print dialog â€” choose "Save as PDF".', 'success');
+    setTimeout(() => w.print(), 400);
   }
 
   // ==========================================

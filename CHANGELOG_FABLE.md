@@ -175,3 +175,7 @@ NOT touched (verified by post-pass grep audit — every remaining "Client"/"clie
 - Matching queries render an ⚡ Actions row above the existing search results (additive — search behavior unchanged); clicking or pressing Enter executes (opens the deal form pre-linked, the profile on the right tab with activity type pre-set, or the composer) and closes the palette.
 
 **Manual test:** ⌘K → type "create deal for <name>" → ⚡ action appears; Enter opens the New Deal modal with that relationship pre-selected; plain searches behave exactly as before.
+
+## fable/fix-pdf-export — PDF export repaired
+Root cause was NOT G1/G2/G23 (those are Gmail-sync/Twilio features awaiting credentials) — `/api/client-report` never existed, so export always failed. Report HTML (details, deals w/ currency, open tasks, full activity table) is now generated client-side and sent to the browser print dialog ("Save as PDF"). Popup-blocked case shows a clear toast.
+**Manual test:** profile → Export PDF → print dialog opens with a formatted report.
