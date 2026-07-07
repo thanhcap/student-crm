@@ -154,6 +154,13 @@ function TagPill({ tag, onRemove }) {
   );
 }
 
+// G20 â€” multi-currency (static rates, display-only directional context)
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'VND', 'JPY', 'AUD', 'CAD'];
+const FX_TO_USD = { USD: 1, EUR: 1.09, GBP: 1.27, VND: 0.000039, JPY: 0.0067, AUD: 0.66, CAD: 0.73 };
+const CURRENCY_SYMBOL = { USD: '$', EUR: 'â‚¬', GBP: 'Â£', VND: 'â‚«', JPY: 'Â¥', AUD: 'A$', CAD: 'C$' };
+const toUSD = (value, currency) => (parseFloat(value) || 0) * (FX_TO_USD[currency || 'USD'] ?? 1);
+const fmtCurrency = (n, cur) => `${CURRENCY_SYMBOL[cur || 'USD'] || '$'}${(parseFloat(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
 // PART E â€” stage accent colors (kanban card left borders)
 const STAGE_COLORS = {
   New: '#3B82F6', Contacted: '#F97316', Engaged: '#6366F1', Active: '#22C55E', Inactive: '#9CA3AF',
@@ -349,6 +356,7 @@ export default function App() {
   const [dealCloseDate, setDealCloseDate] = useState('');
   const [dealNotes, setDealNotes] = useState('');
   const [dealClientId, setDealClientId] = useState('');
+  const [dealCurrency, setDealCurrency] = useState('USD'); // G20
   const [dealSaving, setDealSaving] = useState(false);
 
   // FEATURE 2 â€” AI SUMMARY STATES
@@ -996,7 +1004,7 @@ export default function App() {
 
   function resetDealForm() {
     setDealTitle(''); setDealValue(''); setDealStage('Proposal'); setDealProbability(50);
-    setDealCloseDate(''); setDealNotes(''); setDealClientId(''); setEditingDeal(null);
+    setDealCloseDate(''); setDealNotes(''); setDealClientId(''); setDealCurrency('USD'); setEditingDeal(null);
   }
 
   async function handleCreateDeal(e) {
@@ -1008,6 +1016,7 @@ export default function App() {
       value: parseFloat(dealValue) || 0, stage: dealStage,
       probability: Math.max(0, Math.min(100, parseInt(dealProbability, 10) || 0)),
       close_date: dealCloseDate || null, notes: dealNotes || null,
+      currency: dealCurrency || 'USD', // G20
     };
     if (editingDeal) {
       const { data, error } = await supabase.from('deals').update(payload).eq('id', editingDeal.id).select();
@@ -2447,9 +2456,10 @@ export default function App() {
   ];
 
   // FEATURE 1 â€” deal rollups
-  const pipelineValue = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + (parseFloat(d.value) || 0), 0), [deals]);
-  const weightedForecast = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + (parseFloat(d.value) || 0) * ((d.probability || 0) / 100), 0), [deals]);
-  const wonValue = useMemo(() => deals.filter(d => d.stage === 'Won').reduce((s, d) => s + (parseFloat(d.value) || 0), 0), [deals]);
+  // G20 â€” roll-ups normalize to USD via static FX rates (directional, not accounting-grade)
+  const pipelineValue = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + toUSD(d.value, d.currency), 0), [deals]);
+  const weightedForecast = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + toUSD(d.value, d.currency) * ((d.probability || 0) / 100), 0), [deals]);
+  const wonValue = useMemo(() => deals.filter(d => d.stage === 'Won').reduce((s, d) => s + toUSD(d.value, d.currency), 0), [deals]);
   const openDealsCount = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).length, [deals]);
   const fmtMoney = (n) => `$${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
@@ -3975,7 +3985,7 @@ export default function App() {
               <div className="flex gap-4 overflow-x-auto pb-4 animate-in fade-in" style={{ scrollSnapType: 'x mandatory' }}>
                 {(dealsStageFilter ? DEAL_STAGES.filter(s => s === dealsStageFilter) : DEAL_STAGES).map(stage => {
                   const stageDeals = deals.filter(d => d.stage === stage);
-                  const stageValue = stageDeals.reduce((s, d) => s + (parseFloat(d.value) || 0), 0);
+                  const stageValue = stageDeals.reduce((s, d) => s + toUSD(d.value, d.currency), 0);
                   return (
                     <div key={stage} className="flex-shrink-0 w-[280px] bg-gray-200/50 dark:bg-gray-800/60 rounded-2xl flex flex-col border border-gray-100 dark:border-gray-800"
                       style={{ scrollSnapAlign: 'start' }}
@@ -4003,13 +4013,19 @@ export default function App() {
                               </div>
                               <div className="text-[11px] text-gray-500 truncate">{dealClient?.name || 'Unknown relationship'}</div>
                               <div className="flex items-center justify-between">
-                                <span className="text-[13px] font-bold text-gray-900 dark:text-gray-100">{fmtMoney(deal.value)}</span>
+                                <span className="text-[13px] font-bold text-gray-900 dark:text-gray-100">
+                                  {fmtCurrency(deal.value, deal.currency)}
+                                  {(deal.currency || 'USD') !== 'USD' && (
+                                    <span className="ml-1 text-[10px] font-medium text-gray-400" title="Approximate USD (static rate)">â‰ˆ {fmtMoney(toUSD(deal.value, deal.currency))} USD</span>
+                                  )}
+                                </span>
                                 {deal.close_date && <span className="text-[10px] text-gray-400">Close: {deal.close_date}</span>}
                               </div>
                               {canEdit && (
                                 <div className="flex gap-2 text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                                   <button onClick={() => {
                                     setEditingDeal(deal); setDealTitle(deal.title); setDealValue(String(deal.value ?? ''));
+                                    setDealCurrency(deal.currency || 'USD');
                                     setDealStage(deal.stage); setDealProbability(deal.probability ?? 50);
                                     setDealCloseDate(deal.close_date || ''); setDealNotes(deal.notes || '');
                                     setDealClientId(String(deal.client_id)); setShowDealForm(true);
@@ -5655,8 +5671,14 @@ export default function App() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Value ($)</label>
-                  <input type="number" min="0" step="0.01" value={dealValue} onChange={e => setDealValue(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Value</label>
+                  <div className="flex gap-1.5">
+                    <input type="number" min="0" step="0.01" value={dealValue} onChange={e => setDealValue(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    {/* G20 â€” currency */}
+                    <select value={dealCurrency} onChange={e => setDealCurrency(e.target.value)} className="px-2 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none shrink-0">
+                      {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Stage</label>

@@ -115,3 +115,12 @@ NOT touched (verified by post-pass grep audit — every remaining "Client"/"clie
 - Relationship Profile: new Company row showing the name plus a "Visit ↗" link (`target="_blank"`, `https://` prefixed when the URL lacks a scheme).
 
 **Manual test:** add a relationship with company "Acme" + "acme.com" → profile shows "Acme Visit ↗" opening https://acme.com in a new tab; edit and change the URL → persists after reload.
+
+## fable/g20-multi-currency — G20: Multi-Currency Support
+**Line count: 5,995 → 6,020 (+25)**
+
+- Migration `g20_deal_currency` applied live (`deals.currency text DEFAULT 'USD'`); copy at `supabase/migrations/20260707_g20_deal_currency.sql`.
+- Deal form: currency select (USD/EUR/GBP/VND/JPY/AUD/CAD) beside Value; edit prefills; create/update persist it.
+- Static `FX_TO_USD` table (display-only, per spec — no real-time accounting-grade conversion): pipeline/forecast/won roll-ups and per-stage sums normalize to USD; non-USD deal cards show native value (₫/€/£/¥…) plus "≈ $X USD".
+
+**Manual test:** create a deal in VND → card shows ₫ value + ≈USD; Pipeline Value tile stays sane in USD; edit the deal → currency preserved.
