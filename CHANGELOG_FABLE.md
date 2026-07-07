@@ -105,3 +105,13 @@ NOT touched (verified by post-pass grep audit — every remaining "Client"/"clie
 - **Skeletons**: new `SkeletonRows` component replaces the bare "Loading records..." text on the relationships list.
 
 **Manual test:** desktop → left sidebar with working nav/search/notifications/dark toggle/logout; resize to mobile → hamburger drawer still works; kanban cards show stage-colored left edges; empty a filter to see the new empty states; reload while data loads to catch skeleton rows; open Deal/Email/Edit modals → consistent width.
+
+## fable/company-section — Part F: Company fields
+**Line count: 5,956 → 5,995 (+39)**
+
+- DB columns `clients.company_name` / `company_url` already existed (verified in Step 0) — no migration needed; the spec's `ALTER TABLE ... IF NOT EXISTS` would be a no-op.
+- Add form: "Company Name" + "Company Website" inputs; `handleAddClient` writes both (and resets them).
+- Edit modal: both fields bound to `editingClient`; `handleUpdateClient` writes both.
+- Relationship Profile: new Company row showing the name plus a "Visit ↗" link (`target="_blank"`, `https://` prefixed when the URL lacks a scheme).
+
+**Manual test:** add a relationship with company "Acme" + "acme.com" → profile shows "Acme Visit ↗" opening https://acme.com in a new tab; edit and change the URL → persists after reload.

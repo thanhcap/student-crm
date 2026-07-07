@@ -262,6 +262,9 @@ export default function App() {
   const [clientLinkedin, setClientLinkedin] = useState('');
   const [clientBirthday, setClientBirthday] = useState('');
   const [clientRelationship, setClientRelationship] = useState('Medium');
+  // PART F â€” company fields
+  const [clientCompanyName, setClientCompanyName] = useState('');
+  const [clientCompanyUrl, setClientCompanyUrl] = useState('');
   const [crmErrorMessage, setCrmErrorMessage] = useState('');
 
   // TASK STATES
@@ -1938,7 +1941,8 @@ export default function App() {
       country: clientCountry || null, phone_number: clientPhone || null,
       note_conversation: clientConversation || null, linkedin_url: clientLinkedin || null,
       birthday: clientBirthday || null, relationship: clientRelationship,
-      source: clientSource || null
+      source: clientSource || null,
+      company_name: clientCompanyName || null, company_url: clientCompanyUrl || null
     }]).select();
 
     if (!error && data) {
@@ -1961,6 +1965,7 @@ export default function App() {
       setName(''); setClientEmail(''); setNotes(''); setStatus('New');
       setClientCountry(''); setClientPhone(''); setClientConversation('');
       setClientLinkedin(''); setClientBirthday(''); setClientRelationship('Medium');
+      setClientCompanyName(''); setClientCompanyUrl('');
       setClientSource(''); setForceSaveDuplicate(false); setDuplicateWarning(null);
       setFormCustomValues({});
       updateStreak();
@@ -1981,7 +1986,8 @@ export default function App() {
       country: editingClient.country || null, phone_number: editingClient.phone_number || null,
       note_conversation: editingClient.note_conversation || null, linkedin_url: editingClient.linkedin_url || null,
       birthday: editingClient.birthday || null, relationship: editingClient.relationship,
-      source: editingClient.source || null
+      source: editingClient.source || null,
+      company_name: editingClient.company_name || null, company_url: editingClient.company_url || null
     }).eq('id', editingClient.id).select();
 
     // Update custom fields atomically: run all upserts/deletes in parallel and fail together
@@ -3486,6 +3492,10 @@ export default function App() {
                 <input type="text" placeholder="Country" value={clientCountry} onChange={e => setClientCountry(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="text" placeholder="Phone Number" value={clientPhone} onChange={e => setClientPhone(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="url" placeholder="LinkedIn URL" value={clientLinkedin} onChange={e => setClientLinkedin(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+
+                {/* PART F â€” company fields */}
+                <input type="text" placeholder="Company Name" value={clientCompanyName} onChange={e => setClientCompanyName(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                <input type="text" placeholder="Company Website" value={clientCompanyUrl} onChange={e => setClientCompanyUrl(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 
                 <div className="flex items-center gap-1">
                   <label className="text-[11px] font-medium text-gray-400 px-1 whitespace-nowrap">Birth:</label>
@@ -5179,6 +5189,26 @@ export default function App() {
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Source</span>
                   <span className="font-semibold text-gray-800 block">{viewingClient.source || 'Unknown'}</span>
                 </div>
+                {/* PART F â€” company row with Visit link */}
+                <div className="space-y-0.5">
+                  <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Company</span>
+                  {viewingClient.company_name || viewingClient.company_url ? (
+                    <span className="font-semibold text-gray-800 flex items-center gap-2 flex-wrap">
+                      {viewingClient.company_name || 'â€”'}
+                      {viewingClient.company_url && (
+                        <a
+                          href={viewingClient.company_url.startsWith('http') ? viewingClient.company_url : `https://${viewingClient.company_url}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-[12px] font-semibold text-indigo-600 hover:underline"
+                        >
+                          Visit â†—
+                        </a>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400 font-normal italic">Not specified</span>
+                  )}
+                </div>
               </div>
 
               {/* DYNAMIC CUSTOM FIELDS RENDER IN PROFILE */}
@@ -5496,6 +5526,15 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Birthday</label>
                   <input type="date" value={editingClient.birthday || ''} onChange={e => setEditingClient({...editingClient, birthday: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none" />
+                </div>
+                {/* PART F â€” company fields */}
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Company Name</label>
+                  <input type="text" value={editingClient.company_name || ''} onChange={e => setEditingClient({...editingClient, company_name: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Company Website</label>
+                  <input type="text" value={editingClient.company_url || ''} onChange={e => setEditingClient({...editingClient, company_url: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Source</label>
