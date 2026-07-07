@@ -117,10 +117,19 @@ NOT touched (verified by post-pass grep audit — every remaining "Client"/"clie
 **Manual test:** add a relationship with company "Acme" + "acme.com" → profile shows "Acme Visit ↗" opening https://acme.com in a new tab; edit and change the URL → persists after reload.
 
 ## fable/g20-multi-currency — G20: Multi-Currency Support
-**Line count: 5,995 → 6,020 (+25)**
+**Line count: 5,995 → 6,017 (+22)**
 
 - Migration `g20_deal_currency` applied live (`deals.currency text DEFAULT 'USD'`); copy at `supabase/migrations/20260707_g20_deal_currency.sql`.
 - Deal form: currency select (USD/EUR/GBP/VND/JPY/AUD/CAD) beside Value; edit prefills; create/update persist it.
 - Static `FX_TO_USD` table (display-only, per spec — no real-time accounting-grade conversion): pipeline/forecast/won roll-ups and per-stage sums normalize to USD; non-USD deal cards show native value (₫/€/£/¥…) plus "≈ $X USD".
 
 **Manual test:** create a deal in VND → card shows ₫ value + ≈USD; Pipeline Value tile stays sane in USD; edit the deal → currency preserved.
+
+## fable/g3-voice-memo — G3: Voice Memo Quick-Log
+**Line count: 6,017 → 6,053 (+36)**
+
+- 🎤 button beside the activity-log description field. Uses the browser-native Web Speech API (`SpeechRecognition`/`webkitSpeechRecognition`, zero packages): continuous recognition, final transcripts append to the description in real time as you talk.
+- Listening state: red pulsing mic, highlighted textarea, "Listening…" placeholder; click again (or pause) to stop. Graceful errors for unsupported browsers and denied mic permission.
+- Distinct from G2 by design: passive dictation of the user narrating a note, not call recording.
+
+**Manual test:** open a relationship → Activity tab → click 🎤 (grant mic), speak a sentence → text appears in the field; click 🔴 to stop; Log Entry saves it as a normal activity. In Firefox (unsupported) → friendly error toast.

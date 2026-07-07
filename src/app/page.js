@@ -322,6 +322,10 @@ export default function App() {
   const [activityDesc, setActivityDesc] = useState('');
   const [activityDate, setActivityDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // G3 â€” voice memo quick-log (Web Speech API, browser-native)
+  const [voiceListening, setVoiceListening] = useState(false);
+  const recognitionRef = useRef(null);
+
   const [activityFilterType, setActivityFilterType] = useState('All');
   const [editingActivityId, setEditingActivityId] = useState(null);
   const [editingActivityDesc, setEditingActivityDesc] = useState('');
@@ -2118,6 +2122,34 @@ export default function App() {
   // ==========================================
   // ADVANCED ACTIVITY LOG LOGIC
   // ==========================================
+
+  // G3 â€” dictate an activity note: final transcripts append to the description
+  // field in real time. Browser-native (Web Speech API), no packages, no server.
+  function toggleVoiceMemo() {
+    const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (!SR) { showToast('Speech recognition is not supported in this browser. Try Chrome or Safari.', 'error'); return; }
+    if (voiceListening) { recognitionRef.current?.stop(); return; }
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = navigator.language || 'en-US';
+    rec.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) {
+          const t = (e.results[i][0]?.transcript || '').trim();
+          if (t) setActivityDesc(prev => (prev ? prev.replace(/\s+$/, '') + ' ' : '') + t);
+        }
+      }
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed') showToast('Microphone access was denied.', 'error');
+      setVoiceListening(false);
+    };
+    rec.onend = () => setVoiceListening(false);
+    recognitionRef.current = rec;
+    rec.start();
+    setVoiceListening(true);
+  }
 
   async function handleAddActivityLog(e) {
     e.preventDefault();
@@ -5476,8 +5508,12 @@ export default function App() {
                     <input type="date" value={activityDate} onChange={e => setActivityDate(e.target.value)} className="p-1.5 border border-gray-200 rounded-lg focus:outline-none bg-gray-50/50 text-gray-600" />
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <textarea placeholder="Record details, meeting minutes, or email content..." value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className="flex-1 px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                    <button type="submit" className="sm:w-24 font-medium text-[12px] text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm self-end sm:self-stretch">Log Entry</button>
+                    <textarea placeholder={voiceListening ? 'Listening... speak your note' : 'Record details, meeting minutes, or email content...'} value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className={`flex-1 px-3 py-2 text-[13px] border rounded-lg focus:outline-none ${voiceListening ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200 focus:border-gray-400'}`} />
+                    {/* G3 â€” voice memo mic */}
+                    <button type="button" onClick={toggleVoiceMemo} title={voiceListening ? 'Stop dictation' : 'Dictate with your voice'} className={`self-end sm:self-stretch px-3 min-h-[38px] rounded-xl border text-[16px] transition-all ${voiceListening ? 'bg-red-50 border-red-300 animate-pulse' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                      {voiceListening ? 'ðŸ”´' : 'ðŸŽ¤'}
+                    </button>
+                    <button type="submit" className="sm:w-24 font-medium text-[12px] text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm self-end sm:self-stretch min-h-[38px]">Log Entry</button>
                   </div>
                 </form>
               </div>
