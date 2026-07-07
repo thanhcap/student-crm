@@ -149,21 +149,21 @@ function TagPill({ tag, onRemove }) {
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
       style={{ backgroundColor: tag.color + '22', color: tag.color, border: `1px solid ${tag.color}44` }}>
       {tag.name}
-      {onRemove && <button onClick={() => onRemove(tag.id)} className="hover:opacity-70 ml-0.5">Ã—</button>}
+      {onRemove && <button onClick={() => onRemove(tag.id)} className="hover:opacity-70 ml-0.5">×</button>}
     </span>
   );
 }
 
-// G11 â€” one-click automation recipes (pre-configured automation_rules rows)
+// G11 — one-click automation recipes (pre-configured automation_rules rows)
 const AUTOMATION_RECIPES = [
   {
     name: 'Remind me 3 days before a deal close date',
     desc: 'Sends a notification when an open deal is 3 days from closing.',
     note: 'Evaluated by the daily job',
-    rule: { trigger_type: 'deal_close_approaching', trigger_value: '3', action_type: 'send_notification', action_value: { message: 'A deal closes in 3 days â€” check in.' } },
+    rule: { trigger_type: 'deal_close_approaching', trigger_value: '3', action_type: 'send_notification', action_value: { message: 'A deal closes in 3 days — check in.' } },
   },
   {
-    name: 'LinkedIn relationships â†’ High priority',
+    name: 'LinkedIn relationships → High priority',
     desc: 'New relationships sourced from LinkedIn are automatically set to High priority.',
     note: 'Runs instantly on add',
     rule: { trigger_type: 'source_is', trigger_value: 'LinkedIn', action_type: 'set_priority', action_value: { priority: 'High' } },
@@ -176,7 +176,7 @@ const AUTOMATION_RECIPES = [
   },
 ];
 
-// G17 â€” company logo via Google's public favicon endpoint (builds on Part F's company_url)
+// G17 — company logo via Google's public favicon endpoint (builds on Part F's company_url)
 function companyFaviconUrl(companyUrl, size = 64) {
   if (!companyUrl) return null;
   try {
@@ -185,20 +185,20 @@ function companyFaviconUrl(companyUrl, size = 64) {
   } catch { return null; }
 }
 
-// G20 â€” multi-currency (static rates, display-only directional context)
+// G20 — multi-currency (static rates, display-only directional context)
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'VND', 'JPY', 'AUD', 'CAD'];
 const FX_TO_USD = { USD: 1, EUR: 1.09, GBP: 1.27, VND: 0.000039, JPY: 0.0067, AUD: 0.66, CAD: 0.73 };
-const CURRENCY_SYMBOL = { USD: '$', EUR: 'â‚¬', GBP: 'Â£', VND: 'â‚«', JPY: 'Â¥', AUD: 'A$', CAD: 'C$' };
+const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£', VND: '₫', JPY: '¥', AUD: 'A$', CAD: 'C$' };
 const toUSD = (value, currency) => (parseFloat(value) || 0) * (FX_TO_USD[currency || 'USD'] ?? 1);
 const fmtCurrency = (n, cur) => `${CURRENCY_SYMBOL[cur || 'USD'] || '$'}${(parseFloat(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-// PART E â€” stage accent colors (kanban card left borders)
+// PART E — stage accent colors (kanban card left borders)
 const STAGE_COLORS = {
   New: '#3B82F6', Contacted: '#F97316', Engaged: '#6366F1', Active: '#22C55E', Inactive: '#9CA3AF',
   Prospect: '#9CA3AF', Proposal: '#3B82F6', Negotiation: '#F59E0B', 'Contract Sent': '#8B5CF6', Won: '#22C55E', Lost: '#EF4444',
 };
 
-// PART E â€” reusable empty state with abstract inline-SVG illustration
+// PART E — reusable empty state with abstract inline-SVG illustration
 function EmptyState({ title, desc, ctaLabel, onCta }) {
   return (
     <div className="flex flex-col items-center text-center py-10 px-6">
@@ -218,7 +218,7 @@ function EmptyState({ title, desc, ctaLabel, onCta }) {
   );
 }
 
-// PART E â€” skeleton loading rows (replaces bare "Loading..." text)
+// PART E — skeleton loading rows (replaces bare "Loading..." text)
 function SkeletonRows({ rows = 5 }) {
   return (
     <div className="p-6 space-y-4" aria-busy="true" aria-label="Loading">
@@ -236,22 +236,22 @@ function SkeletonRows({ rows = 5 }) {
   );
 }
 
-// PART C2 â€” delta badge vs previous period
+// PART C2 — delta badge vs previous period
 function DeltaBadge({ current, prev }) {
   if (prev == null) return null;
-  if (prev === 0 && current === 0) return <span className="text-[10px] font-semibold text-gray-400 block mt-0.5">â€” no change</span>;
+  if (prev === 0 && current === 0) return <span className="text-[10px] font-semibold text-gray-400 block mt-0.5">— no change</span>;
   const pct = prev === 0 ? 100 : Math.round(((current - prev) / Math.abs(prev)) * 100);
-  if (pct === 0) return <span className="text-[10px] font-semibold text-gray-400 block mt-0.5">â€” 0% vs last period</span>;
+  if (pct === 0) return <span className="text-[10px] font-semibold text-gray-400 block mt-0.5">— 0% vs last period</span>;
   const up = pct > 0;
   return (
     <span className={`text-[10px] font-bold block mt-0.5 ${up ? 'text-green-600' : 'text-red-500'}`}>
-      {up ? 'â–²' : 'â–¼'} {Math.abs(pct)}% vs last period
+      {up ? '▲' : '▼'} {Math.abs(pct)}% vs last period
     </span>
   );
 }
 
 function formatFileSize(bytes) {
-  if (bytes == null) return 'â€”';
+  if (bytes == null) return '—';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -300,7 +300,7 @@ export default function App() {
   const [clientLinkedin, setClientLinkedin] = useState('');
   const [clientBirthday, setClientBirthday] = useState('');
   const [clientRelationship, setClientRelationship] = useState('Medium');
-  // PART F â€” company fields
+  // PART F — company fields
   const [clientCompanyName, setClientCompanyName] = useState('');
   const [clientCompanyUrl, setClientCompanyUrl] = useState('');
   const [clientReferredBy, setClientReferredBy] = useState(''); // G18
@@ -354,7 +354,7 @@ export default function App() {
   const [activityDesc, setActivityDesc] = useState('');
   const [activityDate, setActivityDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // G3 â€” voice memo quick-log (Web Speech API, browser-native)
+  // G3 — voice memo quick-log (Web Speech API, browser-native)
   const [voiceListening, setVoiceListening] = useState(false);
   const recognitionRef = useRef(null);
 
@@ -381,7 +381,7 @@ export default function App() {
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', confirmLabel: '', confirmVariant: 'primary', isLoading: false, onConfirm: null });
   const [toasts, setToasts] = useState([]);
 
-  // FEATURE 1 â€” DEALS PIPELINE STATES
+  // FEATURE 1 — DEALS PIPELINE STATES
   const [deals, setDeals] = useState([]);
   const [showDealForm, setShowDealForm] = useState(false);
   const [editingDeal, setEditingDeal] = useState(null);
@@ -393,21 +393,21 @@ export default function App() {
   const [dealNotes, setDealNotes] = useState('');
   const [dealClientId, setDealClientId] = useState('');
   const [dealCurrency, setDealCurrency] = useState('USD'); // G20
-  // G19 â€” recurring revenue fields
+  // G19 — recurring revenue fields
   const [dealIsRecurring, setDealIsRecurring] = useState(false);
   const [dealBillingCycle, setDealBillingCycle] = useState('monthly');
   const [dealRenewalDate, setDealRenewalDate] = useState('');
   const [dealSaving, setDealSaving] = useState(false);
 
-  // FEATURE 2 â€” AI SUMMARY STATES
+  // FEATURE 2 — AI SUMMARY STATES
   const [aiSummary, setAiSummary] = useState('');
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
   const [aiSummaryClientId, setAiSummaryClientId] = useState(null);
 
-  // FEATURE 3 â€” REPORTS STATE
+  // FEATURE 3 — REPORTS STATE
   const [reportRange, setReportRange] = useState('30');
 
-  // PART C â€” CUSTOM REPORTS STATES
+  // PART C — CUSTOM REPORTS STATES
   const [customDimension, setCustomDimension] = useState('Stage');
   const [customMetric, setCustomMetric] = useState('Count');
   const [customDateGrouping, setCustomDateGrouping] = useState('month');
@@ -416,7 +416,7 @@ export default function App() {
   const [compareReports, setCompareReports] = useState(false); // C2 toggle
   const [dealsStageFilter, setDealsStageFilter] = useState(''); // C3 drill-down target on Deals page
 
-  // FEATURE 4 â€” EMAIL COMPOSER STATES
+  // FEATURE 4 — EMAIL COMPOSER STATES
   const [showEmailComposer, setShowEmailComposer] = useState(false);
   const [emailTo, setEmailTo] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
@@ -429,30 +429,30 @@ export default function App() {
   const [templateSubject, setTemplateSubject] = useState('');
   const [templateBody, setTemplateBody] = useState('');
 
-  // FEATURE 5 â€” AUTOMATION RULES STATES
+  // FEATURE 5 — AUTOMATION RULES STATES
   const [automationRules, setAutomationRules] = useState([]);
   const [showRuleForm, setShowRuleForm] = useState(false);
   const [newRule, setNewRule] = useState({ name: '', triggerType: 'stage_change', triggerValue: '', actionType: 'create_task', actionValue: {} });
 
-  // FEATURE 7 â€” FILE ATTACHMENTS STATES
+  // FEATURE 7 — FILE ATTACHMENTS STATES
   const [clientFiles, setClientFiles] = useState([]);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [activeProfileTab, setActiveProfileTab] = useState('activity');
   const fileUploadRef = useRef(null);
 
-  // FEATURE 8 â€” CALENDAR STATES
+  // FEATURE 8 — CALENDAR STATES
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [calendarView, setCalendarView] = useState('month');
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
 
-  // FEATURE 9 â€” TAGS STATES
+  // FEATURE 9 — TAGS STATES
   const [tags, setTags] = useState([]);
   const [clientTagMap, setClientTagMap] = useState({});
   const [filterTags, setFilterTags] = useState([]);
   const [newTagName, setNewTagName] = useState('');
   const [newTagColor, setNewTagColor] = useState('#6366F1');
 
-  // FEATURE 10 â€” TEAM WORKSPACE STATES
+  // FEATURE 10 — TEAM WORKSPACE STATES
   const [workspace, setWorkspace] = useState(null);
   const [workspaceMembers, setWorkspaceMembers] = useState([]);
   const [myRole, setMyRole] = useState('owner');
@@ -460,69 +460,69 @@ export default function App() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
 
-  // FEATURE 11 â€” WEBHOOKS STATES
+  // FEATURE 11 — WEBHOOKS STATES
   const [webhooks, setWebhooks] = useState([]);
   const [showWebhookForm, setShowWebhookForm] = useState(false);
   const [newWebhook, setNewWebhook] = useState({ name: '', url: '', events: [], secret: '' });
 
-  // FEATURE 12 â€” MOBILE NAV STATE
+  // FEATURE 12 — MOBILE NAV STATE
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // FEATURE 13 â€” DARK MODE STATE
+  // FEATURE 13 — DARK MODE STATE
   const [darkMode, setDarkMode] = useState(false);
 
-  // FEATURE 14 â€” DUPLICATE DETECTION STATE
+  // FEATURE 14 — DUPLICATE DETECTION STATE
   const [duplicateWarning, setDuplicateWarning] = useState(null);
   const [forceSaveDuplicate, setForceSaveDuplicate] = useState(false);
 
-  // FEATURE 15 â€” QUICK NOTES STATES
+  // FEATURE 15 — QUICK NOTES STATES
   const [quickNoteValue, setQuickNoteValue] = useState('');
   const [quickNoteSaved, setQuickNoteSaved] = useState(false);
   const [quickNoteSaving, setQuickNoteSaving] = useState(false);
 
-  // FEATURE 16 â€” IMPORT PREVIEW STATES
+  // FEATURE 16 — IMPORT PREVIEW STATES
   const [importPreviewData, setImportPreviewData] = useState([]);
   const [showImportPreview, setShowImportPreview] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
 
-  // FEATURE 17 â€” STREAK STATES
+  // FEATURE 17 — STREAK STATES
   const [streakData, setStreakData] = useState({ current: 0, longest: 0, lastActive: null });
 
-  // FEATURE 18 â€” BULK EMAIL STATES
+  // FEATURE 18 — BULK EMAIL STATES
   const [showBulkEmailModal, setShowBulkEmailModal] = useState(false);
   const [bulkEmailSubject, setBulkEmailSubject] = useState('');
   const [bulkEmailBody, setBulkEmailBody] = useState('');
   const [bulkEmailSending, setBulkEmailSending] = useState(false);
   const [bulkEmailProgress, setBulkEmailProgress] = useState('');
 
-  // FEATURE 19 â€” HEALTH FILTER STATE
+  // FEATURE 19 — HEALTH FILTER STATE
   const [filterHealth, setFilterHealth] = useState('');
 
-  // FEATURE 20 â€” RECURRING TASK FORM STATES
+  // FEATURE 20 — RECURRING TASK FORM STATES
   const [newTaskRecurrence, setNewTaskRecurrence] = useState('');
   const [newTaskRecurrenceEnd, setNewTaskRecurrenceEnd] = useState('');
 
-  // FEATURE 22 â€” ACTIVITY TEMPLATES STATES
+  // FEATURE 22 — ACTIVITY TEMPLATES STATES
   const [activityTemplates, setActivityTemplates] = useState(DEFAULT_ACTIVITY_TEMPLATES);
   const [savingTemplateName, setSavingTemplateName] = useState(null); // null = hidden, '' = open input
 
-  // FEATURE 23 â€” FOLLOW-UP SUGGESTION STATES
+  // FEATURE 23 — FOLLOW-UP SUGGESTION STATES
   const [followUpSuggestion, setFollowUpSuggestion] = useState('');
   const [followUpLoading, setFollowUpLoading] = useState(false);
 
-  // FEATURE 24 â€” CLIENT TIMELINE STATE
+  // FEATURE 24 — CLIENT TIMELINE STATE
   const [timelineClient, setTimelineClient] = useState(null);
 
-  // FEATURE 25 â€” SOURCE FORM STATE
+  // FEATURE 25 — SOURCE FORM STATE
   const [clientSource, setClientSource] = useState('');
 
-  // FEATURE 26 â€” GOALS STATES
+  // FEATURE 26 — GOALS STATES
   const [goals, setGoals] = useState([]);
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [goalType, setGoalType] = useState('new_clients');
   const [goalTarget, setGoalTarget] = useState(10);
 
-  // FEATURE 27 â€” CLIENT MERGE STATES
+  // FEATURE 27 — CLIENT MERGE STATES
   const [showMergeTool, setShowMergeTool] = useState(false);
   const [mergeSource, setMergeSource] = useState(null);
   const [mergeTarget, setMergeTarget] = useState(null);
@@ -531,12 +531,12 @@ export default function App() {
   const [mergeFieldChoices, setMergeFieldChoices] = useState({});
   const [mergeLoading, setMergeLoading] = useState(false);
 
-  // FEATURE 28 â€” KEYBOARD SHORTCUTS STATE
+  // FEATURE 28 — KEYBOARD SHORTCUTS STATE
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
 
-  // FEATURE 29 â€” ADVANCED FILTERS & SAVED VIEWS STATES
+  // FEATURE 29 — ADVANCED FILTERS & SAVED VIEWS STATES
   const [filterDateAdded, setFilterDateAdded] = useState('');
-  const [filterSource, setFilterSource] = useState(''); // PART C3 â€” drill-down from Reports needs a source filter
+  const [filterSource, setFilterSource] = useState(''); // PART C3 — drill-down from Reports needs a source filter
   const [filterHasDeals, setFilterHasDeals] = useState(false);
   const [filterHasActivity, setFilterHasActivity] = useState('');
   const [filterScore, setFilterScore] = useState('');
@@ -544,7 +544,7 @@ export default function App() {
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [savingViewName, setSavingViewName] = useState(null); // null = hidden, '' = open input
 
-  // FEATURE 30 â€” ONBOARDING STATES
+  // FEATURE 30 — ONBOARDING STATES
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [dashboardExplored, setDashboardExplored] = useState(false);
 
@@ -608,7 +608,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // PART B â€” email provider preference
+  // PART B — email provider preference
   useEffect(() => {
     const saved = localStorage.getItem('crm_email_provider');
     if (saved === 'gmail' || saved === 'mailto') setEmailProvider(saved);
@@ -619,7 +619,7 @@ export default function App() {
     localStorage.setItem('crm_email_provider', p);
   }
 
-  // FEATURE 13 â€” Dark mode: init from localStorage, toggle root class
+  // FEATURE 13 — Dark mode: init from localStorage, toggle root class
   useEffect(() => {
     const saved = localStorage.getItem('crm_dark_mode') === 'true';
     setDarkMode(saved);
@@ -633,7 +633,7 @@ export default function App() {
     localStorage.setItem('crm_dark_mode', String(next));
   }
 
-  // FEATURE 22 â€” Load saved activity templates, merge with defaults (dedupe by name)
+  // FEATURE 22 — Load saved activity templates, merge with defaults (dedupe by name)
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('crm_activity_templates') || '[]');
@@ -644,10 +644,10 @@ export default function App() {
           return merged;
         });
       }
-    } catch { /* corrupt localStorage â€” ignore */ }
+    } catch { /* corrupt localStorage — ignore */ }
   }, []);
 
-  // FEATURE 30 â€” Onboarding: dismissed flag + "explored dashboard" step
+  // FEATURE 30 — Onboarding: dismissed flag + "explored dashboard" step
   useEffect(() => {
     setOnboardingDismissed(localStorage.getItem('crm_onboarding_dismissed') === 'true');
     setDashboardExplored(localStorage.getItem('crm_dashboard_explored') === 'true');
@@ -662,7 +662,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [appStep, dashboardExplored]);
 
-  // FEATURE 14 â€” Duplicate email detection (debounced 500ms)
+  // FEATURE 14 — Duplicate email detection (debounced 500ms)
   useEffect(() => {
     const t = setTimeout(() => {
       if (!clientEmail) { setDuplicateWarning(null); setForceSaveDuplicate(false); return; }
@@ -675,7 +675,7 @@ export default function App() {
     return () => clearTimeout(t);
   }, [clientEmail, clients, editingClient]);
 
-  // FEATURE 15 â€” Quick note: sync value on client open, debounced auto-save (800ms)
+  // FEATURE 15 — Quick note: sync value on client open, debounced auto-save (800ms)
   useEffect(() => {
     if (viewingClient) {
       setQuickNoteValue(viewingClient.quick_note || '');
@@ -706,7 +706,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quickNoteValue]);
 
-  // FEATURE 23 â€” Smart follow-up suggestion (only when last activity >14 days or none)
+  // FEATURE 23 — Smart follow-up suggestion (only when last activity >14 days or none)
   useEffect(() => {
     if (!viewingClient) return;
     const clientActs = activities.filter(a => a.client_id === viewingClient.id);
@@ -719,7 +719,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewingClient?.id]);
 
-  // FEATURE 28 â€” Keyboard shortcuts. Refs keep user/appStep current inside the
+  // FEATURE 28 — Keyboard shortcuts. Refs keep user/appStep current inside the
   // stable listener (the empty-dep effect would otherwise close over stale values).
   const userRef = useRef(user);
   const appStepRef = useRef(appStep);
@@ -858,7 +858,7 @@ export default function App() {
     if (data) setSavedViews(data);
   }
 
-  // PART C4 â€” saved custom reports
+  // PART C4 — saved custom reports
   async function fetchCustomReports(userId) {
     const { data } = await supabase.from('custom_reports').select('*').eq('user_id', userId).order('created_at');
     if (data) setCustomReports(data);
@@ -891,18 +891,18 @@ export default function App() {
       });
   }
 
-  // PART C5 â€” cycle email frequency: off â†’ weekly â†’ monthly â†’ off.
+  // PART C5 — cycle email frequency: off → weekly → monthly → off.
   // NOTE: only stores the flag; actual delivery needs a scheduled Edge Function (see CHANGELOG).
   async function handleCycleReportFrequency(r) {
     const next = !r.send_frequency ? 'weekly' : r.send_frequency === 'weekly' ? 'monthly' : null;
     const { error } = await supabase.from('custom_reports').update({ send_frequency: next }).eq('id', r.id);
     if (!error) {
       setCustomReports(prev => prev.map(x => x.id === r.id ? { ...x, send_frequency: next } : x));
-      showToast(next ? `Email schedule set to ${next} (delivery wiring pending â€” see changelog).` : 'Email schedule turned off.', 'success');
+      showToast(next ? `Email schedule set to ${next} (delivery wiring pending — see changelog).` : 'Email schedule turned off.', 'success');
     } else showToast(`Error: ${error.message}`, 'error');
   }
 
-  // PART C5 â€” client-side CSV export of the currently displayed custom report
+  // PART C5 — client-side CSV export of the currently displayed custom report
   function exportCustomReportCSV() {
     const rows = [[customDimension, customMetric], ...customReportData.map(r => [
       r.label,
@@ -916,7 +916,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  // PART C3 â€” drill from a custom-report row into the pre-filtered Relationships list
+  // PART C3 — drill from a custom-report row into the pre-filtered Relationships list
   function drillCustomDimension(label) {
     if (customDimension === 'Month Added') return; // no matching list filter
     clearAllFilters();
@@ -936,7 +936,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 10 â€” TEAM WORKSPACE
+  // FEATURE 10 — TEAM WORKSPACE
   // ==========================================
 
   async function fetchWorkspace(userId, userEmail) {
@@ -1039,7 +1039,7 @@ export default function App() {
   const isViewer = workspace && myRole === 'viewer';
 
   // ==========================================
-  // FEATURE 1 â€” DEALS HANDLERS
+  // FEATURE 1 — DEALS HANDLERS
   // ==========================================
 
   function resetDealForm() {
@@ -1116,7 +1116,7 @@ export default function App() {
   };
 
   // ==========================================
-  // FEATURE 2 â€” AI SUMMARY / FEATURE 23 â€” FOLLOW-UP
+  // FEATURE 2 — AI SUMMARY / FEATURE 23 — FOLLOW-UP
   // ==========================================
 
   async function handleGenerateAISummary(client, force = false) {
@@ -1159,12 +1159,12 @@ export default function App() {
       });
       const { summary, error } = await res.json();
       if (!error && summary) setFollowUpSuggestion(summary);
-    } catch { /* silent â€” suggestion is best-effort */ }
+    } catch { /* silent — suggestion is best-effort */ }
     setFollowUpLoading(false);
   }
 
   // ==========================================
-  // FEATURE 4 â€” EMAIL COMPOSER / FEATURE 18 â€” BULK EMAIL
+  // FEATURE 4 — EMAIL COMPOSER / FEATURE 18 — BULK EMAIL
   // ==========================================
 
   function resolveMergeTags(str, client) {
@@ -1175,7 +1175,7 @@ export default function App() {
       .replace(/{{stage}}/g, client?.status || '');
   }
 
-  // PART B â€” default send path opens a real compose tab in the user's browser.
+  // PART B — default send path opens a real compose tab in the user's browser.
   // (No RESEND_API_KEY is configured and /api/send-email does not exist, so the
   // old fetch-based flow always failed; the opt-in "send automatically" link is
   // intentionally omitted until Resend is actually set up.)
@@ -1196,12 +1196,12 @@ export default function App() {
       const { data } = await supabase.from('activities').insert([{
         client_id: viewingClient.id, user_id: user.id,
         activity_type: 'Email', activity_date: new Date().toISOString().split('T')[0],
-        description: `Drafted â€” Subject: ${subject}\n\n${body}`,
-        // no outcome field â€” see Part A
+        description: `Drafted — Subject: ${subject}\n\n${body}`,
+        // no outcome field — see Part A
       }]).select();
       if (data) setActivities(prev => [data[0], ...prev]);
     }
-    showToast('Opened in a new tab â€” send from there.', 'success');
+    showToast('Opened in a new tab — send from there.', 'success');
     setShowEmailComposer(false); setEmailSubject(''); setEmailBody('');
   }
 
@@ -1235,7 +1235,7 @@ export default function App() {
       });
   }
 
-  // PART B â€” bulk flow opens one compose tab per recipient (300ms apart so the
+  // PART B — bulk flow opens one compose tab per recipient (300ms apart so the
   // popup blocker doesn't treat the burst as spam).
   async function handleBulkSendEmail(e) {
     e.preventDefault();
@@ -1255,7 +1255,7 @@ export default function App() {
         const { data } = await supabase.from('activities').insert([{
           client_id: c.id, user_id: user.id, activity_type: 'Email',
           activity_date: new Date().toISOString().split('T')[0],
-          description: `Drafted bulk email â€” Subject: ${subject}`,
+          description: `Drafted bulk email — Subject: ${subject}`,
         }]).select();
         if (data) setActivities(prev => [data[0], ...prev]);
       } else {
@@ -1264,9 +1264,9 @@ export default function App() {
       if (i < targets.length - 1) await new Promise(r => setTimeout(r, 300));
     }
     if (blocked > 0) {
-      showToast(`Opened ${opened} tab${opened === 1 ? '' : 's'} â€” ${blocked} blocked. Allow popups for this site and retry.`, 'error');
+      showToast(`Opened ${opened} tab${opened === 1 ? '' : 's'} — ${blocked} blocked. Allow popups for this site and retry.`, 'error');
     } else {
-      showToast(`Opened ${opened} compose tab${opened === 1 ? '' : 's'} â€” send each from there.`, 'success');
+      showToast(`Opened ${opened} compose tab${opened === 1 ? '' : 's'} — send each from there.`, 'success');
     }
     setSelectedClientIds([]);
     setShowBulkEmailModal(false); setBulkEmailSubject(''); setBulkEmailBody(''); setBulkEmailProgress('');
@@ -1274,7 +1274,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 5 â€” AUTOMATION RULES ENGINE
+  // FEATURE 5 — AUTOMATION RULES ENGINE
   // ==========================================
 
   async function executeAutomations(triggerType, triggerValue, clientId) {
@@ -1299,7 +1299,7 @@ export default function App() {
         }]);
         fetchNotifications(user.id);
       }
-      // G11 â€” set_priority action (used by the LinkedIn recipe)
+      // G11 — set_priority action (used by the LinkedIn recipe)
       if (rule.action_type === 'set_priority') {
         const pr = rule.action_value?.priority || 'High';
         await supabase.from('clients').update({ relationship: pr }).eq('id', clientId);
@@ -1332,7 +1332,7 @@ export default function App() {
     }
   }
 
-  // G11 â€” one-click insert of a pre-configured recipe rule
+  // G11 — one-click insert of a pre-configured recipe rule
   async function handleEnableRecipe(recipe) {
     if (automationRules.some(r => r.name === recipe.name)) { showToast('Recipe already enabled.', 'error'); return; }
     const { data, error } = await supabase.from('automation_rules').insert([{
@@ -1374,7 +1374,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 7 â€” FILE ATTACHMENTS
+  // FEATURE 7 — FILE ATTACHMENTS
   // ==========================================
 
   async function handleFileUpload(file) {
@@ -1412,7 +1412,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 9 â€” TAGS
+  // FEATURE 9 — TAGS
   // ==========================================
 
   async function handleCreateTag(e) {
@@ -1455,7 +1455,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 11 â€” WEBHOOKS
+  // FEATURE 11 — WEBHOOKS
   // ==========================================
 
   async function dispatchWebhook(event, payload) {
@@ -1512,7 +1512,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 17 â€” ACTIVITY STREAKS
+  // FEATURE 17 — ACTIVITY STREAKS
   // ==========================================
 
   async function updateStreak() {
@@ -1529,11 +1529,11 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 15 â€” QUICK NOTES (auto-save handled by effect below)
+  // FEATURE 15 — QUICK NOTES (auto-save handled by effect below)
   // ==========================================
 
   // ==========================================
-  // FEATURE 26 â€” GOALS
+  // FEATURE 26 — GOALS
   // ==========================================
 
   const currentMonthStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
@@ -1562,7 +1562,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 27 â€” CLIENT MERGE
+  // FEATURE 27 — CLIENT MERGE
   // ==========================================
 
   async function handleExecuteMerge() {
@@ -1596,7 +1596,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 29 â€” SAVED VIEWS
+  // FEATURE 29 — SAVED VIEWS
   // ==========================================
 
   function applyView(filters) {
@@ -1637,7 +1637,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 21 â€” PDF EXPORT
+  // FEATURE 21 — PDF EXPORT
   // ==========================================
 
   // FIX: /api/client-report never existed, so export always failed. The report
@@ -1647,7 +1647,7 @@ export default function App() {
     const tks = tasks.filter(t => t.client_id === client.id && t.status === 'pending');
     const dls = deals.filter(d => d.client_id === client.id);
     const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const html = `<!DOCTYPE html><html><head><title>${esc(client.name)} â€” Relationship Report</title><style>
+    const html = `<!DOCTYPE html><html><head><title>${esc(client.name)} — Relationship Report</title><style>
       body{font-family:-apple-system,'Segoe UI',sans-serif;margin:40px;color:#111827}
       h1{margin:0 0 4px;font-size:24px} .muted{color:#6b7280;font-size:12px}
       h2{font-size:14px;border-bottom:1px solid #e5e7eb;padding-bottom:4px;margin-top:28px}
@@ -1657,24 +1657,24 @@ export default function App() {
       @media print{body{margin:16px}}
     </style></head><body>
       <h1>${esc(client.name)}</h1>
-      <p class="muted">${esc(client.email || '')}${client.phone_number ? ' Â· ' + esc(client.phone_number) : ''} Â· Stage: ${esc(client.status || 'â€”')} Â· Priority: ${esc(client.relationship || 'â€”')} Â· Generated ${new Date().toLocaleDateString()}</p>
+      <p class="muted">${esc(client.email || '')}${client.phone_number ? ' · ' + esc(client.phone_number) : ''} · Stage: ${esc(client.status || '—')} · Priority: ${esc(client.relationship || '—')} · Generated ${new Date().toLocaleDateString()}</p>
       <h2>Details</h2><table>
-        <tr><th>Country</th><td>${esc(client.country || 'â€”')}</td><th>Source</th><td>${esc(client.source || 'â€”')}</td></tr>
-        <tr><th>Company</th><td>${esc(client.company_name || 'â€”')}</td><th>Website</th><td>${esc(client.company_url || 'â€”')}</td></tr>
-        <tr><th>Birthday</th><td>${esc(client.birthday || 'â€”')}</td><th>LinkedIn</th><td>${esc(client.linkedin_url || 'â€”')}</td></tr>
+        <tr><th>Country</th><td>${esc(client.country || '—')}</td><th>Source</th><td>${esc(client.source || '—')}</td></tr>
+        <tr><th>Company</th><td>${esc(client.company_name || '—')}</td><th>Website</th><td>${esc(client.company_url || '—')}</td></tr>
+        <tr><th>Birthday</th><td>${esc(client.birthday || '—')}</td><th>LinkedIn</th><td>${esc(client.linkedin_url || '—')}</td></tr>
       </table>
       <h2>Deals (${dls.length})</h2>
-      ${dls.length === 0 ? '<p class="muted">None.</p>' : `<table><tr><th>Title</th><th>Stage</th><th>Value</th><th>Close</th></tr>${dls.map(d => `<tr><td>${esc(d.title)}</td><td>${esc(d.stage)}</td><td>${esc(fmtCurrency(d.value, d.currency))}</td><td>${esc(d.close_date || 'â€”')}</td></tr>`).join('')}</table>`}
+      ${dls.length === 0 ? '<p class="muted">None.</p>' : `<table><tr><th>Title</th><th>Stage</th><th>Value</th><th>Close</th></tr>${dls.map(d => `<tr><td>${esc(d.title)}</td><td>${esc(d.stage)}</td><td>${esc(fmtCurrency(d.value, d.currency))}</td><td>${esc(d.close_date || '—')}</td></tr>`).join('')}</table>`}
       <h2>Open Tasks (${tks.length})</h2>
       ${tks.length === 0 ? '<p class="muted">None.</p>' : `<table><tr><th>Task</th><th>Due</th></tr>${tks.map(t => `<tr><td>${esc(t.title)}</td><td>${esc(t.due_date)}</td></tr>`).join('')}</table>`}
       <h2>Activity Timeline (${acts.length})</h2>
       ${acts.length === 0 ? '<p class="muted">None.</p>' : `<table><tr><th>Date</th><th>Type</th><th>Notes</th></tr>${acts.map(a => `<tr><td>${esc(a.activity_date)}</td><td>${esc(a.activity_type)}</td><td>${esc(a.description)}</td></tr>`).join('')}</table>`}
     </body></html>`;
     const w = window.open('', '_blank');
-    if (!w) { showToast('Popup blocked â€” allow popups for this site to export.', 'error'); return; }
+    if (!w) { showToast('Popup blocked — allow popups for this site to export.', 'error'); return; }
     w.document.write(html);
     w.document.close();
-    showToast('Opening print dialog â€” choose "Save as PDF".', 'success');
+    showToast('Opening print dialog — choose "Save as PDF".', 'success');
     setTimeout(() => w.print(), 400);
   }
 
@@ -1734,7 +1734,7 @@ export default function App() {
   }
 
   // ==========================================
-  // NOTIFICATIONS â€” Server-side via Edge Function
+  // NOTIFICATIONS — Server-side via Edge Function
   // ==========================================
   // Notifications are now generated server-side by the Supabase Edge Function
   // (daily-notifications) which runs on pg_cron schedule at 8:00 AM UTC.
@@ -1828,8 +1828,8 @@ export default function App() {
     }
   }
 
-  // G30 â€” command actions in the âŒ˜K palette (simple keyword matching, additive
-  // to the existing search results â€” never replaces them)
+  // G30 — command actions in the ⌘K palette (simple keyword matching, additive
+  // to the existing search results — never replaces them)
   function parseCommandAction(term) {
     const m = term.match(/^(create deal for|log (?:call|note|meeting|email) with|add task for|email)\s+(.+)$/i);
     if (!m) return null;
@@ -2020,7 +2020,7 @@ export default function App() {
   function runStatusMigration() {
     showConfirm(
       'Migrate Legacy Statuses',
-      "This will convert old 'Active/Inactive' statuses to the new Pipeline stages ('Active' â†’ 'Engaged', 'Inactive' â†’ 'Inactive'). This may take a moment.",
+      "This will convert old 'Active/Inactive' statuses to the new Pipeline stages ('Active' → 'Engaged', 'Inactive' → 'Inactive'). This may take a moment.",
       'Start Migration',
       'primary',
       async () => {
@@ -2226,7 +2226,7 @@ export default function App() {
   // ADVANCED ACTIVITY LOG LOGIC
   // ==========================================
 
-  // G3 â€” dictate an activity note: final transcripts append to the description
+  // G3 — dictate an activity note: final transcripts append to the description
   // field in real time. Browser-native (Web Speech API), no packages, no server.
   function toggleVoiceMemo() {
     const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -2337,7 +2337,7 @@ export default function App() {
       setTasks(tasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
       if (newStatus === 'done' && task) {
         dispatchWebhook('task.completed', { ...task, status: 'done' });
-        // FEATURE 20 â€” recurring tasks: auto-create next occurrence
+        // FEATURE 20 — recurring tasks: auto-create next occurrence
         if (task.recurrence) {
           const nextDue = new Date(task.due_date);
           if (task.recurrence === 'daily') nextDue.setDate(nextDue.getDate() + 1);
@@ -2422,7 +2422,7 @@ export default function App() {
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
-  // BUG 2 + FEATURE 16 â€” robust PapaParse parsing + validated preview before insert
+  // BUG 2 + FEATURE 16 — robust PapaParse parsing + validated preview before insert
   const handleImportCSV = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -2493,7 +2493,7 @@ export default function App() {
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
 
-  // FEATURE 6 â€” lead scores computed per client
+  // FEATURE 6 — lead scores computed per client
   const clientsWithScores = useMemo(() =>
     (clients || []).filter(Boolean).map(c => ({
       ...c,
@@ -2505,7 +2505,7 @@ export default function App() {
       ),
     })), [clients, activities, tasks, deals]);
 
-  // FEATURE 19 â€” relationship health per client
+  // FEATURE 19 — relationship health per client
   const relationshipHealth = useMemo(() => clients.filter(Boolean).map(c => {
     const acts = activities.filter(a => a.client_id === c.id); // ordered newest-first by fetchActivities
     const lastAct = acts.length > 0 ? new Date(acts[0].activity_date) : new Date(c.created_at);
@@ -2534,11 +2534,11 @@ export default function App() {
       const matchesSearch = (client.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (client.email || '').toLowerCase().includes(searchTerm.toLowerCase()) || (client.country || '').toLowerCase().includes(searchTerm.toLowerCase());
       const matchesPriority = filterPriority === 'All' || client.relationship === filterPriority;
       const matchesStatus = filterStatus === 'All' || client.status === filterStatus;
-      // FEATURE 9 â€” tag filter (client must have every selected tag)
+      // FEATURE 9 — tag filter (client must have every selected tag)
       const matchesTags = filterTags.length === 0 || filterTags.every(id => (clientTagMap[client.id] || []).includes(id));
-      // FEATURE 19 â€” health filter
+      // FEATURE 19 — health filter
       const matchesHealth = !filterHealth || healthByClientId[client.id] === filterHealth;
-      // FEATURE 29 â€” advanced filters
+      // FEATURE 29 — advanced filters
       let matchesDateAdded = true;
       if (filterDateAdded) {
         const created = new Date(client.created_at || 0);
@@ -2550,7 +2550,7 @@ export default function App() {
         if (filterDateAdded === 'this_quarter') matchesDateAdded = created >= new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
       }
       const matchesHasDeals = !filterHasDeals || deals.some(d => d.client_id === client.id);
-      // PART C3 â€” source filter ('Unknown' matches clients with no source)
+      // PART C3 — source filter ('Unknown' matches clients with no source)
       const matchesSource = !filterSource || (filterSource === 'Unknown' ? !client.source : client.source === filterSource);
       let matchesHasActivity = true;
       if (filterHasActivity) {
@@ -2590,14 +2590,14 @@ export default function App() {
     { name: 'Active Deals', filters: { filterHasDeals: true } },
   ];
 
-  // FEATURE 1 â€” deal rollups
-  // G20 â€” roll-ups normalize to USD via static FX rates (directional, not accounting-grade)
+  // FEATURE 1 — deal rollups
+  // G20 — roll-ups normalize to USD via static FX rates (directional, not accounting-grade)
   const pipelineValue = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + toUSD(d.value, d.currency), 0), [deals]);
   const weightedForecast = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + toUSD(d.value, d.currency) * ((d.probability || 0) / 100), 0), [deals]);
   const wonValue = useMemo(() => deals.filter(d => d.stage === 'Won').reduce((s, d) => s + toUSD(d.value, d.currency), 0), [deals]);
   const openDealsCount = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).length, [deals]);
 
-  // G19 â€” MRR from Won recurring deals, normalized to monthly USD
+  // G19 — MRR from Won recurring deals, normalized to monthly USD
   const mrr = useMemo(() => deals
     .filter(d => d.stage === 'Won' && d.is_recurring)
     .reduce((s, d) => {
@@ -2605,7 +2605,7 @@ export default function App() {
       return s + (d.billing_cycle === 'annual' ? usd / 12 : d.billing_cycle === 'quarterly' ? usd / 3 : usd);
     }, 0), [deals]);
 
-  // G19 â€” renewals due in the next 30 days
+  // G19 — renewals due in the next 30 days
   const upcomingRenewals = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
     const in30 = new Date(); in30.setDate(in30.getDate() + 30);
@@ -2616,7 +2616,7 @@ export default function App() {
   }, [deals]);
   const fmtMoney = (n) => `$${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-  // FEATURE 3 â€” reports computed
+  // FEATURE 3 — reports computed
   const reportStats = useMemo(() => {
     const days = parseInt(reportRange, 10);
     const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
@@ -2662,7 +2662,7 @@ export default function App() {
     return { activitiesInRange, activityByType, clientsByStage, dealsByStage, topClientsByActivity, clientsAddedByWeek, winRate, avgResponseTime, taskCompletionRate, avgActivitiesPerClient, clientsBySource };
   }, [reportRange, activities, clients, deals, tasks]);
 
-  // PART C1 â€” custom report: group clients by dimension, aggregate the chosen metric
+  // PART C1 — custom report: group clients by dimension, aggregate the chosen metric
   const customReportData = useMemo(() => {
     const days = parseInt(reportRange, 10);
     const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
@@ -2674,7 +2674,7 @@ export default function App() {
         const ids = clientTagMap[c.id] || [];
         return ids.length ? ids.map(id => tags.find(t => t.id === id)?.name || 'Unknown') : ['Untagged'];
       }
-      // Month Added â€” honors the Day/Week/Month grouping selector
+      // Month Added — honors the Day/Week/Month grouping selector
       const d = new Date(c.created_at || 0);
       if (customDateGrouping === 'day') return [d.toISOString().split('T')[0]];
       if (customDateGrouping === 'week') {
@@ -2710,7 +2710,7 @@ export default function App() {
     : customMetric === 'Avg Lead Score' ? v.toFixed(1)
     : v;
 
-  // PART C2 â€” each stat tile's value now vs its value as of one period ago.
+  // PART C2 — each stat tile's value now vs its value as of one period ago.
   // Range-based numbers (Activities, Avg Act/Client) compare current vs prior window;
   // cumulative numbers (Clients, Pipeline, Win Rate, Task Completion) compare
   // "now" vs "computed only on data that existed at the period boundary".
@@ -2747,7 +2747,7 @@ export default function App() {
     };
   }, [compareReports, reportRange, activities, clients, deals, tasks]);
 
-  // FEATURE 8 â€” calendar events
+  // FEATURE 8 — calendar events
   const calendarEvents = useMemo(() => {
     const events = [];
     const yr = new Date().getFullYear();
@@ -2761,7 +2761,7 @@ export default function App() {
       if (c.birthday) {
         const b = new Date(c.birthday);
         const thisYear = `${yr}-${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
-        events.push({ id: `bday-${c.id}`, date: thisYear, type: 'birthday', label: `ðŸŽ‚ ${c.name}'s birthday`, clientId: c.id, client: c });
+        events.push({ id: `bday-${c.id}`, date: thisYear, type: 'birthday', label: `🎂 ${c.name}'s birthday`, clientId: c.id, client: c });
       }
     });
     deals.forEach(d => {
@@ -2770,7 +2770,7 @@ export default function App() {
     return events;
   }, [tasks, activities, clients, deals, todayStr]);
 
-  // FEATURE 26 â€” goal progress
+  // FEATURE 26 — goal progress
   const goalProgress = useMemo(() => goals.filter(g => g.month === currentMonthStr).map(g => {
     let current = 0;
     const monthStart = new Date(g.month);
@@ -2787,7 +2787,7 @@ export default function App() {
     return { ...g, current, pct: Math.min(Math.round((current / g.target_value) * 100), 100) };
   }), [goals, clients, activities, deals, tasks, currentMonthStr]);
 
-  // FEATURE 30 â€” onboarding
+  // FEATURE 30 — onboarding
   const onboardingSteps = [
     { title: 'Add your first relationship', desc: 'Start tracking relationships.', done: clients.length > 0 },
     { title: 'Log your first activity', desc: 'Open a client and log an activity.', done: activities.length > 0 },
@@ -2797,7 +2797,7 @@ export default function App() {
   const onboardingDone = onboardingSteps.filter(s => s.done).length;
   const onboardingComplete = onboardingDone === onboardingSteps.length;
 
-  // FEATURE 6 â€” top leads for dashboard widget
+  // FEATURE 6 — top leads for dashboard widget
   const topLeads = useMemo(() => [...clientsWithScores].sort((a, b) => b.leadScore - a.leadScore).slice(0, 5), [clientsWithScores]);
 
   const totalPages = useMemo(() => Math.ceil(filteredAndSortedClients.length / itemsPerPage) || 1, [filteredAndSortedClients, itemsPerPage]);
@@ -2882,7 +2882,7 @@ export default function App() {
                 <p className="text-[13px] text-gray-400 p-4 text-center">Type at least 2 characters to search.</p>
               ) : (
                 <div className="space-y-4 p-2">
-                  {/* G30 â€” COMMAND ACTION (if the query parses as one) */}
+                  {/* G30 — COMMAND ACTION (if the query parses as one) */}
                   {(() => {
                     const action = parseCommandAction(globalSearchTerm);
                     if (!action) return null;
@@ -2890,8 +2890,8 @@ export default function App() {
                       <div>
                         <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3 mb-2">Actions</h4>
                         <button onClick={action.run} className="w-full flex items-center justify-between p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors text-left group">
-                          <span className="text-[14px] font-semibold text-indigo-800">âš¡ {action.label}</span>
-                          <span className="text-[11px] font-bold text-indigo-400 border border-indigo-200 px-1.5 py-0.5 rounded group-hover:bg-white">Run â†µ</span>
+                          <span className="text-[14px] font-semibold text-indigo-800">⚡ {action.label}</span>
+                          <span className="text-[11px] font-bold text-indigo-400 border border-indigo-200 px-1.5 py-0.5 rounded group-hover:bg-white">Run ↵</span>
                         </button>
                       </div>
                     );
@@ -2904,7 +2904,7 @@ export default function App() {
                         <button key={c.id} onClick={() => handleSearchSelection('client', c)} className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors text-left group">
                           <div>
                             <p className="text-[14px] font-semibold text-gray-900">{c.name}</p>
-                            <p className="text-[12px] text-gray-500">{c.email} {c.phone_number ? `â€¢ ${c.phone_number}` : ''}</p>
+                            <p className="text-[12px] text-gray-500">{c.email} {c.phone_number ? `• ${c.phone_number}` : ''}</p>
                           </div>
                           <span className="text-[12px] text-gray-400 group-hover:text-gray-900 transition-colors">View Profile &rarr;</span>
                         </button>
@@ -2941,7 +2941,7 @@ export default function App() {
         </div>
       )}
       
-      {/* PART E â€” LEFT SIDEBAR (desktop, 240px) */}
+      {/* PART E — LEFT SIDEBAR (desktop, 240px) */}
       {user && (
         <aside className="hidden md:flex flex-col fixed inset-y-0 left-0 w-60 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 z-40">
           {/* Logo */}
@@ -2969,7 +2969,7 @@ export default function App() {
           <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-800 space-y-0.5">
             <button onClick={() => setShowGlobalSearch(true)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
               <span className="flex items-center gap-2"><SearchIcon /> Search</span>
-              <span className="text-[10px] font-semibold border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 rounded text-gray-400">âŒ˜K</span>
+              <span className="text-[10px] font-semibold border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 rounded text-gray-400">⌘K</span>
             </button>
             <div className="relative">
               <button onClick={() => setShowNotifications(!showNotifications)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
@@ -3002,7 +3002,7 @@ export default function App() {
               )}
             </div>
             <button onClick={toggleDarkMode} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
-              {darkMode ? 'â˜€ï¸ Light mode' : 'ðŸŒ™ Dark mode'}
+              {darkMode ? '☀️ Light mode' : '🌙 Dark mode'}
             </button>
             <div className="flex items-center gap-2.5 px-3 pt-3 mt-1 border-t border-gray-100 dark:border-gray-800">
               <span className="w-8 h-8 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-bold flex items-center justify-center shrink-0">
@@ -3070,7 +3070,7 @@ export default function App() {
                 {/* Search Trigger */}
                 <button onClick={() => setShowGlobalSearch(true)} className="text-gray-500 hover:text-gray-900 p-1 rounded-full transition-colors hidden sm:flex items-center gap-2 group" title="Search (Cmd+K)">
                   <SearchIcon />
-                  <span className="text-[11px] font-medium border border-gray-200 px-1.5 py-0.5 rounded text-gray-400 group-hover:bg-gray-100 transition-colors">âŒ˜K</span>
+                  <span className="text-[11px] font-medium border border-gray-200 px-1.5 py-0.5 rounded text-gray-400 group-hover:bg-gray-100 transition-colors">⌘K</span>
                 </button>
 
                 {/* Notifications Bell */}
@@ -3196,7 +3196,7 @@ export default function App() {
                     <button type="button" onClick={() => {setAppStep('FORGOT_PASSWORD'); setAuthMessage('');}} className="text-gray-500 hover:text-gray-800 focus:outline-none transition-colors">Forgot password?</button>
                   </label>
                   <div className="relative">
-                    <input type={showLoginPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showLoginPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowLoginPassword(!showLoginPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showLoginPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -3232,7 +3232,7 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Password</label>
                   <div className="relative">
-                    <input type={showSignupPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showSignupPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowSignupPassword(!showSignupPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showSignupPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -3241,7 +3241,7 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Confirm Password</label>
                   <div className="relative">
-                    <input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showConfirmPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -3339,7 +3339,7 @@ export default function App() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {onboardingSteps.map((step, i) => (
                     <div key={i} className={`flex items-start gap-3 p-3 rounded-xl border ${step.done ? 'border-green-100 dark:border-green-900 bg-green-50/40 dark:bg-green-900/10' : 'border-gray-100 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-700/30'}`}>
-                      <span className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${step.done ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300'}`}>{step.done ? 'âœ“' : i + 1}</span>
+                      <span className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${step.done ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300'}`}>{step.done ? '✓' : i + 1}</span>
                       <div className="flex-1">
                         <p className={`text-[13px] font-semibold ${step.done ? 'text-green-800 dark:text-green-300 line-through' : 'text-gray-900 dark:text-gray-100'}`}>{step.title}</p>
                         <p className="text-[11px] text-gray-500 mt-0.5">{step.desc}</p>
@@ -3445,7 +3445,7 @@ export default function App() {
               {/* Your Streak (Feature 17) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3">
-                  <span>ðŸ”¥</span> Your Streak
+                  <span>🔥</span> Your Streak
                 </h3>
                 <p className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{streakData.current} day{streakData.current === 1 ? '' : 's'}</p>
                 <p className="text-[12px] text-gray-500 mt-1">Longest: {streakData.longest} days</p>
@@ -3458,14 +3458,14 @@ export default function App() {
                   })}
                 </div>
                 <p className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mt-3">
-                  {streakData.current === 0 ? 'Start your streak!' : streakData.current >= 30 ? 'On fire! ðŸ”¥' : streakData.current >= 7 ? 'One week! Keep it going!' : 'Keep it going!'}
+                  {streakData.current === 0 ? 'Start your streak!' : streakData.current >= 30 ? 'On fire! 🔥' : streakData.current >= 7 ? 'One week! Keep it going!' : 'Keep it going!'}
                 </p>
               </div>
 
               {/* Monthly Goals (Feature 26) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5"><span>ðŸŽ¯</span> Monthly Goals</h3>
+                  <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5"><span>🎯</span> Monthly Goals</h3>
                   <button onClick={() => setShowGoalForm(true)} className="text-[12px] font-medium text-indigo-600 hover:underline">Set Goals</button>
                 </div>
                 {goalProgress.length === 0 ? (
@@ -3481,7 +3481,7 @@ export default function App() {
                         <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
                           <div className={`h-full rounded-full transition-all duration-500 ${g.pct >= 100 ? 'bg-green-500' : g.pct >= 50 ? 'bg-blue-500' : 'bg-yellow-400'}`} style={{ width: `${g.pct}%` }} />
                         </div>
-                        {g.pct >= 100 && <span className="goal-confetti absolute -top-1 right-0 text-[14px]">ðŸŽ‰</span>}
+                        {g.pct >= 100 && <span className="goal-confetti absolute -top-1 right-0 text-[14px]">🎉</span>}
                       </div>
                     ))}
                   </div>
@@ -3490,7 +3490,7 @@ export default function App() {
 
               {/* Top Leads (Feature 6) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>â­</span> Top Leads</h3>
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>⭐</span> Top Leads</h3>
                 {topLeads.length === 0 ? (
                   <p className="text-[13px] text-gray-400 py-2">Add relationships to see lead scores.</p>
                 ) : (
@@ -3508,7 +3508,7 @@ export default function App() {
 
               {/* Relationship Health (Feature 19) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ’—</span> Relationship Health</h3>
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>💗</span> Relationship Health</h3>
                 <div className="space-y-2">
                   {[['Excellent', 'bg-green-500'], ['Good', 'bg-teal-500'], ['Fair', 'bg-yellow-400'], ['At Risk', 'bg-orange-500'], ['Critical', 'bg-red-500']].map(([label, color]) => {
                     const count = healthCounts[label] || 0;
@@ -3527,9 +3527,9 @@ export default function App() {
                 </div>
               </div>
 
-              {/* G19 â€” Recurring Revenue */}
+              {/* G19 — Recurring Revenue */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ”</span> Recurring Revenue</h3>
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>🔁</span> Recurring Revenue</h3>
                 <div className="flex gap-6">
                   <div>
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">MRR</p>
@@ -3554,7 +3554,7 @@ export default function App() {
                             <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-1">{d.title}</span>
                             <span className="text-gray-400 shrink-0">{d.renewal_date}</span>
                             {rc && (
-                              <button onClick={() => { setViewingClient(rc); setActivityType('Call'); setActivityDesc(`Renewal call â€” ${d.title} renews ${d.renewal_date}.`); setAppStep('CLIENTS'); }} className="text-indigo-600 font-medium hover:underline shrink-0">Log renewal call</button>
+                              <button onClick={() => { setViewingClient(rc); setActivityType('Call'); setActivityDesc(`Renewal call — ${d.title} renews ${d.renewal_date}.`); setAppStep('CLIENTS'); }} className="text-indigo-600 font-medium hover:underline shrink-0">Log renewal call</button>
                             )}
                           </div>
                         );
@@ -3566,10 +3566,10 @@ export default function App() {
 
               {/* Top Sources (Feature 25) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ“</span> Top Sources</h3>
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>📍</span> Top Sources</h3>
                 {(() => {
                   const top = CLIENT_SOURCES.map(s => [s, clients.filter(c => c.source === s).length]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
-                  if (top.length === 0) return <p className="text-[13px] text-gray-400 py-2">No sources recorded yet â€” set a source when adding relationships.</p>;
+                  if (top.length === 0) return <p className="text-[13px] text-gray-400 py-2">No sources recorded yet — set a source when adding relationships.</p>;
                   return (
                     <div className="space-y-2.5">
                       {top.map(([source, count]) => (
@@ -3590,7 +3590,7 @@ export default function App() {
               {/* Birthdays */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>ðŸŽ‚</span> Birthdays (Next 30 Days)
+                  <span>🎂</span> Birthdays (Next 30 Days)
                 </h3>
                 <div className="space-y-2.5 overflow-y-auto flex-1">
                   {upcomingBirthdays.length === 0 ? (
@@ -3609,7 +3609,7 @@ export default function App() {
               {/* Recent Activity */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>âš¡</span> Recently Added Profiles
+                  <span>⚡</span> Recently Added Profiles
                 </h3>
                 <div className="space-y-2.5 flex-1">
                   {recentActivity.length === 0 ? (
@@ -3633,7 +3633,7 @@ export default function App() {
               {/* Stale Clients */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>â„ï¸</span> Stale Relationships (&gt;30 Days)
+                  <span>❄️</span> Stale Relationships (&gt;30 Days)
                 </h3>
                 <div className="space-y-2.5 flex-1">
                   {staleClients.length === 0 ? (
@@ -3659,10 +3659,10 @@ export default function App() {
         {/* VIEW: CLIENTS */}
         {appStep === 'CLIENTS' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {/* FEATURE 10 â€” read-only banner for viewers */}
+            {/* FEATURE 10 — read-only banner for viewers */}
             {isViewer && (
               <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-[13px] font-medium text-blue-800">
-                ðŸ‘ï¸ Read-only access â€” you can view relationships but not edit them. Ask a workspace admin for a higher role.
+                👁️ Read-only access — you can view relationships but not edit them. Ask a workspace admin for a higher role.
               </div>
             )}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -3693,11 +3693,11 @@ export default function App() {
                 <input type="text" required placeholder="Name *" value={name} onChange={e => setName(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <div className="flex flex-col">
                   <input type="email" required placeholder="Email *" value={clientEmail} onChange={e => setClientEmail(e.target.value)} className="px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
-                  {/* FEATURE 14 â€” duplicate detection */}
+                  {/* FEATURE 14 — duplicate detection */}
                   {duplicateWarning && (
                     <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg mt-1">
                       <span className="text-[12px] text-yellow-800">
-                        âš ï¸ A relationship with this email already exists:
+                        ⚠️ A relationship with this email already exists:
                         <button type="button" onClick={() => setViewingClient(duplicateWarning)} className="font-semibold ml-1 underline">{duplicateWarning.name}</button>
                       </span>
                     </div>
@@ -3707,13 +3707,13 @@ export default function App() {
                 <input type="text" placeholder="Phone Number" value={clientPhone} onChange={e => setClientPhone(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="url" placeholder="LinkedIn URL" value={clientLinkedin} onChange={e => setClientLinkedin(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
 
-                {/* PART F â€” company fields */}
+                {/* PART F — company fields */}
                 <input type="text" placeholder="Company Name" value={clientCompanyName} onChange={e => setClientCompanyName(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="text" placeholder="Company Website" value={clientCompanyUrl} onChange={e => setClientCompanyUrl(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
 
-                {/* G18 â€” referral chain */}
+                {/* G18 — referral chain */}
                 <select value={clientReferredBy} onChange={e => setClientReferredBy(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
-                  <option value="">Referred by: â€”</option>
+                  <option value="">Referred by: —</option>
                   {[...clients].sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(c => <option key={c.id} value={c.id}>Referred by: {c.name}</option>)}
                 </select>
                 
@@ -3732,7 +3732,7 @@ export default function App() {
                   {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
 
-                {/* FEATURE 25 â€” source tracking */}
+                {/* FEATURE 25 — source tracking */}
                 <select value={clientSource} onChange={e => setClientSource(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
                   <option value="">Source: Unknown</option>
                   {CLIENT_SOURCES.map(s => <option key={s} value={s}>Source: {s}</option>)}
@@ -3801,12 +3801,12 @@ export default function App() {
                       <option value="created_at_asc">Oldest Added</option>
                       <option value="name_asc">Name (A-Z)</option>
                       <option value="name_desc">Name (Z-A)</option>
-                      <option value="score_desc">Score: Highâ†’Low</option>
-                      <option value="score_asc">Score: Lowâ†’High</option>
+                      <option value="score_desc">Score: High→Low</option>
+                      <option value="score_asc">Score: Low→High</option>
                     </select>
                   </div>
                 )}
-                {/* FEATURE 29 â€” expand advanced filters */}
+                {/* FEATURE 29 — expand advanced filters */}
                 <button onClick={() => setShowMoreFilters(!showMoreFilters)} className="relative px-3 py-1.5 border border-gray-200 rounded-md bg-white text-[12px] font-medium text-gray-700 hover:bg-gray-50">
                   More Filters
                   {activeFilterCount > 0 && <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-900 text-white rounded-full text-[9px] font-bold flex items-center justify-center">{activeFilterCount}</span>}
@@ -3817,7 +3817,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* FEATURE 29 â€” SAVED VIEWS PILLS */}
+            {/* FEATURE 29 — SAVED VIEWS PILLS */}
             <div className="flex flex-wrap items-center gap-2 text-[12px]">
               {BUILT_IN_VIEWS.map(v => (
                 <button key={v.name} onClick={() => { clearAllFilters(); applyView(v.filters); }} className="px-3 py-1 rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 font-medium">{v.name}</button>
@@ -3825,7 +3825,7 @@ export default function App() {
               {savedViews.map(v => (
                 <span key={v.id} className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 font-medium">
                   <button onClick={() => { clearAllFilters(); applyView(v.filters || {}); }}>{v.name}</button>
-                  <button onClick={() => handleDeleteView(v.id)} className="hover:opacity-60 ml-0.5">Ã—</button>
+                  <button onClick={() => handleDeleteView(v.id)} className="hover:opacity-60 ml-0.5">×</button>
                 </span>
               ))}
               {activeFilterCount > 0 && (
@@ -3835,13 +3835,13 @@ export default function App() {
                   <form onSubmit={e => { e.preventDefault(); handleSaveView(savingViewName); }} className="inline-flex items-center gap-1">
                     <input autoFocus type="text" placeholder="View name..." value={savingViewName} onChange={e => setSavingViewName(e.target.value)} className="px-2 py-1 border border-gray-200 rounded-full text-[12px] focus:outline-none" />
                     <button type="submit" className="px-2 py-1 bg-gray-900 text-white rounded-full text-[11px] font-medium">Save</button>
-                    <button type="button" onClick={() => setSavingViewName(null)} className="text-gray-400 px-1">Ã—</button>
+                    <button type="button" onClick={() => setSavingViewName(null)} className="text-gray-400 px-1">×</button>
                   </form>
                 )
               )}
             </div>
 
-            {/* FEATURE 29 â€” MORE FILTERS PANEL */}
+            {/* FEATURE 29 — MORE FILTERS PANEL */}
             {showMoreFilters && (
               <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-[13px] animate-in fade-in">
                 <div>
@@ -3868,7 +3868,7 @@ export default function App() {
                   <select value={filterScore} onChange={e => setFilterScore(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
                     <option value="">Any</option>
                     <option value="high">High (75+)</option>
-                    <option value="medium">Medium (50â€“74)</option>
+                    <option value="medium">Medium (50–74)</option>
                     <option value="low">Low (&lt;50)</option>
                   </select>
                 </div>
@@ -3943,7 +3943,7 @@ export default function App() {
               viewMode === 'table' ? (
                 /* ------------------- TABLE VIEW ------------------- */
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden animate-in fade-in">
-                  {/* FEATURE 12 â€” mobile card layout */}
+                  {/* FEATURE 12 — mobile card layout */}
                   <div className="block md:hidden space-y-3 p-3">
                     {paginatedClients.map(client => {
                       const isSelected = selectedClientIds.includes(client.id);
@@ -3951,7 +3951,7 @@ export default function App() {
                         <div key={client.id} className={`relative p-4 rounded-xl border ${isSelected ? 'border-gray-400 bg-gray-50' : 'border-gray-200 bg-white'}`}>
                           <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(client.id)} className="absolute top-4 left-4 rounded border-gray-300 text-gray-900 focus:ring-0" />
                           <div className="pl-8">
-                            <p className="text-[14px] font-bold text-gray-900">{client.name} {client.quick_note && <span className="text-[12px]">ðŸ“</span>}</p>
+                            <p className="text-[14px] font-bold text-gray-900">{client.name} {client.quick_note && <span className="text-[12px]">📝</span>}</p>
                             <p className="text-[12px] text-gray-500 break-all">{client.email}</p>
                             <div className="flex flex-wrap items-center gap-2 mt-2">
                               <span className="text-[11px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">{client.status}</span>
@@ -4003,13 +4003,13 @@ export default function App() {
                               <td className="p-4">
                                 <div>
                                   <span className="font-semibold text-gray-900 text-[14px] flex items-center gap-1.5">
-                                    {/* G17 â€” company logo in the table row */}
+                                    {/* G17 — company logo in the table row */}
                                     {companyFaviconUrl(client.company_url) && (
                                       // eslint-disable-next-line @next/next/no-img-element
                                       <img src={companyFaviconUrl(client.company_url, 32)} alt="" className="w-4 h-4 rounded shrink-0" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
                                     )}
                                     {client.name}
-                                    {client.quick_note && <span className="ml-1.5 text-[12px]" title={client.quick_note.slice(0, 60)}>ðŸ“</span>}
+                                    {client.quick_note && <span className="ml-1.5 text-[12px]" title={client.quick_note.slice(0, 60)}>📝</span>}
                                   </span>
                                   <span className="text-[11px] text-gray-400 block font-normal mt-0.5">{client.email}</span>
                                 </div>
@@ -4179,11 +4179,11 @@ export default function App() {
               ))}
             </div>
 
-            {/* PART C3 â€” drill-down stage filter (set from Reports) */}
+            {/* PART C3 — drill-down stage filter (set from Reports) */}
             {dealsStageFilter && (
               <div className="flex items-center gap-2 p-3 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 rounded-lg text-[13px] font-medium text-indigo-800 dark:text-indigo-300">
                 Showing only <span className="font-bold">{dealsStageFilter}</span> deals
-                <button onClick={() => setDealsStageFilter('')} className="ml-auto px-2 py-0.5 rounded-full bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-700 text-[12px] hover:bg-indigo-100">Show all stages Ã—</button>
+                <button onClick={() => setDealsStageFilter('')} className="ml-auto px-2 py-0.5 rounded-full bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-700 text-[12px] hover:bg-indigo-100">Show all stages ×</button>
               </div>
             )}
 
@@ -4231,7 +4231,7 @@ export default function App() {
                                 <span className="text-[13px] font-bold text-gray-900 dark:text-gray-100">
                                   {fmtCurrency(deal.value, deal.currency)}
                                   {(deal.currency || 'USD') !== 'USD' && (
-                                    <span className="ml-1 text-[10px] font-medium text-gray-400" title="Approximate USD (static rate)">â‰ˆ {fmtMoney(toUSD(deal.value, deal.currency))} USD</span>
+                                    <span className="ml-1 text-[10px] font-medium text-gray-400" title="Approximate USD (static rate)">≈ {fmtMoney(toUSD(deal.value, deal.currency))} USD</span>
                                   )}
                                 </span>
                                 {deal.close_date && <span className="text-[10px] text-gray-400">Close: {deal.close_date}</span>}
@@ -4278,35 +4278,35 @@ export default function App() {
                     <button key={v} onClick={() => setReportRange(v)} className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-all ${reportRange === v ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>{label}</button>
                   ))}
                 </div>
-                {/* PART C2 â€” period comparison toggle */}
+                {/* PART C2 — period comparison toggle */}
                 <button onClick={() => setCompareReports(!compareReports)} className={`px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-all ${compareReports ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 border-gray-900 dark:border-gray-100' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
-                  Compare to previous period {compareReports ? 'âœ“' : ''}
+                  Compare to previous period {compareReports ? '✓' : ''}
                 </button>
               </div>
             </div>
 
-            {/* PART C4 â€” saved report pills */}
+            {/* PART C4 — saved report pills */}
             {customReports.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 text-[12px]">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Saved reports:</span>
                 {customReports.map(r => (
                   <span key={r.id} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium">
                     <button onClick={() => applyCustomReport(r)}>{r.name}</button>
-                    <button onClick={() => handleCycleReportFrequency(r)} title="Cycle email schedule: off â†’ weekly â†’ monthly" className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${r.send_frequency ? 'bg-indigo-600 text-white' : 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-400'}`}>
-                      âœ‰ {r.send_frequency === 'weekly' ? 'wk' : r.send_frequency === 'monthly' ? 'mo' : 'off'}
+                    <button onClick={() => handleCycleReportFrequency(r)} title="Cycle email schedule: off → weekly → monthly" className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${r.send_frequency ? 'bg-indigo-600 text-white' : 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-400'}`}>
+                      ✉ {r.send_frequency === 'weekly' ? 'wk' : r.send_frequency === 'monthly' ? 'mo' : 'off'}
                     </button>
-                    <button onClick={() => handleDeleteCustomReport(r.id)} className="hover:opacity-60">Ã—</button>
+                    <button onClick={() => handleDeleteCustomReport(r.id)} className="hover:opacity-60">×</button>
                   </span>
                 ))}
               </div>
             )}
 
-            {/* PART C1 â€” CUSTOM REPORT BUILDER */}
+            {/* PART C1 — CUSTOM REPORT BUILDER */}
             <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">Build Custom Report</h3>
                 <div className="flex flex-wrap items-center gap-2">
-                  {/* PART C5 â€” CSV export of the displayed table */}
+                  {/* PART C5 — CSV export of the displayed table */}
                   <button onClick={exportCustomReportCSV} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm">Export CSV</button>
                   {savingReportName === null ? (
                     <button onClick={() => setSavingReportName('')} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Save this report</button>
@@ -4314,7 +4314,7 @@ export default function App() {
                     <form onSubmit={e => { e.preventDefault(); handleSaveCustomReport(savingReportName); }} className="inline-flex items-center gap-1">
                       <input autoFocus type="text" placeholder="Report name..." value={savingReportName} onChange={e => setSavingReportName(e.target.value)} className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-[12px] focus:outline-none" />
                       <button type="submit" className="px-3 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-[12px] font-medium">Save</button>
-                      <button type="button" onClick={() => setSavingReportName(null)} className="text-gray-400 px-1">Ã—</button>
+                      <button type="button" onClick={() => setSavingReportName(null)} className="text-gray-400 px-1">×</button>
                     </form>
                   )}
                 </div>
@@ -4381,7 +4381,7 @@ export default function App() {
               )}
             </div>
 
-            {/* Stat tiles â€” clickable (C3) with prior-period deltas (C2) */}
+            {/* Stat tiles — clickable (C3) with prior-period deltas (C2) */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               {[
                 ['Relationships', clients.length, () => { clearAllFilters(); setAppStep('CLIENTS'); }],
@@ -4402,7 +4402,7 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Chart 1 â€” Activity by type */}
+              {/* Chart 1 — Activity by type */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Activity by Type</h3>
                 <div className="space-y-3">
@@ -4422,7 +4422,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Chart 2 â€” Pipeline funnel */}
+              {/* Chart 2 — Pipeline funnel */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Pipeline Funnel</h3>
                 <div className="space-y-3">
@@ -4442,7 +4442,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Chart 3 â€” Deal stages */}
+              {/* Chart 3 — Deal stages */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Deal Stages</h3>
                 <div className="space-y-2">
@@ -4466,7 +4466,7 @@ export default function App() {
                 )}
               </div>
 
-              {/* Chart 4 â€” Clients added over time */}
+              {/* Chart 4 — Clients added over time */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow flex flex-col">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Relationships Added (8 Weeks)</h3>
                 <div className="flex-1 flex items-end gap-2 h-32 mt-auto pb-2">
@@ -4485,7 +4485,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Chart 5 â€” Clients by source (Feature 25) */}
+              {/* Chart 5 — Clients by source (Feature 25) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Relationships by Source</h3>
                 <div className="space-y-3">
@@ -4505,7 +4505,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Table â€” Most active clients */}
+              {/* Table — Most active clients */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Most Active Relationships</h3>
                 {reportStats.topClientsByActivity.length === 0 ? (
@@ -4599,7 +4599,7 @@ export default function App() {
                     if (evs.length === 0) return null;
                     return (
                       <div key={ds}>
-                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">{new Date(ds + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}{ds === todayStr ? ' Â· Today' : ''}</h4>
+                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">{new Date(ds + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}{ds === todayStr ? ' · Today' : ''}</h4>
                         <div className="space-y-1.5">
                           {evs.map(ev => {
                             const evClient = clients.find(c => c.id === ev.clientId);
@@ -4688,9 +4688,9 @@ export default function App() {
           const tcFiles = clientFiles.filter(f => f.client_id === tc.id);
           const events = [
             ...tcActs.map(a => ({ id: `a-${a.id}`, date: a.activity_date, sort: a.created_at, kind: 'activity', color: { Note: 'bg-gray-400', Call: 'bg-blue-500', Email: 'bg-green-500', Meeting: 'bg-purple-500' }[a.activity_type] || 'bg-gray-400', title: `${a.activity_type}`, detail: a.description })),
-            ...tcTasks.map(t => ({ id: `t-${t.id}`, date: t.due_date, sort: t.created_at || t.due_date, kind: t.status === 'done' ? 'task-done' : 'task', color: t.status === 'done' ? 'bg-green-500' : 'bg-gray-300', title: `${t.status === 'done' ? 'âœ“ ' : ''}Task: ${t.title}`, detail: `Due ${t.due_date}` })),
-            ...tcDeals.map(d => ({ id: `d-${d.id}`, date: d.close_date || (d.created_at || '').split('T')[0], sort: d.created_at, kind: 'deal', color: 'bg-emerald-500', title: `Deal: ${d.title}`, detail: `${fmtMoney(d.value)} Â· ${d.stage}` })),
-            ...tcFiles.map(f => ({ id: `f-${f.id}`, date: (f.created_at || '').split('T')[0], sort: f.created_at, kind: 'file', color: 'bg-amber-500', title: `ðŸ“Ž ${f.file_name}`, detail: formatFileSize(f.file_size) })),
+            ...tcTasks.map(t => ({ id: `t-${t.id}`, date: t.due_date, sort: t.created_at || t.due_date, kind: t.status === 'done' ? 'task-done' : 'task', color: t.status === 'done' ? 'bg-green-500' : 'bg-gray-300', title: `${t.status === 'done' ? '✓ ' : ''}Task: ${t.title}`, detail: `Due ${t.due_date}` })),
+            ...tcDeals.map(d => ({ id: `d-${d.id}`, date: d.close_date || (d.created_at || '').split('T')[0], sort: d.created_at, kind: 'deal', color: 'bg-emerald-500', title: `Deal: ${d.title}`, detail: `${fmtMoney(d.value)} · ${d.stage}` })),
+            ...tcFiles.map(f => ({ id: `f-${f.id}`, date: (f.created_at || '').split('T')[0], sort: f.created_at, kind: 'file', color: 'bg-amber-500', title: `📎 ${f.file_name}`, detail: formatFileSize(f.file_size) })),
           ].sort((a, b) => new Date(b.sort || b.date || 0) - new Date(a.sort || a.date || 0));
           return (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -4707,9 +4707,9 @@ export default function App() {
                   <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow space-y-2 text-[13px]">
                     <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Relationship Info</h3>
                     <p className="break-all"><span className="text-gray-400">Email:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.email}</span></p>
-                    <p><span className="text-gray-400">Phone:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.phone_number || 'â€”'}</span></p>
-                    <p><span className="text-gray-400">Country:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.country || 'â€”'}</span></p>
-                    <p><span className="text-gray-400">Source:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.source || 'â€”'}</span></p>
+                    <p><span className="text-gray-400">Phone:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.phone_number || '—'}</span></p>
+                    <p><span className="text-gray-400">Country:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.country || '—'}</span></p>
+                    <p><span className="text-gray-400">Source:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.source || '—'}</span></p>
                   </div>
                   <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                     <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Deals ({tcDeals.length})</h3>
@@ -4733,7 +4733,7 @@ export default function App() {
                 <div className="lg:col-span-2 bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-4">Full History</h3>
                   {events.length === 0 ? (
-                    <p className="text-[13px] text-gray-400 text-center py-8">No history yet â€” log an activity to get started.</p>
+                    <p className="text-[13px] text-gray-400 text-center py-8">No history yet — log an activity to get started.</p>
                   ) : (
                     <div className="relative pl-6 space-y-5 before:absolute before:left-[7px] before:top-1 before:bottom-1 before:w-px before:bg-gray-200 dark:before:bg-gray-700">
                       {events.map(ev => (
@@ -4794,7 +4794,7 @@ export default function App() {
                 tasks.length === 0 ? (
                   <EmptyState
                     title="No tasks yet"
-                    desc="Create tasks to stay on top of your follow-ups â€” open a relationship profile to add one."
+                    desc="Create tasks to stay on top of your follow-ups — open a relationship profile to add one."
                     ctaLabel="Go to Relationships"
                     onCta={() => setAppStep('CLIENTS')}
                   />
@@ -4812,12 +4812,12 @@ export default function App() {
                       <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="w-5 h-5 rounded border-gray-300 text-gray-900 focus:ring-gray-900 cursor-pointer" />
                       <div>
                         <div className={`text-[14px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
-                          {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>ðŸ” </span>}
+                          {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>🔁 </span>}
                           {task.title}
                         </div>
                         <div className="text-[12px] text-gray-500 mt-0.5">
                           Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span> 
-                          &nbsp;â€¢&nbsp; 
+                          &nbsp;•&nbsp; 
                           Relationship: <button onClick={() => { setViewingClient(client); setAppStep('CLIENTS'); }} className="text-gray-900 font-medium hover:underline">{client?.name || 'Unknown'}</button>
                         </div>
                       </div>
@@ -4843,7 +4843,7 @@ export default function App() {
               </div>
             )}
 
-            {/* FEATURE 10 â€” Team & Workspace (first section) */}
+            {/* FEATURE 10 — Team & Workspace (first section) */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Team & Workspace</h2>
               {!workspace ? (
@@ -4856,7 +4856,7 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <p className="text-[13px] text-gray-500 mb-4">Workspace: <span className="font-bold text-gray-900">{workspace.name}</span> Â· Your role: <span className="font-semibold capitalize">{myRole}</span></p>
+                  <p className="text-[13px] text-gray-500 mb-4">Workspace: <span className="font-bold text-gray-900">{workspace.name}</span> · Your role: <span className="font-semibold capitalize">{myRole}</span></p>
                   <div className="space-y-2 mb-5">
                     {workspaceMembers.map(m => (
                       <div key={m.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
@@ -4995,10 +4995,10 @@ export default function App() {
               <p className="text-[11px] text-gray-500 mt-2">Use this utility once if you have old CRM entries showing raw "Active" or "Inactive" tags in the Pipeline column to port them cleanly to the new Kanban Board structure.</p>
             </div>
 
-            {/* FEATURE 4 â€” Email Templates */}
+            {/* FEATURE 4 — Email Templates */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Templates</h2>
-              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer. Delivery uses Resend's sandbox sender (onboarding@resend.dev) â€” verify your own domain in Resend before production use, or emails may land in spam.</p>
+              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer. Delivery uses Resend's sandbox sender (onboarding@resend.dev) — verify your own domain in Resend before production use, or emails may land in spam.</p>
               <div className="space-y-2 mb-5">
                 {emailTemplates.length === 0 ? (
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No templates yet.</p>
@@ -5018,7 +5018,7 @@ export default function App() {
               <form onSubmit={handleSaveEmailTemplate} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
                 <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-500">{editingTemplate ? 'Edit Template' : 'New Template'}</h4>
                 <input type="text" required placeholder="Template name" value={templateName} onChange={e => setTemplateName(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
-                <input type="text" required placeholder="Subject â€” supports {{name}} {{email}} {{phone}} {{stage}}" value={templateSubject} onChange={e => setTemplateSubject(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={templateSubject} onChange={e => setTemplateSubject(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
                 <textarea rows={4} required placeholder="Body" value={templateBody} onChange={e => setTemplateBody(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
                 <div className="flex justify-end gap-2">
                   {editingTemplate && <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(''); setTemplateBody(''); }} className="px-4 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>}
@@ -5027,7 +5027,7 @@ export default function App() {
               </form>
             </div>
 
-            {/* FEATURE 5 â€” Automation Rules */}
+            {/* FEATURE 5 — Automation Rules */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-4">
                 <div>
@@ -5056,18 +5056,18 @@ export default function App() {
                     <div key={r.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
                       <div className="flex-1 min-w-0">
                         <p className="text-[13px] font-semibold text-gray-900">{r.name}</p>
-                        <p className="text-[11px] text-gray-500 truncate">When: {triggerLabel} â†’ Then: {actionLabel}</p>
+                        <p className="text-[11px] text-gray-500 truncate">When: {triggerLabel} → Then: {actionLabel}</p>
                       </div>
-                      {(r.run_count || 0) > 0 && <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full shrink-0">ran Ã—{r.run_count}</span>}
+                      {(r.run_count || 0) > 0 && <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full shrink-0">ran ×{r.run_count}</span>}
                       <button onClick={() => handleToggleRule(r)} className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 transition-colors ${r.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>{r.enabled ? 'On' : 'Off'}</button>
                       <button onClick={() => handleDeleteRule(r.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700 shrink-0">Delete</button>
                     </div>
                   );
                 })}
               </div>
-              {/* G11 â€” RECIPES GALLERY */}
+              {/* G11 — RECIPES GALLERY */}
               <div className="mb-4">
-                <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-500 mb-2">Recipes â€” enable in one click</h4>
+                <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-500 mb-2">Recipes — enable in one click</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {AUTOMATION_RECIPES.map(r => {
                     const enabled = automationRules.some(x => x.name === r.name);
@@ -5078,7 +5078,7 @@ export default function App() {
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] text-gray-400">{r.note}</span>
                           <button onClick={() => handleEnableRecipe(r)} disabled={enabled} className={`px-2.5 py-1 text-[11px] font-semibold rounded-full ${enabled ? 'bg-green-100 text-green-700' : 'bg-gray-900 text-white hover:opacity-90'}`}>
-                            {enabled ? 'Enabled âœ“' : 'Enable'}
+                            {enabled ? 'Enabled ✓' : 'Enable'}
                           </button>
                         </div>
                       </div>
@@ -5149,7 +5149,7 @@ export default function App() {
                       {newRule.actionType === 'send_email' && (
                         <div className="mt-2 space-y-2">
                           <input type="text" placeholder="Subject" value={newRule.actionValue.subject || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, subject: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
-                          <textarea rows={2} placeholder="Body â€” supports {{name}} etc." value={newRule.actionValue.body || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, body: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
+                          <textarea rows={2} placeholder="Body — supports {{name}} etc." value={newRule.actionValue.body || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, body: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
                         </div>
                       )}
                     </div>
@@ -5161,12 +5161,12 @@ export default function App() {
               )}
             </div>
 
-            {/* FEATURE 9 â€” Tags */}
+            {/* FEATURE 9 — Tags */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-4">Tags</h2>
               <div className="space-y-2 mb-5">
                 {tags.length === 0 ? (
-                  <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No tags yet â€” create tags to segment your relationships.</p>
+                  <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No tags yet — create tags to segment your relationships.</p>
                 ) : tags.map(t => {
                   const count = Object.values(clientTagMap).filter(ids => ids.includes(t.id)).length;
                   return (
@@ -5196,7 +5196,7 @@ export default function App() {
               </form>
             </div>
 
-            {/* FEATURE 11 â€” Webhooks & Integrations */}
+            {/* FEATURE 11 — Webhooks & Integrations */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-4">
                 <div>
@@ -5232,7 +5232,7 @@ export default function App() {
               {showWebhookForm && (
                 <form onSubmit={handleCreateWebhook} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-[13px]">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <input type="text" required placeholder="Name (e.g. Zapier â€” new clients)" value={newWebhook.name} onChange={e => setNewWebhook({ ...newWebhook, name: e.target.value })} className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                    <input type="text" required placeholder="Name (e.g. Zapier — new clients)" value={newWebhook.name} onChange={e => setNewWebhook({ ...newWebhook, name: e.target.value })} className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
                     <input type="url" required placeholder="https://hooks.zapier.com/..." value={newWebhook.url} onChange={e => setNewWebhook({ ...newWebhook, url: e.target.value })} className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
                   </div>
                   <input type="text" placeholder="Signing secret (optional)" value={newWebhook.secret} onChange={e => setNewWebhook({ ...newWebhook, secret: e.target.value })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
@@ -5251,7 +5251,7 @@ export default function App() {
               )}
             </div>
 
-            {/* FEATURE 26 â€” Goals management */}
+            {/* FEATURE 26 — Goals management */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-4">
                 <h2 className="text-[15px] font-bold text-gray-900">Monthly Goals</h2>
@@ -5265,7 +5265,7 @@ export default function App() {
                     <div key={g.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
                       <div className="flex-1">
                         <p className="text-[13px] font-semibold text-gray-900">{{ new_clients: 'New Relationships', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</p>
-                        <p className="text-[11px] text-gray-400">{new Date(g.month + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} Â· Target: {g.target_value}</p>
+                        <p className="text-[11px] text-gray-400">{new Date(g.month + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} · Target: {g.target_value}</p>
                       </div>
                       <button onClick={() => handleDeleteGoal(g.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>
                     </div>
@@ -5362,7 +5362,7 @@ export default function App() {
                   </span>
                 </div>
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Relationship Profile</p>
-                {/* FEATURE 9 â€” tags on profile */}
+                {/* FEATURE 9 — tags on profile */}
                 <div className="flex flex-wrap items-center gap-1 mt-1.5">
                   {(clientTagMap[viewingClient.id] || []).map(tid => {
                     const t = tags.find(x => x.id === tid);
@@ -5384,15 +5384,15 @@ export default function App() {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {/* FEATURE 2 â€” AI summary trigger */}
-                <button onClick={() => handleGenerateAISummary(viewingClient)} className="px-3 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">âœ¨ AI Summary</button>
+                {/* FEATURE 2 — AI summary trigger */}
+                <button onClick={() => handleGenerateAISummary(viewingClient)} className="px-3 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">✨ AI Summary</button>
                 <button onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="w-7 h-7 rounded-full bg-white border border-gray-200 flex items-center justify-center font-bold text-gray-400 hover:text-gray-800 hover:shadow-sm transition-all">&times;</button>
               </div>
             </div>
 
             <div className="p-6 space-y-6 text-[13px] overflow-y-auto flex-1">
 
-              {/* FEATURE 2 â€” AI SUMMARY BOX */}
+              {/* FEATURE 2 — AI SUMMARY BOX */}
               {aiSummaryLoading && aiSummaryClientId === viewingClient.id && (
                 <div className="space-y-2 animate-pulse">
                   <div className="h-3 bg-gray-200 rounded-full w-full" />
@@ -5403,7 +5403,7 @@ export default function App() {
               {!aiSummaryLoading && aiSummary && aiSummaryClientId === viewingClient.id && (
                 <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
                   <div className="flex items-center gap-1.5 mb-2">
-                    <span>âœ¨</span>
+                    <span>✨</span>
                     <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-500">AI Summary</span>
                   </div>
                   <p className="text-[13px] text-indigo-900 whitespace-pre-wrap leading-relaxed">{aiSummary}</p>
@@ -5411,11 +5411,11 @@ export default function App() {
                 </div>
               )}
 
-              {/* FEATURE 23 â€” SMART FOLLOW-UP SUGGESTION */}
+              {/* FEATURE 23 — SMART FOLLOW-UP SUGGESTION */}
               {followUpLoading && <div className="h-10 bg-green-50 border border-green-100 rounded-xl animate-pulse" />}
               {!followUpLoading && followUpSuggestion && (
                 <div className="bg-green-50 rounded-xl p-3 border border-green-100">
-                  <p className="text-[13px] text-green-900">ðŸ’¡ <span className="font-semibold">Suggested:</span> {followUpSuggestion}</p>
+                  <p className="text-[13px] text-green-900">💡 <span className="font-semibold">Suggested:</span> {followUpSuggestion}</p>
                   <div className="flex gap-3 mt-2 text-[12px] font-medium">
                     <button onClick={() => { setActivityType('Note'); setActivityDesc(followUpSuggestion); setActiveProfileTab('activity'); }} className="text-green-700 hover:underline">Log this as a note</button>
                     <button onClick={() => { setNewTaskTitle(followUpSuggestion.slice(0, 100)); setActiveProfileTab('tasks'); }} className="text-green-700 hover:underline">Create task</button>
@@ -5443,24 +5443,24 @@ export default function App() {
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Source</span>
                   <span className="font-semibold text-gray-800 block">{viewingClient.source || 'Unknown'}</span>
                 </div>
-                {/* PART F â€” company row with Visit link */}
+                {/* PART F — company row with Visit link */}
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Company</span>
                   {viewingClient.company_name || viewingClient.company_url ? (
                     <span className="font-semibold text-gray-800 flex items-center gap-2 flex-wrap">
-                      {/* G17 â€” auto-fetched company logo */}
+                      {/* G17 — auto-fetched company logo */}
                       {companyFaviconUrl(viewingClient.company_url) && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={companyFaviconUrl(viewingClient.company_url)} alt="" className="w-5 h-5 rounded" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
                       )}
-                      {viewingClient.company_name || 'â€”'}
+                      {viewingClient.company_name || '—'}
                       {viewingClient.company_url && (
                         <a
                           href={viewingClient.company_url.startsWith('http') ? viewingClient.company_url : `https://${viewingClient.company_url}`}
                           target="_blank" rel="noopener noreferrer"
                           className="text-[12px] font-semibold text-indigo-600 hover:underline"
                         >
-                          Visit â†—
+                          Visit ↗
                         </a>
                       )}
                     </span>
@@ -5480,7 +5480,7 @@ export default function App() {
                       return (
                         <div key={cf.id} className="space-y-0.5">
                           <span className="text-[11px] font-bold text-gray-500 block">{cf.field_name}</span>
-                          <span className="font-semibold text-gray-900 block">{cv ? cv.value : 'â€”'}</span>
+                          <span className="font-semibold text-gray-900 block">{cv ? cv.value : '—'}</span>
                         </div>
                       )
                     })}
@@ -5492,14 +5492,14 @@ export default function App() {
                 <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">LinkedIn</span>
                 {viewingClient.linkedin_url ? (
                   <a href={viewingClient.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-gray-900 font-semibold hover:underline flex items-center gap-1 break-all">
-                    {viewingClient.linkedin_url} <span className="text-[10px] font-normal text-gray-400">â†—</span>
+                    {viewingClient.linkedin_url} <span className="text-[10px] font-normal text-gray-400">↗</span>
                   </a>
                 ) : (
                   <span className="text-gray-400 font-normal italic">Not provided</span>
                 )}
               </div>
 
-              {/* G18 â€” referral network */}
+              {/* G18 — referral network */}
               {(() => {
                 const referrer = viewingClient.referred_by_client_id ? clients.find(c => c.id === viewingClient.referred_by_client_id) : null;
                 const referrals = clients.filter(c => c.referred_by_client_id === viewingClient.id);
@@ -5527,18 +5527,18 @@ export default function App() {
                 );
               })()}
 
-              {/* FEATURE 15 â€” QUICK NOTE (always visible, auto-saves) */}
+              {/* FEATURE 15 — QUICK NOTE (always visible, auto-saves) */}
               <div className="pt-4 border-t border-gray-100">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400">Quick Note</h4>
                   <span className="text-[11px] font-medium text-gray-400">
-                    {quickNoteSaving ? 'Saving...' : quickNoteSaved ? <span className="text-green-600">Saved âœ“</span> : ''}
+                    {quickNoteSaving ? 'Saving...' : quickNoteSaved ? <span className="text-green-600">Saved ✓</span> : ''}
                   </span>
                 </div>
-                <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this relationship â€” auto-saves as you type..." disabled={!canEdit} className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-xl bg-yellow-50/50 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
+                <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this relationship — auto-saves as you type..." disabled={!canEdit} className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-xl bg-yellow-50/50 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
               </div>
 
-              {/* FEATURE 7 â€” PROFILE TAB BAR */}
+              {/* FEATURE 7 — PROFILE TAB BAR */}
               <div className="flex gap-1 bg-gray-100 p-1 rounded-lg sticky top-0 z-10">
                 {[['activity', 'Activity'], ['tasks', 'Tasks'], ['files', 'Files'], ['deals', 'Deals']].map(([key, label]) => (
                   <button key={key} onClick={() => setActiveProfileTab(key)} className={`flex-1 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide rounded-md transition-all ${activeProfileTab === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{label}</button>
@@ -5566,11 +5566,11 @@ export default function App() {
                     clientFiles.filter(f => f.client_id === viewingClient.id).map(f => (
                       <div key={f.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 rounded-xl">
                         <span className="text-lg shrink-0">
-                          {(f.file_type || '').includes('pdf') ? 'ðŸ“„' : (f.file_type || '').startsWith('image') ? 'ðŸ–¼ï¸' : 'ðŸ“Ž'}
+                          {(f.file_type || '').includes('pdf') ? '📄' : (f.file_type || '').startsWith('image') ? '🖼️' : '📎'}
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold text-gray-900 truncate">{f.file_name}</p>
-                          <p className="text-[11px] text-gray-400">{formatFileSize(f.file_size)} Â· {new Date(f.created_at).toLocaleDateString()}</p>
+                          <p className="text-[11px] text-gray-400">{formatFileSize(f.file_size)} · {new Date(f.created_at).toLocaleDateString()}</p>
                         </div>
                         <button onClick={() => handleDownloadFile(f)} className="text-[12px] font-medium text-gray-500 hover:text-gray-900">Download</button>
                         {canDelete && <button onClick={() => handleDeleteFile(f)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>}
@@ -5593,7 +5593,7 @@ export default function App() {
                       <div key={d.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 rounded-xl">
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold text-gray-900 truncate">{d.title}</p>
-                          <p className="text-[11px] text-gray-400">{d.stage} Â· {d.probability}%{d.close_date ? ` Â· Close ${d.close_date}` : ''}</p>
+                          <p className="text-[11px] text-gray-400">{d.stage} · {d.probability}%{d.close_date ? ` · Close ${d.close_date}` : ''}</p>
                         </div>
                         <span className="text-[13px] font-bold text-gray-900 shrink-0">{fmtMoney(d.value)}</span>
                       </div>
@@ -5610,7 +5610,7 @@ export default function App() {
                 <form onSubmit={(e) => handleCreateTask(e, viewingClient.id)} className="flex flex-wrap gap-2 mb-3">
                   <input type="text" placeholder="New task title..." value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className="flex-1 min-w-[140px] px-3 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none" required />
                   <input type="date" value={newTaskDate} onChange={(e) => setNewTaskDate(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600" required />
-                  {/* FEATURE 20 â€” recurrence */}
+                  {/* FEATURE 20 — recurrence */}
                   <select value={newTaskRecurrence} onChange={e => setNewTaskRecurrence(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600">
                     <option value="">No repeat</option>
                     <option value="daily">Daily</option>
@@ -5636,10 +5636,10 @@ export default function App() {
                           <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-0 cursor-pointer" />
                           <div>
                             <span className={`text-[13px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
-                              {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>ðŸ” </span>}
+                              {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>🔁 </span>}
                               {task.title}
                             </span>
-                            <span className="text-[11px] text-gray-400 block mt-0.5">Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span>{task.recurrence ? ` Â· ${task.recurrence}` : ''}</span>
+                            <span className="text-[11px] text-gray-400 block mt-0.5">Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span>{task.recurrence ? ` · ${task.recurrence}` : ''}</span>
                           </div>
                         </div>
                       </div>
@@ -5649,7 +5649,7 @@ export default function App() {
               </div>
               )}
 
-              {/* TAB: ACTIVITY â€” ENHANCED ACTIVITY LOGGING */}
+              {/* TAB: ACTIVITY — ENHANCED ACTIVITY LOGGING */}
               {activeProfileTab === 'activity' && (
               <div id="activity-timeline" className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -5709,7 +5709,7 @@ export default function App() {
 
                 {/* Add New Activity Form */}
                 <form onSubmit={handleAddActivityLog} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm flex flex-col gap-3 mt-4">
-                  {/* FEATURE 22 â€” quick-log template pills */}
+                  {/* FEATURE 22 — quick-log template pills */}
                   <div className="flex flex-wrap gap-1.5">
                     {activityTemplates.map((t, i) => (
                       <button key={i} type="button" onClick={() => {
@@ -5734,7 +5734,7 @@ export default function App() {
                         setSavingTemplateName(null);
                         showToast('Template saved.', 'success');
                       }} className="text-[11px] font-medium text-indigo-600 hover:underline">Save as template</button>
-                      <button type="button" onClick={() => setSavingTemplateName(null)} className="text-gray-400 text-[12px]">Ã—</button>
+                      <button type="button" onClick={() => setSavingTemplateName(null)} className="text-gray-400 text-[12px]">×</button>
                     </div>
                   )}
                   <div className="flex flex-wrap gap-2 items-center text-[12px]">
@@ -5748,9 +5748,9 @@ export default function App() {
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <textarea placeholder={voiceListening ? 'Listening... speak your note' : 'Record details, meeting minutes, or email content...'} value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className={`flex-1 px-3 py-2 text-[13px] border rounded-lg focus:outline-none ${voiceListening ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200 focus:border-gray-400'}`} />
-                    {/* G3 â€” voice memo mic */}
+                    {/* G3 — voice memo mic */}
                     <button type="button" onClick={toggleVoiceMemo} title={voiceListening ? 'Stop dictation' : 'Dictate with your voice'} className={`self-end sm:self-stretch px-3 min-h-[38px] rounded-xl border text-[16px] transition-all ${voiceListening ? 'bg-red-50 border-red-300 animate-pulse' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
-                      {voiceListening ? 'ðŸ”´' : 'ðŸŽ¤'}
+                      {voiceListening ? '🔴' : '🎤'}
                     </button>
                     <button type="submit" className="sm:w-24 font-medium text-[12px] text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm self-end sm:self-stretch min-h-[38px]">Log Entry</button>
                   </div>
@@ -5761,9 +5761,9 @@ export default function App() {
             </div>
 
             <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex flex-wrap justify-end gap-2">
-              {/* FEATURE 4 â€” email composer trigger */}
+              {/* FEATURE 4 — email composer trigger */}
               <button type="button" onClick={() => { setEmailTo(viewingClient.email || ''); setShowEmailComposer(true); }} className="px-4 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">Send Email</button>
-              {/* FEATURE 21 â€” PDF export */}
+              {/* FEATURE 21 — PDF export */}
               <button type="button" onClick={() => handleExportPDF(viewingClient)} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Export PDF</button>
               <button type="button" onClick={() => { 
                 setEditingClient(viewingClient); 
@@ -5818,7 +5818,7 @@ export default function App() {
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Birthday</label>
                   <input type="date" value={editingClient.birthday || ''} onChange={e => setEditingClient({...editingClient, birthday: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none" />
                 </div>
-                {/* PART F â€” company fields */}
+                {/* PART F — company fields */}
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Company Name</label>
                   <input type="text" value={editingClient.company_name || ''} onChange={e => setEditingClient({...editingClient, company_name: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
@@ -5827,11 +5827,11 @@ export default function App() {
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Company Website</label>
                   <input type="text" value={editingClient.company_url || ''} onChange={e => setEditingClient({...editingClient, company_url: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
-                {/* G18 â€” referral chain */}
+                {/* G18 — referral chain */}
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Referred by</label>
                   <select value={editingClient.referred_by_client_id || ''} onChange={e => setEditingClient({...editingClient, referred_by_client_id: e.target.value ? parseInt(e.target.value, 10) : null})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
-                    <option value="">â€” Nobody / unknown â€”</option>
+                    <option value="">— Nobody / unknown —</option>
                     {[...clients].filter(c => c.id !== editingClient.id).sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
@@ -5957,7 +5957,7 @@ export default function App() {
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Value</label>
                   <div className="flex gap-1.5">
                     <input type="number" min="0" step="0.01" value={dealValue} onChange={e => setDealValue(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                    {/* G20 â€” currency */}
+                    {/* G20 — currency */}
                     <select value={dealCurrency} onChange={e => setDealCurrency(e.target.value)} className="px-2 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none shrink-0">
                       {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
@@ -5978,7 +5978,7 @@ export default function App() {
                   <input type="date" value={dealCloseDate} onChange={e => setDealCloseDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-gray-600 focus:outline-none" />
                 </div>
               </div>
-              {/* G19 â€” recurring revenue */}
+              {/* G19 — recurring revenue */}
               <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 space-y-3">
                 <label className="flex items-center gap-2 text-[13px] font-medium text-gray-700 cursor-pointer">
                   <input type="checkbox" checked={dealIsRecurring} onChange={e => setDealIsRecurring(e.target.checked)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
@@ -6052,7 +6052,7 @@ export default function App() {
                 <textarea rows={6} required value={emailBody} onChange={e => setEmailBody(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
                 <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} {'{{phone}}'} {'{{stage}}'}</p>
               </div>
-              {/* PART B â€” provider toggle (persisted to localStorage) */}
+              {/* PART B — provider toggle (persisted to localStorage) */}
               <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Open with:</span>
                 <div className="bg-gray-100 p-0.5 rounded-lg flex items-center gap-0.5">
@@ -6061,7 +6061,7 @@ export default function App() {
                 </div>
               </div>
               <div className="flex flex-wrap justify-end gap-3 pt-3 border-t border-gray-100">
-                <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(emailSubject); setTemplateBody(emailBody); setAppStep('SETTINGS'); setShowEmailComposer(false); showToast('Finish saving the template in Settings â†’ Email Templates.', 'success'); }} className="px-3 py-2 text-[12px] font-medium text-gray-500 hover:text-gray-800 mr-auto">Save as template</button>
+                <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(emailSubject); setTemplateBody(emailBody); setAppStep('SETTINGS'); setShowEmailComposer(false); showToast('Finish saving the template in Settings → Email Templates.', 'success'); }} className="px-3 py-2 text-[12px] font-medium text-gray-500 hover:text-gray-800 mr-auto">Save as template</button>
                 <button type="button" onClick={() => setShowEmailComposer(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
                 <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">
                   Open Draft in New Tab
@@ -6088,7 +6088,7 @@ export default function App() {
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Body</label>
                 <textarea rows={8} required value={bulkEmailBody} onChange={e => setBulkEmailBody(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} â€” resolved per recipient.</p>
+                <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} — resolved per recipient.</p>
               </div>
               <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">Recipients preview</p>
@@ -6098,7 +6098,7 @@ export default function App() {
                 </p>
               </div>
               <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-[12px] text-yellow-800">
-                âš ï¸ This will open {selectedClientIds.length} compose tab{selectedClientIds.length === 1 ? '' : 's'} ({emailProvider === 'mailto' ? 'default mail app' : 'Gmail'}) â€” you send each one yourself. Allow popups for this site.
+                ⚠️ This will open {selectedClientIds.length} compose tab{selectedClientIds.length === 1 ? '' : 's'} ({emailProvider === 'mailto' ? 'default mail app' : 'Gmail'}) — you send each one yourself. Allow popups for this site.
               </div>
               {bulkEmailProgress && <p className="text-[12px] font-medium text-indigo-600">{bulkEmailProgress}</p>}
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
@@ -6119,7 +6119,7 @@ export default function App() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50">
               <h3 className="text-[15px] font-bold text-gray-900">
-                Import Preview â€” {importPreviewData.filter(r => !r.error).length} rows ready, {importPreviewData.filter(r => r.error).length} errors
+                Import Preview — {importPreviewData.filter(r => !r.error).length} rows ready, {importPreviewData.filter(r => r.error).length} errors
               </h3>
             </div>
             <div className="overflow-auto flex-1 p-4">
@@ -6139,10 +6139,10 @@ export default function App() {
                   {importPreviewData.map(r => (
                     <tr key={r.key} className={r.error ? 'bg-red-50/60' : r.warning ? 'bg-yellow-50/60' : 'bg-green-50/40'}>
                       <td className="p-2"><input type="checkbox" disabled={!!r.error} checked={r.checked} onChange={() => setImportPreviewData(prev => prev.map(x => x.key === r.key ? { ...x, checked: !x.checked } : x))} className="rounded border-gray-300 focus:ring-0" /></td>
-                      <td className="p-2 font-semibold text-gray-900">{r.name || 'â€”'}</td>
-                      <td className="p-2 text-gray-600">{r.email || 'â€”'}</td>
-                      <td className="p-2 text-gray-500">{r.country || 'â€”'}</td>
-                      <td className="p-2 text-gray-500">{r.phone || 'â€”'}</td>
+                      <td className="p-2 font-semibold text-gray-900">{r.name || '—'}</td>
+                      <td className="p-2 text-gray-600">{r.email || '—'}</td>
+                      <td className="p-2 text-gray-500">{r.country || '—'}</td>
+                      <td className="p-2 text-gray-500">{r.phone || '—'}</td>
                       <td className="p-2 text-gray-500">{r.status}</td>
                       <td className="p-2 font-medium">
                         {r.error ? <span className="text-red-600">{r.error}</span> : r.warning ? <span className="text-yellow-700">{r.warning}</span> : <span className="text-green-600">OK</span>}
@@ -6168,7 +6168,7 @@ export default function App() {
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !mergeLoading && setShowMergeTool(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Merge Relationship â€” Step {mergeStep} of 2</h3>
+              <h3 className="text-[15px] font-bold text-gray-900">Merge Relationship — Step {mergeStep} of 2</h3>
               <button onClick={() => !mergeLoading && setShowMergeTool(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
             <div className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
@@ -6192,7 +6192,7 @@ export default function App() {
               {mergeStep === 2 && mergeTarget && (
                 <>
                   <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-[12px] text-red-800">
-                    âš ï¸ All activities, tasks, deals, and files from <strong>{mergeSource.name}</strong> ({activities.filter(a => a.client_id === mergeSource.id).length} activities) will move to <strong>{mergeTarget.name}</strong> ({activities.filter(a => a.client_id === mergeTarget.id).length} activities). <strong>{mergeSource.name} will be permanently deleted.</strong>
+                    ⚠️ All activities, tasks, deals, and files from <strong>{mergeSource.name}</strong> ({activities.filter(a => a.client_id === mergeSource.id).length} activities) will move to <strong>{mergeTarget.name}</strong> ({activities.filter(a => a.client_id === mergeTarget.id).length} activities). <strong>{mergeSource.name} will be permanently deleted.</strong>
                   </div>
                   <div className="space-y-2">
                     {['name', 'email', 'phone_number', 'country', 'status', 'relationship', 'linkedin_url', 'birthday', 'source'].filter(f => (mergeSource[f] || '') !== (mergeTarget[f] || '') && (mergeSource[f] || mergeTarget[f])).map(field => (
@@ -6200,11 +6200,11 @@ export default function App() {
                         <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">{field.replace(/_/g, ' ')}</span>
                         <label className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-[12px] ${mergeFieldChoices[field] === 'source' ? 'bg-gray-100 font-semibold' : ''}`}>
                           <input type="radio" name={`merge-${field}`} checked={mergeFieldChoices[field] === 'source'} onChange={() => setMergeFieldChoices(prev => ({ ...prev, [field]: 'source' }))} />
-                          <span className="truncate">{String(mergeSource[field] || 'â€”')}</span>
+                          <span className="truncate">{String(mergeSource[field] || '—')}</span>
                         </label>
                         <label className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-[12px] ${(mergeFieldChoices[field] || 'target') === 'target' ? 'bg-gray-100 font-semibold' : ''}`}>
                           <input type="radio" name={`merge-${field}`} checked={(mergeFieldChoices[field] || 'target') === 'target'} onChange={() => setMergeFieldChoices(prev => ({ ...prev, [field]: 'target' }))} />
-                          <span className="truncate">{String(mergeTarget[field] || 'â€”')}</span>
+                          <span className="truncate">{String(mergeTarget[field] || '—')}</span>
                         </label>
                       </div>
                     ))}
@@ -6279,7 +6279,7 @@ export default function App() {
               </div>
               <div>
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">Actions</h4>
-                {[['âŒ˜K / Ctrl+K', 'Global search'], ['âŒ˜N / Ctrl+N', 'New relationship (on Relationships page)'], ['?', 'Show shortcuts'], ['Esc', 'Close / dismiss']].map(([k, d]) => (
+                {[['⌘K / Ctrl+K', 'Global search'], ['⌘N / Ctrl+N', 'New relationship (on Relationships page)'], ['?', 'Show shortcuts'], ['Esc', 'Close / dismiss']].map(([k, d]) => (
                   <div key={k} className="flex justify-between items-center py-1.5 gap-3">
                     <span className="text-gray-600">{d}</span>
                     <kbd className="text-[11px] font-bold bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 text-gray-600 whitespace-nowrap">{k}</kbd>
