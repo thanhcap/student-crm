@@ -45,3 +45,15 @@ Code fixes (uuid ids were being parseInt'd → NaN):
 - Email composer template picker: compare uuid as string (`email_templates.id` is uuid)
 
 **Manual test:** add a client with a Source selected → row saves; drag a deal to another stage → it sticks after reload; pick an email template in the composer → subject/body populate.
+
+## fable/email-new-tab — Part B: compose in a real browser tab
+**Line count: 5,482 → 5,514 (+32)**
+
+- `buildGmailUrl` / `buildMailtoUrl` helpers at module scope.
+- `handleSendEmail`: opens a Gmail compose tab (`window.open`, noopener) or the default mail app per user preference; mailto fallback when the popup is blocked; still logs a "Drafted — Subject: …" Email activity and keeps merge-tag resolution unchanged.
+- `handleBulkSendEmail`: opens one compose tab per recipient, 300ms apart; progress reads "Opening tab X of N…"; logs an activity per opened tab; popup-blocked recipients are counted and reported in the toast.
+- "Open with: Gmail / Default Mail App" toggle in the composer footer, persisted to `localStorage('crm_email_provider')`; bulk modal copy updated ("Open N Drafts").
+- Removed the now-unused `emailSending` state.
+- **Note:** no `/api/*` routes exist in this repo and no `RESEND_API_KEY` is configured — the old fetch-based send ALWAYS failed ("Send failed." toast). Per spec, the "Send automatically instead" opt-in is omitted until Resend is actually set up. Remaining best-effort `/api/send-email` calls (workspace invite, automation send_email action) are silent no-ops — flagged as follow-up, same for `/api/ai-summary`, `/api/client-report`, `/api/webhook-dispatch`.
+
+**Manual test:** open a client → Send Email → "Open Draft in New Tab" opens Gmail compose pre-filled and logs a Drafted activity; toggle to "Default Mail App" (persists after reload); select 2+ clients → Bulk Email → tabs open ~300ms apart with progress text.

@@ -107,6 +107,14 @@ const DEFAULT_ACTIVITY_TEMPLATES = [
   { name: 'Voicemail', type: 'Note', desc: 'Left voicemail. Will try again next week.' },
 ];
 
+// PART B — email compose URLs (opens the user's own mail client in a new tab)
+function buildGmailUrl(to, subject, body) {
+  return `https://mail.google.com/mail/?${new URLSearchParams({ view: 'cm', fs: '1', to, su: subject, body })}`;
+}
+function buildMailtoUrl(to, subject, body) {
+  return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
 // Lead score: 0-100, computed client-side (Feature 6)
 function computeLeadScore(client, clientActivities, clientTasks, clientDeals) {
   let s = 0;
@@ -295,7 +303,8 @@ export default function App() {
   const [emailTo, setEmailTo] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
-  const [emailSending, setEmailSending] = useState(false);
+  // PART B — 'gmail' opens a Gmail compose tab, 'mailto' hands off to the default mail app
+  const [emailProvider, setEmailProvider] = useState('gmail');
   const [emailTemplates, setEmailTemplates] = useState([]);
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [templateName, setTemplateName] = useState('');
@@ -479,6 +488,17 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // PART B â€” email provider preference
+  useEffect(() => {
+    const saved = localStorage.getItem('crm_email_provider');
+    if (saved === 'gmail' || saved === 'mailto') setEmailProvider(saved);
+  }, []);
+
+  function setEmailProviderPersist(p) {
+    setEmailProvider(p);
+    localStorage.setItem('crm_email_provider', p);
+  }
 
   // FEATURE 13 â€” Dark mode: init from localStorage, toggle root class
   useEffect(() => {
@@ -957,32 +977,34 @@ export default function App() {
       .replace(/{{stage}}/g, client?.status || '');
   }
 
+  // PART B â€” default send path opens a real compose tab in the user's browser.
+  // (No RESEND_API_KEY is configured and /api/send-email does not exist, so the
+  // old fetch-based flow always failed; the opt-in "send automatically" link is
+  // intentionally omitted until Resend is actually set up.)
   async function handleSendEmail(e) {
     e.preventDefault();
     if (!emailTo || !emailSubject || !emailBody) return;
-    setEmailSending(true);
-    const res = await fetch('/api/send-email', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: emailTo,
-        subject: resolveMergeTags(emailSubject, viewingClient),
-        body: resolveMergeTags(emailBody, viewingClient),
-        fromName: profile.username || 'CRM',
-      }),
-    }).catch(() => null);
-    if (res && res.ok) {
-      if (viewingClient) {
-        const { data } = await supabase.from('activities').insert([{
-          client_id: viewingClient.id, user_id: user.id,
-          activity_type: 'Email', activity_date: new Date().toISOString().split('T')[0],
-          description: `Subject: ${resolveMergeTags(emailSubject, viewingClient)}\n\n${resolveMergeTags(emailBody, viewingClient)}`,
-        }]).select();
-        if (data) setActivities(prev => [data[0], ...prev]);
-      }
-      showToast('Email sent and logged.', 'success');
-      setShowEmailComposer(false); setEmailSubject(''); setEmailBody('');
-    } else showToast('Send failed.', 'error');
-    setEmailSending(false);
+    const subject = resolveMergeTags(emailSubject, viewingClient);
+    const body = resolveMergeTags(emailBody, viewingClient);
+
+    if (emailProvider === 'mailto') {
+      window.location.href = buildMailtoUrl(emailTo, subject, body);
+    } else {
+      const tab = window.open(buildGmailUrl(emailTo, subject, body), '_blank', 'noopener,noreferrer');
+      if (!tab) window.location.href = buildMailtoUrl(emailTo, subject, body);
+    }
+
+    if (viewingClient) {
+      const { data } = await supabase.from('activities').insert([{
+        client_id: viewingClient.id, user_id: user.id,
+        activity_type: 'Email', activity_date: new Date().toISOString().split('T')[0],
+        description: `Drafted â€” Subject: ${subject}\n\n${body}`,
+        // no outcome field â€” see Part A
+      }]).select();
+      if (data) setActivities(prev => [data[0], ...prev]);
+    }
+    showToast('Opened in a new tab â€” send from there.', 'success');
+    setShowEmailComposer(false); setEmailSubject(''); setEmailBody('');
   }
 
   async function handleSaveEmailTemplate(e) {
@@ -1015,36 +1037,39 @@ export default function App() {
       });
   }
 
+  // PART B â€” bulk flow opens one compose tab per recipient (300ms apart so the
+  // popup blocker doesn't treat the burst as spam).
   async function handleBulkSendEmail(e) {
     e.preventDefault();
     if (!bulkEmailSubject || !bulkEmailBody || selectedClientIds.length === 0) return;
     setBulkEmailSending(true);
-    let sent = 0;
+    let opened = 0, blocked = 0;
     const targets = clients.filter(c => selectedClientIds.includes(c.id) && c.email);
     for (let i = 0; i < targets.length; i++) {
       const c = targets[i];
-      setBulkEmailProgress(`Sending ${i + 1} of ${targets.length}...`);
-      // Sequential on purpose: avoids provider rate limits
-      const res = await fetch('/api/send-email', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: c.email,
-          subject: resolveMergeTags(bulkEmailSubject, c),
-          body: resolveMergeTags(bulkEmailBody, c),
-          fromName: profile.username || 'CRM',
-        }),
-      }).catch(() => null);
-      if (res && res.ok) {
-        sent++;
+      setBulkEmailProgress(`Opening tab ${i + 1} of ${targets.length}...`);
+      const subject = resolveMergeTags(bulkEmailSubject, c);
+      const body = resolveMergeTags(bulkEmailBody, c);
+      const url = emailProvider === 'mailto' ? buildMailtoUrl(c.email, subject, body) : buildGmailUrl(c.email, subject, body);
+      const tab = window.open(url, '_blank', 'noopener,noreferrer');
+      if (tab) {
+        opened++;
         const { data } = await supabase.from('activities').insert([{
           client_id: c.id, user_id: user.id, activity_type: 'Email',
           activity_date: new Date().toISOString().split('T')[0],
-          description: `Bulk email â€” Subject: ${resolveMergeTags(bulkEmailSubject, c)}`,
+          description: `Drafted bulk email â€” Subject: ${subject}`,
         }]).select();
         if (data) setActivities(prev => [data[0], ...prev]);
+      } else {
+        blocked++;
       }
+      if (i < targets.length - 1) await new Promise(r => setTimeout(r, 300));
     }
-    showToast(`Sent to ${sent} clients.`, 'success');
+    if (blocked > 0) {
+      showToast(`Opened ${opened} tab${opened === 1 ? '' : 's'} â€” ${blocked} blocked. Allow popups for this site and retry.`, 'error');
+    } else {
+      showToast(`Opened ${opened} compose tab${opened === 1 ? '' : 's'} â€” send each from there.`, 'success');
+    }
     setSelectedClientIds([]);
     setShowBulkEmailModal(false); setBulkEmailSubject(''); setBulkEmailBody(''); setBulkEmailProgress('');
     setBulkEmailSending(false);
@@ -5218,12 +5243,19 @@ export default function App() {
                 <textarea rows={6} required value={emailBody} onChange={e => setEmailBody(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
                 <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} {'{{phone}}'} {'{{stage}}'}</p>
               </div>
-              <div className="flex flex-wrap justify-end gap-3 pt-4 border-t border-gray-100">
+              {/* PART B â€” provider toggle (persisted to localStorage) */}
+              <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Open with:</span>
+                <div className="bg-gray-100 p-0.5 rounded-lg flex items-center gap-0.5">
+                  <button type="button" onClick={() => setEmailProviderPersist('gmail')} className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all ${emailProvider === 'gmail' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gmail</button>
+                  <button type="button" onClick={() => setEmailProviderPersist('mailto')} className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all ${emailProvider === 'mailto' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Default Mail App</button>
+                </div>
+              </div>
+              <div className="flex flex-wrap justify-end gap-3 pt-3 border-t border-gray-100">
                 <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(emailSubject); setTemplateBody(emailBody); setAppStep('SETTINGS'); setShowEmailComposer(false); showToast('Finish saving the template in Settings â†’ Email Templates.', 'success'); }} className="px-3 py-2 text-[12px] font-medium text-gray-500 hover:text-gray-800 mr-auto">Save as template</button>
                 <button type="button" onClick={() => setShowEmailComposer(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button type="submit" disabled={emailSending} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
-                  {emailSending && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                  {emailSending ? 'Sending...' : 'Send'}
+                <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">
+                  Open Draft in New Tab
                 </button>
               </div>
             </form>
@@ -5257,14 +5289,14 @@ export default function App() {
                 </p>
               </div>
               <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-[12px] text-yellow-800">
-                âš ï¸ This will send {selectedClientIds.length} individual emails.
+                âš ï¸ This will open {selectedClientIds.length} compose tab{selectedClientIds.length === 1 ? '' : 's'} ({emailProvider === 'mailto' ? 'default mail app' : 'Gmail'}) â€” you send each one yourself. Allow popups for this site.
               </div>
               {bulkEmailProgress && <p className="text-[12px] font-medium text-indigo-600">{bulkEmailProgress}</p>}
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                 <button type="button" disabled={bulkEmailSending} onClick={() => setShowBulkEmailModal(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
                 <button type="submit" disabled={bulkEmailSending} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
                   {bulkEmailSending && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                  Send to {selectedClientIds.length} Clients
+                  Open {selectedClientIds.length} Draft{selectedClientIds.length === 1 ? '' : 's'}
                 </button>
               </div>
             </form>
