@@ -1,0 +1,9 @@
+-- ALL APPLIED LIVE 2026-07-09 via MCP (fix_workspace_rls_recursion,
+-- revoke_anon_workspace_helpers, gmail_connections). Kept for history.
+-- Task 1: SECURITY DEFINER helpers is_workspace_member/is_workspace_owner break the
+--   workspaces <-> workspace_members policy cycle; policies rewritten to call them;
+--   "Invitee accepts invite" policy added; EXECUTE revoked from anon (advisor fix).
+-- Task 3: gmail_connections table (RLS owner SELECT; token columns excluded from
+--   authenticated grants via column-level privileges — tokens only readable by
+--   service role in Edge Functions; Vault encryption flagged as optional upgrade);
+--   existing gmail_sync_tokens rows migrated in.

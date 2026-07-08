@@ -1232,8 +1232,9 @@ export default function App() {
     if (!force && aiSummaryClientId === client.id && aiSummary) return; // cache per-client
     setAiSummaryLoading(true); setAiSummaryClientId(client.id);
     try {
-      const res = await fetch('/api/ai-summary', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/ai-summary`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
         body: JSON.stringify({
           clientName: client.name,
           activities: activities.filter(a => a.client_id === client.id),
@@ -1255,8 +1256,9 @@ export default function App() {
   async function generateFollowUpSuggestion(client, clientActs) {
     setFollowUpLoading(true);
     try {
-      const res = await fetch('/api/ai-summary', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/ai-summary`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
         body: JSON.stringify({
           clientName: client.name,
           activities: clientActs,
@@ -1447,7 +1449,9 @@ export default function App() {
   // ==========================================
 
   async function fetchGmailConn(userId) {
-    const { data } = await supabase.from('gmail_sync_tokens').select('id, gmail_address, connected_at, last_synced_at').eq('user_id', userId).maybeSingle();
+    const { data } = await supabase.from('gmail_connections')
+      .select('id, email_address, connected_at, last_synced_at, revoked_at, needs_reauth')
+      .eq('user_id', userId).is('revoked_at', null).maybeSingle();
     setGmailConn(data || null);
   }
 
@@ -1457,7 +1461,7 @@ export default function App() {
     const redirect = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/gmail-oauth`;
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
       client_id: clientId, redirect_uri: redirect, response_type: 'code',
-      scope: 'https://www.googleapis.com/auth/gmail.readonly',
+      scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send',
       access_type: 'offline', prompt: 'consent', state: user.id,
     })}`;
   }
@@ -1465,8 +1469,12 @@ export default function App() {
   function handleDisconnectGmail() {
     showConfirm('Disconnect Gmail', 'Stop syncing Gmail messages as activities? Already-synced activities are kept.', 'Disconnect', 'danger',
       async () => {
-        const { error } = await supabase.from('gmail_sync_tokens').delete().eq('user_id', user.id);
-        if (!error) setGmailConn(null);
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/gmail-disconnect`, {
+          method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+        }).catch(() => null);
+        if (res?.ok) setGmailConn(null);
+        else showToast('Disconnect failed — try again.', 'error');
       });
   }
 
@@ -1511,7 +1519,6 @@ export default function App() {
   async function handleSaveEmailSettings(patch) {
     const next = {
       user_id: user.id,
-      resend_from_email: emailSettings?.resend_from_email ?? null,
       auto_send_enabled: emailSettings?.auto_send_enabled ?? false,
       daily_send_cap: emailSettings?.daily_send_cap ?? 50,
       send_days: emailSettings?.send_days ?? [1, 2, 3, 4, 5],
@@ -1668,7 +1675,7 @@ export default function App() {
   // MANUAL send path (fallback + default when auto-send is off). Runs the SAME
   // state machine as the server runner: condition skips (U4), channel tasks (U5),
   // A/B variant pick (U6), sequence_sends row (U3 funnel counting).
-  // Note: manual new-tab sends cannot be open/click tracked — only Resend auto-sends are.
+  // Note: manual new-tab sends cannot be open/click tracked — only Gmail auto-sends are.
   async function handleSendSequenceStep(enr) {
     const seq = sequences.find(s => s.id === enr.sequence_id);
     const steps = seqStepsFor(enr.sequence_id);
@@ -5392,7 +5399,7 @@ export default function App() {
                               <span className="text-[11px] font-bold text-gray-900 dark:text-gray-100 w-6 text-right">{v}</span>
                             </div>
                           ))}
-                          <p className="text-[10px] text-gray-400 mt-1.5">Open/click tracking applies to auto-sent (Resend) emails only — manual tab sends can't be tracked.</p>
+                          <p className="text-[10px] text-gray-400 mt-1.5">Open/click tracking applies to auto-sent (Gmail) emails only — manual tab sends can't be tracked.</p>
                         </div>
                         <div className="p-3 border border-gray-100 dark:border-gray-800 rounded-xl max-h-44 overflow-y-auto">
                           <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Enrollments ({enrolled.length})</p>
@@ -5407,7 +5414,7 @@ export default function App() {
                                 ) : (
                                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset capitalize ${en.status === 'active' ? 'bg-blue-50 text-blue-700 ring-blue-600/10' : en.status === 'completed' ? 'bg-gray-100 text-gray-600 ring-gray-500/10' : 'bg-red-50 text-red-700 ring-red-600/10'}`}>{en.status}</span>
                                 )}
-                                {en.status === 'active' && (emailSettings?.auto_send_enabled && emailSettings?.resend_from_email
+                                {en.status === 'active' && (emailSettings?.auto_send_enabled && gmailConn && !gmailConn.needs_reauth
                                   ? <span className="text-[10px] text-green-600 font-medium shrink-0">Auto-sends {en.next_send_at}</span>
                                   : <button onClick={() => handleStopEnrollment(en)} className="text-[10px] text-red-400 hover:text-red-600 shrink-0">stop</button>)}
                               </div>
@@ -5580,7 +5587,7 @@ export default function App() {
             })}
 
             <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-[12px] text-yellow-800 dark:text-yellow-300">
-              ⚠️ Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait here for one-click manual sending via compose tabs. With Auto-send ON + a verified Resend sender + RESEND_API_KEY in Supabase secrets, the sequence-runner cron sends them automatically inside your send window, with open/click tracking.
+              ⚠️ Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait here for one-click manual sending via compose tabs. With Auto-send ON + your own Gmail connected (Settings → Gmail Sync), the sequence-runner cron sends them automatically from YOUR Gmail address inside your send window, with open/click tracking.
             </div>
           </div>
         )}
@@ -5652,19 +5659,25 @@ export default function App() {
             {/* UPGRADE 1 & 7 — EMAIL AUTOMATION */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Automation</h2>
-              <p className="text-[13px] text-gray-500 mb-4">When enabled, due sequence steps send themselves via Resend every 15 minutes (within your send window). When off, steps wait in the N8N Outbox for manual sending — both paths always work.</p>
+              <p className="text-[13px] text-gray-500 mb-4">When enabled, due sequence steps send themselves every 15 minutes from your connected Gmail (within your send window). When off, steps wait in the N8N Outbox for manual sending — both paths always work.</p>
               <div className="space-y-4 text-[13px]">
-                <div className="flex flex-wrap items-end gap-3">
-                  <div className="flex-1 min-w-[220px]">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Verified Resend sender</label>
-                    <input type="email" placeholder="you@yourdomain.com" defaultValue={emailSettings?.resend_from_email || ''} onBlur={e => { if (e.target.value !== (emailSettings?.resend_from_email || '')) handleSaveEmailSettings({ resend_from_email: e.target.value || null }); }} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                  </div>
-                  <button onClick={() => handleSaveEmailSettings({ auto_send_enabled: !(emailSettings?.auto_send_enabled) })} className={`px-4 py-2 text-[13px] font-semibold rounded-xl shadow-sm ${emailSettings?.auto_send_enabled ? 'bg-green-600 text-white' : 'bg-gray-900 text-white hover:opacity-90'}`}>
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Sender = the user's OWN connected Gmail (Resend removed) */}
+                  {gmailConn && !gmailConn.needs_reauth ? (
+                    <span className="text-[13px] text-gray-700">Sends as <span className="font-semibold text-gray-900">{gmailConn.email_address || 'your Gmail'}</span></span>
+                  ) : (
+                    <span className="text-[13px] text-gray-500">No Gmail connected — <button onClick={handleConnectGmail} className="font-semibold text-indigo-600 hover:underline">Connect Gmail</button> to enable auto-send.</span>
+                  )}
+                  <button
+                    onClick={() => handleSaveEmailSettings({ auto_send_enabled: !(emailSettings?.auto_send_enabled) })}
+                    disabled={!gmailConn || gmailConn.needs_reauth}
+                    title={!gmailConn || gmailConn.needs_reauth ? 'Connect Gmail first' : ''}
+                    className={`px-4 py-2 text-[13px] font-semibold rounded-xl shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${emailSettings?.auto_send_enabled ? 'bg-green-600 text-white' : 'bg-gray-900 text-white hover:opacity-90'}`}>
                     {emailSettings?.auto_send_enabled ? 'Auto-send: ON ✓' : 'Auto-send: OFF — enable'}
                   </button>
                 </div>
-                {emailSettings?.auto_send_enabled && !emailSettings?.resend_from_email && (
-                  <p className="text-[12px] text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-lg p-2">Auto-send is on but no sender is set — the runner will skip your sends (manual Outbox still works). Also make sure RESEND_API_KEY is set in Supabase Edge Function secrets.</p>
+                {gmailConn?.needs_reauth && (
+                  <p className="text-[12px] text-red-700 bg-red-50 border border-red-100 rounded-lg p-2">Gmail connection expired — reconnect to resume sending. <button onClick={handleConnectGmail} className="font-semibold underline">Reconnect</button></p>
                 )}
                 <div>
                   <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Send days</label>
@@ -5715,9 +5728,12 @@ export default function App() {
               ) : (
                 <>
                   <p className="text-[13px] text-gray-500 mb-4">
-                    Connected{gmailConn.gmail_address ? <> as <span className="font-semibold text-gray-900">{gmailConn.gmail_address}</span></> : ''} · since {new Date(gmailConn.connected_at).toLocaleDateString()}
+                    Connected{gmailConn.email_address ? <> as <span className="font-semibold text-gray-900">{gmailConn.email_address}</span></> : ''} · since {new Date(gmailConn.connected_at).toLocaleDateString()}
                     {gmailConn.last_synced_at ? <> · last synced {new Date(gmailConn.last_synced_at).toLocaleString()}</> : ' · never synced yet'}
                   </p>
+                  {gmailConn.needs_reauth && (
+                    <p className="text-[12px] text-red-700 bg-red-50 border border-red-100 rounded-lg p-2 mb-3">Gmail connection expired — reconnect to resume syncing and sending. <button onClick={handleConnectGmail} className="font-semibold underline">Reconnect</button></p>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <button onClick={handleGmailSyncNow} disabled={gmailSyncing} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50 flex items-center gap-2">
                       {gmailSyncing && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
@@ -5835,7 +5851,7 @@ export default function App() {
             {/* FEATURE 4 — Email Templates */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Templates</h2>
-              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer. Delivery uses Resend's sandbox sender (onboarding@resend.dev) — verify your own domain in Resend before production use, or emails may land in spam.</p>
+              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer and N8N sequence steps. Merge tags: {{name}} {{email}} {{phone}} {{stage}} {{company}}.</p>
               <div className="space-y-2 mb-5">
                 {emailTemplates.length === 0 ? (
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No templates yet.</p>
