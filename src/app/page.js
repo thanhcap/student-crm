@@ -3451,7 +3451,7 @@ export default function App() {
               ['DASHBOARD', 'Dashboard'],
               ['CLIENTS', 'Relationships'],
               ['DEALS', 'Deals'],
-              ['N8N', 'N8N'],
+              ['N8N', 'Email Automation'],
               ['GLOBAL_TASKS', 'Tasks'],
               ['CALENDAR', 'Calendar'],
               ['REPORTS', 'Reports'],
@@ -3624,7 +3624,7 @@ export default function App() {
                 ['DASHBOARD', 'Dashboard'],
                 ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
-                ['N8N', 'N8N'],
+                ['N8N', 'Email Automation'],
                 ['GLOBAL_TASKS', 'Tasks'],
                 ['CALENDAR', 'Calendar'],
                 ['REPORTS', 'Reports'],
@@ -5334,7 +5334,7 @@ export default function App() {
         {appStep === 'N8N' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">N8N</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Email Automation</h1>
               <p className="text-[13px] text-gray-500">Automated email sequences — build a workflow, enroll relationships, and each follow-up lands in your Outbox when due.</p>
             </div>
 
@@ -5791,7 +5791,7 @@ export default function App() {
             {/* UPGRADE 1 & 7 — EMAIL AUTOMATION */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Automation</h2>
-              <p className="text-[13px] text-gray-500 mb-4">When enabled, due sequence steps send themselves every 15 minutes from your connected Gmail (within your send window). When off, steps wait in the N8N Outbox for manual sending — both paths always work.</p>
+              <p className="text-[13px] text-gray-500 mb-4">When enabled, due sequence steps send themselves every 15 minutes from your connected Gmail (within your send window). When off, steps wait in the Email Automation Outbox for manual sending — both paths always work.</p>
               <div className="space-y-4 text-[13px]">
                 <div className="flex flex-wrap items-center gap-3">
                   {/* Sender = the user's OWN connected Gmail (Resend removed) */}
@@ -5983,7 +5983,7 @@ export default function App() {
             {/* FEATURE 4 — Email Templates */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Templates</h2>
-              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer and N8N sequence steps. Merge tags: {'{{name}} {{email}} {{phone}} {{stage}} {{company}}'}.</p>
+              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer and Email Automation steps. Merge tags: {'{{name}} {{email}} {{phone}} {{stage}} {{company}}'}.</p>
               <div className="space-y-2 mb-5">
                 {emailTemplates.length === 0 ? (
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No templates yet.</p>

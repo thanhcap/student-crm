@@ -1,0 +1,6 @@
+
+## fable/email-automation-canvas — foundation only (context-limited session)
+- **Migration applied live + verified in the same statement:** email_sequences +is_active/canvas_zoom/canvas_offset; sequence_steps +node_type/pos_x/pos_y/config; sequence_edges table (RLS, `(select auth.uid())`); sequence_enrollments +current_node_id.
+- **Backfill executed:** is_active mirrored from status; channels mapped to node_type; steps positioned vertically (280, (order+1)*160); a trigger node prepended per sequence (step_order −1, subject/body '' for NOT NULL); default-branch edges chained via lead(); enrollments' current_step mapped to current_node_id. Existing linear sequences are now valid straight-chain graphs — nothing lost.
+- **Part 1 rename done:** all user-facing "N8N" → "Email Automation" (nav ×2, heading, copy). appStep key 'N8N' kept internally; remaining n8n strings are the separate n8n-API-integration feature (intentional).
+- **NOT built this session (context window exhausted — start a fresh session for):** Part 2 canvas (pan/zoom/drag/SVG edges/palette/config panel), Part 3 resolveNextNode graph walker + runner v4 (runner must also start honoring is_active), Part 4 enrollment overlay/stats, Part 5 gallery + templates + mobile fallback. Data model is fully ready; UI still renders the linear timeline (which keeps working against the same rows).
