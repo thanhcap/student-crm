@@ -24,7 +24,7 @@ function ConfirmDialog({ isOpen, title, message, confirmLabel, confirmVariant = 
 
   return (
     <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 dark:border-gray-700 overflow-hidden animate-in zoom-in-95 duration-200 p-6 sm:p-8">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 dark:border-gray-800 overflow-hidden animate-in zoom-in-95 duration-200 p-6 sm:p-8">
         <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">{title}</h3>
         <p className="text-[13px] text-gray-500 mt-2 leading-relaxed">{message}</p>
         <div className="flex gap-3 pt-6 mt-6 border-t border-gray-100">
@@ -91,21 +91,34 @@ const DEAL_STAGES = ['Prospect', 'Proposal', 'Negotiation', 'Contract Sent', 'Wo
 const TAG_COLORS = ['#6366F1', '#10B981', '#F59E0B', '#EF4444', '#3B82F6', '#8B5CF6', '#EC4899', '#6B7280'];
 const CLIENT_SOURCES = ['LinkedIn', 'Referral', 'Website', 'Cold Outreach', 'Event', 'Other'];
 const WEBHOOK_EVENTS = [
-  { value: 'client.created', label: 'Client created' },
-  { value: 'client.updated', label: 'Client updated' },
-  { value: 'client.deleted', label: 'Client deleted' },
+  { value: 'client.created', label: 'Relationship created' },
+  { value: 'client.updated', label: 'Relationship updated' },
+  { value: 'client.deleted', label: 'Relationship deleted' },
   { value: 'deal.created', label: 'Deal created' },
   { value: 'deal.won', label: 'Deal won' },
   { value: 'deal.lost', label: 'Deal lost' },
   { value: 'task.completed', label: 'Task completed' },
   { value: 'activity.logged', label: 'Activity logged' },
+  { value: 'deal.updated', label: 'Deal updated' },
+  { value: 'task.created', label: 'Task created' },
+  { value: 'sequence.enrolled', label: 'Sequence enrolled' },
+  { value: 'sequence.completed', label: 'Sequence completed' },
+  { value: 'email.replied', label: 'Email replied (auto-stop)' },
 ];
 const DEFAULT_ACTIVITY_TEMPLATES = [
-  { name: 'Quick call', type: 'Call', desc: 'Spoke for 15 minutes. Discussed next steps.', outcome: 'Positive' },
-  { name: 'Follow-up email', type: 'Email', desc: 'Sent follow-up email after last meeting.', outcome: 'Neutral' },
-  { name: 'Intro meeting', type: 'Meeting', desc: '30-minute intro meeting. Client is interested.', outcome: 'Positive' },
-  { name: 'Voicemail', type: 'Note', desc: 'Left voicemail. Will try again next week.', outcome: 'No response' },
+  { name: 'Quick call', type: 'Call', desc: 'Spoke for 15 minutes. Discussed next steps.' },
+  { name: 'Follow-up email', type: 'Email', desc: 'Sent follow-up email after last meeting.' },
+  { name: 'Intro meeting', type: 'Meeting', desc: '30-minute intro meeting. They are interested.' },
+  { name: 'Voicemail', type: 'Note', desc: 'Left voicemail. Will try again next week.' },
 ];
+
+// PART B — email compose URLs (opens the user's own mail client in a new tab)
+function buildGmailUrl(to, subject, body) {
+  return `https://mail.google.com/mail/?${new URLSearchParams({ view: 'cm', fs: '1', to, su: subject, body })}`;
+}
+function buildMailtoUrl(to, subject, body) {
+  return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
 
 // Lead score: 0-100, computed client-side (Feature 6)
 function computeLeadScore(client, clientActivities, clientTasks, clientDeals) {
@@ -129,7 +142,7 @@ function ScoreBar({ score }) {
   return (
     <div className="flex items-center gap-2 w-24">
       <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-        <div className={`h-full rounded-full ${col}`} style={{ width: `${score}%` }} />
+        <div className={`anim-grow-w h-full rounded-full ${col}`} style={{ width: `${score}%` }} />
       </div>
       <span className="text-[11px] font-bold text-gray-500 w-5 text-right">{score}</span>
     </div>
@@ -141,16 +154,181 @@ function TagPill({ tag, onRemove }) {
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
       style={{ backgroundColor: tag.color + '22', color: tag.color, border: `1px solid ${tag.color}44` }}>
       {tag.name}
-      {onRemove && <button onClick={() => onRemove(tag.id)} className="hover:opacity-70 ml-0.5">Ã—</button>}
+      {onRemove && <button onClick={() => onRemove(tag.id)} className="hover:opacity-70 ml-0.5">×</button>}
+    </span>
+  );
+}
+
+// ==========================================
+// LGM UPGRADES — sequence state machine (CLIENT COPY).
+// ⚠ KEEP BEHAVIORALLY IDENTICAL to supabase/functions/sequence-runner/_shared/sequence-logic.ts
+// ==========================================
+const SEQ_CHANNELS = [
+  { value: 'email', label: '✉️ Email' },
+  { value: 'linkedin_view', label: '🔗 LinkedIn view' },
+  { value: 'linkedin_connect', label: '🤝 LinkedIn connect' },
+  { value: 'call', label: '📞 Call' },
+  { value: 'manual_task', label: '✅ Manual task' },
+];
+const SEQ_CONDITIONS = [
+  { value: 'always', label: 'Always send' },
+  { value: 'if_no_reply', label: 'Only if no reply yet' },
+  { value: 'if_no_open', label: 'Only if not opened' },
+  { value: 'if_opened', label: 'Only if opened, no reply' },
+];
+const CHANNEL_TASK_LABEL = { linkedin_view: 'LinkedIn: view profile of', linkedin_connect: 'LinkedIn: connect with', call: 'Call', manual_task: 'Task for' };
+
+function stepConditionMet(step, enrollment, sends) {
+  const cond = step.condition || 'always';
+  if (cond === 'always') return true;
+  const prior = sends.filter(s => s.enrollment_id === enrollment.id);
+  const replied = prior.some(s => s.replied_at);
+  const opened = prior.some(s => s.opened_at);
+  if (cond === 'if_no_reply') return !replied;
+  if (cond === 'if_no_open') return !opened;
+  if (cond === 'if_opened') return opened && !replied;
+  return true;
+}
+function resolveDueStep(enrollment, steps, sends) {
+  let idx = enrollment.current_step;
+  while (idx < steps.length) {
+    if (stepConditionMet(steps[idx], enrollment, sends)) return { step: steps[idx], index: idx };
+    idx++;
+  }
+  return null;
+}
+function pickSubjectVariant(step, enrollment) {
+  if (step.subject_b && String(step.subject_b).trim()) {
+    return enrollment.id % 2 === 0 ? { subject: step.subject, variant: 'A' } : { subject: step.subject_b, variant: 'B' };
+  }
+  return { subject: step.subject, variant: null };
+}
+
+// Country/region combobox source — full country list, rendered as a <datalist>
+// so every country field supports type-to-filter AND click-to-browse.
+const COUNTRY_LIST = ['Afghanistan','Albania','Algeria','Andorra','Angola','Antigua and Barbuda','Argentina','Armenia','Australia','Austria','Azerbaijan','Bahamas','Bahrain','Bangladesh','Barbados','Belarus','Belgium','Belize','Benin','Bhutan','Bolivia','Bosnia and Herzegovina','Botswana','Brazil','Brunei','Bulgaria','Burkina Faso','Burundi','Cabo Verde','Cambodia','Cameroon','Canada','Central African Republic','Chad','Chile','China','Colombia','Comoros','Congo (DRC)','Congo (Republic)','Costa Rica','Croatia','Cuba','Cyprus','Czechia','Denmark','Djibouti','Dominica','Dominican Republic','Ecuador','Egypt','El Salvador','Equatorial Guinea','Eritrea','Estonia','Eswatini','Ethiopia','Fiji','Finland','France','Gabon','Gambia','Georgia','Germany','Ghana','Greece','Grenada','Guatemala','Guinea','Guinea-Bissau','Guyana','Haiti','Honduras','Hong Kong','Hungary','Iceland','India','Indonesia','Iran','Iraq','Ireland','Israel','Italy','Ivory Coast','Jamaica','Japan','Jordan','Kazakhstan','Kenya','Kiribati','Kosovo','Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Lesotho','Liberia','Libya','Liechtenstein','Lithuania','Luxembourg','Macau','Madagascar','Malawi','Malaysia','Maldives','Mali','Malta','Marshall Islands','Mauritania','Mauritius','Mexico','Micronesia','Moldova','Monaco','Mongolia','Montenegro','Morocco','Mozambique','Myanmar','Namibia','Nauru','Nepal','Netherlands','New Zealand','Nicaragua','Niger','Nigeria','North Korea','North Macedonia','Norway','Oman','Pakistan','Palau','Palestine','Panama','Papua New Guinea','Paraguay','Peru','Philippines','Poland','Portugal','Qatar','Romania','Russia','Rwanda','Saint Kitts and Nevis','Saint Lucia','Saint Vincent and the Grenadines','Samoa','San Marino','Sao Tome and Principe','Saudi Arabia','Senegal','Serbia','Seychelles','Sierra Leone','Singapore','Slovakia','Slovenia','Solomon Islands','Somalia','South Africa','South Korea','South Sudan','Spain','Sri Lanka','Sudan','Suriname','Sweden','Switzerland','Syria','Taiwan','Tajikistan','Tanzania','Thailand','Timor-Leste','Togo','Tonga','Trinidad and Tobago','Tunisia','Turkey','Turkmenistan','Tuvalu','Uganda','Ukraine','United Arab Emirates','United Kingdom','United States','Uruguay','Uzbekistan','Vanuatu','Vatican City','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe'];
+
+// G11 — one-click automation recipes (pre-configured automation_rules rows)
+const AUTOMATION_RECIPES = [
+  {
+    name: 'Remind me 3 days before a deal close date',
+    desc: 'Sends a notification when an open deal is 3 days from closing.',
+    note: 'Evaluated by the daily job',
+    rule: { trigger_type: 'deal_close_approaching', trigger_value: '3', action_type: 'send_notification', action_value: { message: 'A deal closes in 3 days — check in.' } },
+  },
+  {
+    name: 'LinkedIn relationships → High priority',
+    desc: 'New relationships sourced from LinkedIn are automatically set to High priority.',
+    note: 'Runs instantly on add',
+    rule: { trigger_type: 'source_is', trigger_value: 'LinkedIn', action_type: 'set_priority', action_value: { priority: 'High' } },
+  },
+  {
+    name: 'Alert at 30 days without contact',
+    desc: 'Notifies you when a relationship goes 30 days without any logged activity.',
+    note: 'Evaluated by the daily job',
+    rule: { trigger_type: 'no_activity_days', trigger_value: '30', action_type: 'send_notification', action_value: { message: 'A relationship has gone 30 days without contact.' } },
+  },
+];
+
+// G17 — company logo via Google's public favicon endpoint (builds on Part F's company_url)
+function companyFaviconUrl(companyUrl, size = 64) {
+  if (!companyUrl) return null;
+  try {
+    const host = new URL(companyUrl.startsWith('http') ? companyUrl : `https://${companyUrl}`).hostname;
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${size}`;
+  } catch { return null; }
+}
+
+// G20 — multi-currency (static rates, display-only directional context)
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'VND', 'JPY', 'AUD', 'CAD'];
+const FX_TO_USD = { USD: 1, EUR: 1.09, GBP: 1.27, VND: 0.000039, JPY: 0.0067, AUD: 0.66, CAD: 0.73 };
+const CURRENCY_SYMBOL = { USD: '$', EUR: '€', GBP: '£', VND: '₫', JPY: '¥', AUD: 'A$', CAD: 'C$' };
+const toUSD = (value, currency) => (parseFloat(value) || 0) * (FX_TO_USD[currency || 'USD'] ?? 1);
+const fmtCurrency = (n, cur) => `${CURRENCY_SYMBOL[cur || 'USD'] || '$'}${(parseFloat(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+// PART E — stage accent colors (kanban card left borders)
+const STAGE_COLORS = {
+  New: '#3B82F6', Contacted: '#F97316', Engaged: '#6366F1', Active: '#22C55E', Inactive: '#9CA3AF',
+  Prospect: '#9CA3AF', Proposal: '#3B82F6', Negotiation: '#F59E0B', 'Contract Sent': '#8B5CF6', Won: '#22C55E', Lost: '#EF4444',
+};
+
+// PART E — reusable empty state with abstract inline-SVG illustration
+function EmptyState({ title, desc, ctaLabel, onCta }) {
+  return (
+    <div className="flex flex-col items-center text-center py-10 px-6">
+      <svg viewBox="0 0 120 80" className="w-28 h-20 mb-4 text-gray-200 dark:text-gray-700" fill="none" aria-hidden="true">
+        <rect x="18" y="14" width="84" height="14" rx="7" fill="currentColor" opacity="0.6" />
+        <rect x="18" y="34" width="60" height="14" rx="7" fill="currentColor" />
+        <rect x="18" y="54" width="72" height="14" rx="7" fill="currentColor" opacity="0.4" />
+        <circle cx="104" cy="61" r="12" fill="currentColor" opacity="0.8" />
+        <path d="M100 61l3 3 5-6" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <p className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">{title}</p>
+      {desc && <p className="text-[13px] text-gray-400 mt-1 max-w-xs leading-relaxed">{desc}</p>}
+      {ctaLabel && onCta && (
+        <button onClick={onCta} className="mt-4 px-4 py-2 text-[13px] font-semibold text-white dark:text-gray-900 bg-gray-900 dark:bg-white rounded-xl hover:opacity-90 shadow-sm transition-opacity">{ctaLabel}</button>
+      )}
+    </div>
+  );
+}
+
+// PART E — skeleton loading rows (replaces bare "Loading..." text)
+function SkeletonRows({ rows = 5 }) {
+  return (
+    <div className="p-6 space-y-4" aria-busy="true" aria-label="Loading">
+      {[...Array(rows)].map((_, i) => (
+        <div key={i} className="flex items-center gap-4 animate-pulse">
+          <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 shrink-0" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 rounded-full bg-gray-100 dark:bg-gray-800" style={{ width: `${55 + ((i * 17) % 35)}%` }} />
+            <div className="h-2.5 rounded-full bg-gray-100 dark:bg-gray-800" style={{ width: `${30 + ((i * 23) % 30)}%` }} />
+          </div>
+          <div className="w-16 h-5 rounded-full bg-gray-100 dark:bg-gray-800 shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// PART C2 — delta badge vs previous period
+function DeltaBadge({ current, prev }) {
+  if (prev == null) return null;
+  if (prev === 0 && current === 0) return <span className="text-[10px] font-semibold text-gray-400 block mt-0.5">— no change</span>;
+  const pct = prev === 0 ? 100 : Math.round(((current - prev) / Math.abs(prev)) * 100);
+  if (pct === 0) return <span className="text-[10px] font-semibold text-gray-400 block mt-0.5">— 0% vs last period</span>;
+  const up = pct > 0;
+  return (
+    <span className={`text-[10px] font-bold block mt-0.5 ${up ? 'text-green-600' : 'text-red-500'}`}>
+      {up ? '▲' : '▼'} {Math.abs(pct)}% vs last period
     </span>
   );
 }
 
 function formatFileSize(bytes) {
-  if (bytes == null) return 'â€”';
+  if (bytes == null) return '—';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Animations â€” number counts up instead of snapping (respects reduced motion)
+function CountUp({ value, suffix = '' }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const target = Number(value) || 0;
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setN(target); return; }
+    let raf;
+    const t0 = performance.now();
+    const dur = 600;
+    const tick = (t) => {
+      const p = Math.min((t - t0) / dur, 1);
+      setN(Math.round(target * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{n}{suffix}</>;
 }
 
 export default function App() {
@@ -196,6 +374,10 @@ export default function App() {
   const [clientLinkedin, setClientLinkedin] = useState('');
   const [clientBirthday, setClientBirthday] = useState('');
   const [clientRelationship, setClientRelationship] = useState('Medium');
+  // PART F — company fields
+  const [clientCompanyName, setClientCompanyName] = useState('');
+  const [clientCompanyUrl, setClientCompanyUrl] = useState('');
+  const [clientReferredBy, setClientReferredBy] = useState(''); // G18
   const [crmErrorMessage, setCrmErrorMessage] = useState('');
 
   // TASK STATES
@@ -245,8 +427,11 @@ export default function App() {
   const [activityType, setActivityType] = useState('Note');
   const [activityDesc, setActivityDesc] = useState('');
   const [activityDate, setActivityDate] = useState(new Date().toISOString().split('T')[0]);
-  const [activityOutcome, setActivityOutcome] = useState('Neutral');
-  
+
+  // G3 — voice memo quick-log (Web Speech API, browser-native)
+  const [voiceListening, setVoiceListening] = useState(false);
+  const recognitionRef = useRef(null);
+
   const [activityFilterType, setActivityFilterType] = useState('All');
   const [editingActivityId, setEditingActivityId] = useState(null);
   const [editingActivityDesc, setEditingActivityDesc] = useState('');
@@ -270,7 +455,7 @@ export default function App() {
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', confirmLabel: '', confirmVariant: 'primary', isLoading: false, onConfirm: null });
   const [toasts, setToasts] = useState([]);
 
-  // FEATURE 1 â€” DEALS PIPELINE STATES
+  // FEATURE 1 — DEALS PIPELINE STATES
   const [deals, setDeals] = useState([]);
   const [showDealForm, setShowDealForm] = useState(false);
   const [editingDeal, setEditingDeal] = useState(null);
@@ -281,52 +466,62 @@ export default function App() {
   const [dealCloseDate, setDealCloseDate] = useState('');
   const [dealNotes, setDealNotes] = useState('');
   const [dealClientId, setDealClientId] = useState('');
+  const [dealCurrency, setDealCurrency] = useState('USD'); // G20
+  // G19 — recurring revenue fields
+  const [dealIsRecurring, setDealIsRecurring] = useState(false);
+  const [dealBillingCycle, setDealBillingCycle] = useState('monthly');
+  const [dealRenewalDate, setDealRenewalDate] = useState('');
   const [dealSaving, setDealSaving] = useState(false);
 
-  // FEATURE 2 â€” AI SUMMARY STATES
-  const [aiSummary, setAiSummary] = useState('');
-  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
-  const [aiSummaryClientId, setAiSummaryClientId] = useState(null);
-
-  // FEATURE 3 â€” REPORTS STATE
+  // FEATURE 3 — REPORTS STATE
   const [reportRange, setReportRange] = useState('30');
 
-  // FEATURE 4 â€” EMAIL COMPOSER STATES
+  // PART C — CUSTOM REPORTS STATES
+  const [customDimension, setCustomDimension] = useState('Stage');
+  const [customMetric, setCustomMetric] = useState('Count');
+  const [customDateGrouping, setCustomDateGrouping] = useState('month');
+  const [customReports, setCustomReports] = useState([]);
+  const [savingReportName, setSavingReportName] = useState(null); // null = hidden, '' = open input
+  const [compareReports, setCompareReports] = useState(false); // C2 toggle
+  const [dealsStageFilter, setDealsStageFilter] = useState(''); // C3 drill-down target on Deals page
+
+  // FEATURE 4 — EMAIL COMPOSER STATES
   const [showEmailComposer, setShowEmailComposer] = useState(false);
   const [emailTo, setEmailTo] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
-  const [emailSending, setEmailSending] = useState(false);
+  // PART B — 'gmail' opens a Gmail compose tab, 'mailto' hands off to the default mail app
+  const [emailProvider, setEmailProvider] = useState('gmail');
   const [emailTemplates, setEmailTemplates] = useState([]);
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [templateName, setTemplateName] = useState('');
   const [templateSubject, setTemplateSubject] = useState('');
   const [templateBody, setTemplateBody] = useState('');
 
-  // FEATURE 5 â€” AUTOMATION RULES STATES
+  // FEATURE 5 — AUTOMATION RULES STATES
   const [automationRules, setAutomationRules] = useState([]);
   const [showRuleForm, setShowRuleForm] = useState(false);
   const [newRule, setNewRule] = useState({ name: '', triggerType: 'stage_change', triggerValue: '', actionType: 'create_task', actionValue: {} });
 
-  // FEATURE 7 â€” FILE ATTACHMENTS STATES
+  // FEATURE 7 — FILE ATTACHMENTS STATES
   const [clientFiles, setClientFiles] = useState([]);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [activeProfileTab, setActiveProfileTab] = useState('activity');
   const fileUploadRef = useRef(null);
 
-  // FEATURE 8 â€” CALENDAR STATES
+  // FEATURE 8 — CALENDAR STATES
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [calendarView, setCalendarView] = useState('month');
   const [selectedCalendarDay, setSelectedCalendarDay] = useState(null);
 
-  // FEATURE 9 â€” TAGS STATES
+  // FEATURE 9 — TAGS STATES
   const [tags, setTags] = useState([]);
   const [clientTagMap, setClientTagMap] = useState({});
   const [filterTags, setFilterTags] = useState([]);
   const [newTagName, setNewTagName] = useState('');
   const [newTagColor, setNewTagColor] = useState('#6366F1');
 
-  // FEATURE 10 â€” TEAM WORKSPACE STATES
+  // FEATURE 10 — TEAM WORKSPACE STATES
   const [workspace, setWorkspace] = useState(null);
   const [workspaceMembers, setWorkspaceMembers] = useState([]);
   const [myRole, setMyRole] = useState('owner');
@@ -334,69 +529,98 @@ export default function App() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
 
-  // FEATURE 11 â€” WEBHOOKS STATES
+  // N8N — EMAIL SEQUENCE WORKFLOW STATES
+  const [sequences, setSequences] = useState([]);
+  const [sequenceSteps, setSequenceSteps] = useState([]);
+  const [sequenceEnrollments, setSequenceEnrollments] = useState([]);
+  const [newSeqName, setNewSeqName] = useState('');
+  const [newSeqTrigger, setNewSeqTrigger] = useState('manual');
+  const [newSeqTriggerValue, setNewSeqTriggerValue] = useState('');
+  const [seqStepDraft, setSeqStepDraft] = useState(null); // { sequenceId, wait_days, subject, body }
+  const [enrollPick, setEnrollPick] = useState({}); // sequenceId -> clientId
+
+  // n8n & API INTEGRATION STATES
+  const [apiKeys, setApiKeys] = useState([]);
+  const [integrationLogs, setIntegrationLogs] = useState([]);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyRaw, setNewKeyRaw] = useState(null); // shown ONCE
+  const [logDirFilter, setLogDirFilter] = useState('all');
+  const [n8nHook, setN8nHook] = useState({ url: '', events: [] });
+
+  // G1 — GMAIL SYNC STATES
+  const [gmailConn, setGmailConn] = useState(null);
+  const [gmailSyncing, setGmailSyncing] = useState(false);
+
+  // LGM UPGRADES — automation states
+  const [sequenceSends, setSequenceSends] = useState([]);
+  const [emailSettings, setEmailSettings] = useState(null); // null = no row yet
+  const [stepEdit, setStepEdit] = useState(null); // inline editor: full step draft
+  const [enrollMulti, setEnrollMulti] = useState({}); // sequenceId -> Set-ish {clientId: true}
+  const repliesCheckedRef = useRef(false);
+
+  // FEATURE 11 — WEBHOOKS STATES
   const [webhooks, setWebhooks] = useState([]);
   const [showWebhookForm, setShowWebhookForm] = useState(false);
   const [newWebhook, setNewWebhook] = useState({ name: '', url: '', events: [], secret: '' });
 
-  // FEATURE 12 â€” MOBILE NAV STATE
+  // FEATURE 12 — MOBILE NAV STATE
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // FEATURE 13 â€” DARK MODE STATE
+  // FEATURE 13 — DARK MODE STATE
   const [darkMode, setDarkMode] = useState(false);
 
-  // FEATURE 14 â€” DUPLICATE DETECTION STATE
+  // FEATURE 14 — DUPLICATE DETECTION STATE
   const [duplicateWarning, setDuplicateWarning] = useState(null);
   const [forceSaveDuplicate, setForceSaveDuplicate] = useState(false);
 
-  // FEATURE 15 â€” QUICK NOTES STATES
+  // FEATURE 15 — QUICK NOTES STATES
   const [quickNoteValue, setQuickNoteValue] = useState('');
   const [quickNoteSaved, setQuickNoteSaved] = useState(false);
   const [quickNoteSaving, setQuickNoteSaving] = useState(false);
 
-  // FEATURE 16 â€” IMPORT PREVIEW STATES
+  // FEATURE 16 — IMPORT PREVIEW STATES
   const [importPreviewData, setImportPreviewData] = useState([]);
   const [showImportPreview, setShowImportPreview] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
 
-  // FEATURE 17 â€” STREAK STATES
+  // FEATURE 17 — STREAK STATES
   const [streakData, setStreakData] = useState({ current: 0, longest: 0, lastActive: null });
 
-  // FEATURE 18 â€” BULK EMAIL STATES
+  // FEATURE 18 — BULK EMAIL STATES
   const [showBulkEmailModal, setShowBulkEmailModal] = useState(false);
   const [bulkEmailSubject, setBulkEmailSubject] = useState('');
   const [bulkEmailBody, setBulkEmailBody] = useState('');
   const [bulkEmailSending, setBulkEmailSending] = useState(false);
   const [bulkEmailProgress, setBulkEmailProgress] = useState('');
 
-  // FEATURE 19 â€” HEALTH FILTER STATE
+  // FEATURE 19 — HEALTH FILTER STATE
   const [filterHealth, setFilterHealth] = useState('');
 
-  // FEATURE 20 â€” RECURRING TASK FORM STATES
+  // FEATURE 20 — RECURRING TASK FORM STATES
   const [newTaskRecurrence, setNewTaskRecurrence] = useState('');
   const [newTaskRecurrenceEnd, setNewTaskRecurrenceEnd] = useState('');
 
-  // FEATURE 22 â€” ACTIVITY TEMPLATES STATES
+  // FEATURE 22 — ACTIVITY TEMPLATES STATES
   const [activityTemplates, setActivityTemplates] = useState(DEFAULT_ACTIVITY_TEMPLATES);
   const [savingTemplateName, setSavingTemplateName] = useState(null); // null = hidden, '' = open input
 
-  // FEATURE 23 â€” FOLLOW-UP SUGGESTION STATES
+  // FEATURE 23 — FOLLOW-UP SUGGESTION STATES
   const [followUpSuggestion, setFollowUpSuggestion] = useState('');
   const [followUpLoading, setFollowUpLoading] = useState(false);
 
-  // FEATURE 24 â€” CLIENT TIMELINE STATE
+  // FEATURE 24 — CLIENT TIMELINE STATE
   const [timelineClient, setTimelineClient] = useState(null);
 
-  // FEATURE 25 â€” SOURCE FORM STATE
+  // FEATURE 25 — SOURCE FORM STATE
   const [clientSource, setClientSource] = useState('');
 
-  // FEATURE 26 â€” GOALS STATES
+  // FEATURE 26 — GOALS STATES
   const [goals, setGoals] = useState([]);
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [goalType, setGoalType] = useState('new_clients');
   const [goalTarget, setGoalTarget] = useState(10);
 
-  // FEATURE 27 â€” CLIENT MERGE STATES
+  // FEATURE 27 — CLIENT MERGE STATES
   const [showMergeTool, setShowMergeTool] = useState(false);
   const [mergeSource, setMergeSource] = useState(null);
   const [mergeTarget, setMergeTarget] = useState(null);
@@ -405,11 +629,12 @@ export default function App() {
   const [mergeFieldChoices, setMergeFieldChoices] = useState({});
   const [mergeLoading, setMergeLoading] = useState(false);
 
-  // FEATURE 28 â€” KEYBOARD SHORTCUTS STATE
+  // FEATURE 28 — KEYBOARD SHORTCUTS STATE
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
 
-  // FEATURE 29 â€” ADVANCED FILTERS & SAVED VIEWS STATES
+  // FEATURE 29 — ADVANCED FILTERS & SAVED VIEWS STATES
   const [filterDateAdded, setFilterDateAdded] = useState('');
+  const [filterSource, setFilterSource] = useState(''); // PART C3 — drill-down from Reports needs a source filter
   const [filterHasDeals, setFilterHasDeals] = useState(false);
   const [filterHasActivity, setFilterHasActivity] = useState('');
   const [filterScore, setFilterScore] = useState('');
@@ -417,7 +642,7 @@ export default function App() {
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [savingViewName, setSavingViewName] = useState(null); // null = hidden, '' = open input
 
-  // FEATURE 30 â€” ONBOARDING STATES
+  // FEATURE 30 — ONBOARDING STATES
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [dashboardExplored, setDashboardExplored] = useState(false);
 
@@ -481,7 +706,18 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // FEATURE 13 â€” Dark mode: init from localStorage, toggle root class
+  // PART B — email provider preference
+  useEffect(() => {
+    const saved = localStorage.getItem('crm_email_provider');
+    if (saved === 'gmail' || saved === 'mailto') setEmailProvider(saved);
+  }, []);
+
+  function setEmailProviderPersist(p) {
+    setEmailProvider(p);
+    localStorage.setItem('crm_email_provider', p);
+  }
+
+  // FEATURE 13 — Dark mode: init from localStorage, toggle root class
   useEffect(() => {
     const saved = localStorage.getItem('crm_dark_mode') === 'true';
     setDarkMode(saved);
@@ -495,7 +731,7 @@ export default function App() {
     localStorage.setItem('crm_dark_mode', String(next));
   }
 
-  // FEATURE 22 â€” Load saved activity templates, merge with defaults (dedupe by name)
+  // FEATURE 22 — Load saved activity templates, merge with defaults (dedupe by name)
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('crm_activity_templates') || '[]');
@@ -506,10 +742,10 @@ export default function App() {
           return merged;
         });
       }
-    } catch { /* corrupt localStorage â€” ignore */ }
+    } catch { /* corrupt localStorage — ignore */ }
   }, []);
 
-  // FEATURE 30 â€” Onboarding: dismissed flag + "explored dashboard" step
+  // FEATURE 30 — Onboarding: dismissed flag + "explored dashboard" step
   useEffect(() => {
     setOnboardingDismissed(localStorage.getItem('crm_onboarding_dismissed') === 'true');
     setDashboardExplored(localStorage.getItem('crm_dashboard_explored') === 'true');
@@ -524,7 +760,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [appStep, dashboardExplored]);
 
-  // FEATURE 14 â€” Duplicate email detection (debounced 500ms)
+  // FEATURE 14 — Duplicate email detection (debounced 500ms)
   useEffect(() => {
     const t = setTimeout(() => {
       if (!clientEmail) { setDuplicateWarning(null); setForceSaveDuplicate(false); return; }
@@ -537,14 +773,13 @@ export default function App() {
     return () => clearTimeout(t);
   }, [clientEmail, clients, editingClient]);
 
-  // FEATURE 15 â€” Quick note: sync value on client open, debounced auto-save (800ms)
+  // FEATURE 15 — Quick note: sync value on client open, debounced auto-save (800ms)
   useEffect(() => {
     if (viewingClient) {
       setQuickNoteValue(viewingClient.quick_note || '');
       setQuickNoteSaved(false);
       setActiveProfileTab('activity');
       fetchClientFiles(viewingClient.id);
-      setAiSummary(prev => (aiSummaryClientId === viewingClient.id ? prev : ''));
       setFollowUpSuggestion('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -568,7 +803,15 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quickNoteValue]);
 
-  // FEATURE 23 â€” Smart follow-up suggestion (only when last activity >14 days or none)
+  // UPGRADE 2 — run the reply-stop pass once after data loads
+  useEffect(() => {
+    if (repliesCheckedRef.current || !user || activities.length === 0 || sequenceEnrollments.length === 0) return;
+    repliesCheckedRef.current = true;
+    detectRepliesAndStopSequences(activities, sequenceEnrollments, sequenceSends);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activities, sequenceEnrollments, user]);
+
+  // FEATURE 23 — Smart follow-up suggestion (only when last activity >14 days or none)
   useEffect(() => {
     if (!viewingClient) return;
     const clientActs = activities.filter(a => a.client_id === viewingClient.id);
@@ -581,7 +824,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewingClient?.id]);
 
-  // FEATURE 28 â€” Keyboard shortcuts. Refs keep user/appStep current inside the
+  // FEATURE 28 — Keyboard shortcuts. Refs keep user/appStep current inside the
   // stable listener (the empty-dep effect would otherwise close over stale values).
   const userRef = useRef(user);
   const appStepRef = useRef(appStep);
@@ -661,8 +904,21 @@ export default function App() {
       fetchTags(session.user.id),
       fetchWebhooks(session.user.id),
       fetchGoals(session.user.id),
-      fetchSavedViews(session.user.id)
+      fetchSavedViews(session.user.id),
+      fetchCustomReports(session.user.id),
+      fetchSequences(session.user.id),
+      fetchGmailConn(session.user.id),
+      fetchIntegration(session.user.id)
     ]);
+    // G1 — post-OAuth landing feedback
+    const qp = new URLSearchParams(window.location.search);
+    if (qp.get('gmail') === 'connected') {
+      showToast('Gmail connected — emails will sync as activities.', 'success');
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (qp.get('gmail_error')) {
+      showToast(`Gmail connect failed: ${qp.get('gmail_error')}`, 'error');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
     // Workspace depends on the session user; invite acceptance needs the email
     await fetchWorkspace(session.user.id, session.user.email);
   }
@@ -719,13 +975,85 @@ export default function App() {
     if (data) setSavedViews(data);
   }
 
+  // PART C4 — saved custom reports
+  async function fetchCustomReports(userId) {
+    const { data } = await supabase.from('custom_reports').select('*').eq('user_id', userId).order('created_at');
+    if (data) setCustomReports(data);
+  }
+
+  async function handleSaveCustomReport(name) {
+    if (!name.trim()) return;
+    const config = { dimension: customDimension, metric: customMetric, dateGrouping: customDateGrouping, range: reportRange };
+    const { data, error } = await supabase.from('custom_reports').insert([{ user_id: user.id, name: name.trim(), config }]).select();
+    if (!error && data) {
+      setCustomReports(prev => [...prev, data[0]]);
+      setSavingReportName(null);
+      showToast('Report saved.', 'success');
+    } else showToast(`Error saving report: ${error?.message}`, 'error');
+  }
+
+  function applyCustomReport(r) {
+    const c = r.config || {};
+    if (c.dimension) setCustomDimension(c.dimension);
+    if (c.metric) setCustomMetric(c.metric);
+    if (c.dateGrouping) setCustomDateGrouping(c.dateGrouping);
+    if (c.range) setReportRange(String(c.range));
+  }
+
+  function handleDeleteCustomReport(id) {
+    showConfirm('Delete Report', 'Delete this saved report?', 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('custom_reports').delete().eq('id', id);
+        if (!error) setCustomReports(prev => prev.filter(r => r.id !== id));
+      });
+  }
+
+  // PART C5 — cycle email frequency: off → weekly → monthly → off.
+  // NOTE: only stores the flag; actual delivery needs a scheduled Edge Function (see CHANGELOG).
+  async function handleCycleReportFrequency(r) {
+    const next = !r.send_frequency ? 'weekly' : r.send_frequency === 'weekly' ? 'monthly' : null;
+    const { error } = await supabase.from('custom_reports').update({ send_frequency: next }).eq('id', r.id);
+    if (!error) {
+      setCustomReports(prev => prev.map(x => x.id === r.id ? { ...x, send_frequency: next } : x));
+      showToast(next ? `Email schedule set to ${next} (delivery wiring pending — see changelog).` : 'Email schedule turned off.', 'success');
+    } else showToast(`Error: ${error.message}`, 'error');
+  }
+
+  // PART C5 — client-side CSV export of the currently displayed custom report
+  function exportCustomReportCSV() {
+    const rows = [[customDimension, customMetric], ...customReportData.map(r => [
+      r.label,
+      customMetric === 'Avg Lead Score' ? r.value.toFixed(1) : r.value,
+    ])];
+    const csv = rows.map(row => row.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a'); link.href = url; link.setAttribute('download', 'custom_report.csv');
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  // PART C3 — drill from a custom-report row into the pre-filtered Relationships list
+  function drillCustomDimension(label) {
+    if (customDimension === 'Month Added') return; // no matching list filter
+    clearAllFilters();
+    if (customDimension === 'Stage') setFilterStatus(label);
+    if (customDimension === 'Priority') setFilterPriority(label);
+    if (customDimension === 'Source') setFilterSource(label);
+    if (customDimension === 'Tag') {
+      const t = tags.find(x => x.name === label);
+      if (t) setFilterTags([t.id]);
+    }
+    setAppStep('CLIENTS');
+  }
+
   async function fetchClientFiles(clientId) {
     const { data } = await supabase.from('client_files').select('*').eq('client_id', clientId).order('created_at', { ascending: false });
     if (data) setClientFiles(data);
   }
 
   // ==========================================
-  // FEATURE 10 â€” TEAM WORKSPACE
+  // FEATURE 10 — TEAM WORKSPACE
   // ==========================================
 
   async function fetchWorkspace(userId, userEmail) {
@@ -828,12 +1156,13 @@ export default function App() {
   const isViewer = workspace && myRole === 'viewer';
 
   // ==========================================
-  // FEATURE 1 â€” DEALS HANDLERS
+  // FEATURE 1 — DEALS HANDLERS
   // ==========================================
 
   function resetDealForm() {
     setDealTitle(''); setDealValue(''); setDealStage('Proposal'); setDealProbability(50);
-    setDealCloseDate(''); setDealNotes(''); setDealClientId(''); setEditingDeal(null);
+    setDealCloseDate(''); setDealNotes(''); setDealClientId(''); setDealCurrency('USD');
+    setDealIsRecurring(false); setDealBillingCycle('monthly'); setDealRenewalDate(''); setEditingDeal(null);
   }
 
   async function handleCreateDeal(e) {
@@ -845,11 +1174,17 @@ export default function App() {
       value: parseFloat(dealValue) || 0, stage: dealStage,
       probability: Math.max(0, Math.min(100, parseInt(dealProbability, 10) || 0)),
       close_date: dealCloseDate || null, notes: dealNotes || null,
+      currency: dealCurrency || 'USD', // G20
+      // G19
+      is_recurring: dealIsRecurring,
+      billing_cycle: dealIsRecurring ? dealBillingCycle : null,
+      renewal_date: dealIsRecurring ? (dealRenewalDate || null) : null,
     };
     if (editingDeal) {
       const { data, error } = await supabase.from('deals').update(payload).eq('id', editingDeal.id).select();
       if (!error && data) {
         setDeals(prev => prev.map(d => d.id === editingDeal.id ? data[0] : d));
+        dispatchWebhook('deal.updated', data[0]);
         showToast('Deal updated.', 'success');
         setShowDealForm(false); resetDealForm();
       } else showToast(`Error updating deal: ${error?.message}`, 'error');
@@ -893,43 +1228,21 @@ export default function App() {
     e.preventDefault();
     const idStr = e.dataTransfer.getData('text/deal-id');
     if (!idStr) return;
-    const deal = deals.find(d => d.id === parseInt(idStr, 10));
+    // deals.id is a uuid string — never parseInt it
+    const deal = deals.find(d => String(d.id) === idStr);
     if (deal && deal.stage !== targetStage) await handleUpdateDealStage(deal, targetStage);
   };
 
   // ==========================================
-  // FEATURE 2 â€” AI SUMMARY / FEATURE 23 â€” FOLLOW-UP
+  // FEATURE 2 — AI SUMMARY / FEATURE 23 — FOLLOW-UP
   // ==========================================
-
-  async function handleGenerateAISummary(client, force = false) {
-    if (!force && aiSummaryClientId === client.id && aiSummary) return; // cache per-client
-    setAiSummaryLoading(true); setAiSummaryClientId(client.id);
-    try {
-      const res = await fetch('/api/ai-summary', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientName: client.name,
-          activities: activities.filter(a => a.client_id === client.id),
-          tasks: tasks.filter(t => t.client_id === client.id),
-          deals: deals.filter(d => d.client_id === client.id),
-          notes: client.note_conversation,
-        }),
-      });
-      const { summary, error } = await res.json();
-      if (error) throw new Error(error);
-      setAiSummary(summary);
-    } catch (err) {
-      showToast(`AI summary failed: ${err.message}`, 'error');
-      setAiSummary('');
-    }
-    setAiSummaryLoading(false);
-  }
 
   async function generateFollowUpSuggestion(client, clientActs) {
     setFollowUpLoading(true);
     try {
-      const res = await fetch('/api/ai-summary', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/ai-summary`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
         body: JSON.stringify({
           clientName: client.name,
           activities: clientActs,
@@ -941,12 +1254,12 @@ export default function App() {
       });
       const { summary, error } = await res.json();
       if (!error && summary) setFollowUpSuggestion(summary);
-    } catch { /* silent â€” suggestion is best-effort */ }
+    } catch { /* silent — suggestion is best-effort */ }
     setFollowUpLoading(false);
   }
 
   // ==========================================
-  // FEATURE 4 â€” EMAIL COMPOSER / FEATURE 18 â€” BULK EMAIL
+  // FEATURE 4 — EMAIL COMPOSER / FEATURE 18 — BULK EMAIL
   // ==========================================
 
   function resolveMergeTags(str, client) {
@@ -954,36 +1267,38 @@ export default function App() {
       .replace(/{{name}}/g, client?.name || '')
       .replace(/{{email}}/g, client?.email || '')
       .replace(/{{phone}}/g, client?.phone_number || '')
-      .replace(/{{stage}}/g, client?.status || '');
+      .replace(/{{stage}}/g, client?.status || '')
+      .replace(/{{company}}/g, client?.company_name || ''); // LGM — mirrors the runner's mergeTags
   }
 
+  // PART B — default send path opens a real compose tab in the user's browser.
+  // (No RESEND_API_KEY is configured and /api/send-email does not exist, so the
+  // old fetch-based flow always failed; the opt-in "send automatically" link is
+  // intentionally omitted until Resend is actually set up.)
   async function handleSendEmail(e) {
     e.preventDefault();
     if (!emailTo || !emailSubject || !emailBody) return;
-    setEmailSending(true);
-    const res = await fetch('/api/send-email', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: emailTo,
-        subject: resolveMergeTags(emailSubject, viewingClient),
-        body: resolveMergeTags(emailBody, viewingClient),
-        fromName: profile.username || 'CRM',
-      }),
-    }).catch(() => null);
-    if (res && res.ok) {
-      if (viewingClient) {
-        const { data } = await supabase.from('activities').insert([{
-          client_id: viewingClient.id, user_id: user.id,
-          activity_type: 'Email', activity_date: new Date().toISOString().split('T')[0],
-          description: `Subject: ${resolveMergeTags(emailSubject, viewingClient)}\n\n${resolveMergeTags(emailBody, viewingClient)}`,
-          outcome: 'Neutral',
-        }]).select();
-        if (data) setActivities(prev => [data[0], ...prev]);
-      }
-      showToast('Email sent and logged.', 'success');
-      setShowEmailComposer(false); setEmailSubject(''); setEmailBody('');
-    } else showToast('Send failed.', 'error');
-    setEmailSending(false);
+    const subject = resolveMergeTags(emailSubject, viewingClient);
+    const body = resolveMergeTags(emailBody, viewingClient);
+
+    if (emailProvider === 'mailto') {
+      window.location.href = buildMailtoUrl(emailTo, subject, body);
+    } else {
+      const tab = window.open(buildGmailUrl(emailTo, subject, body), '_blank', 'noopener,noreferrer');
+      if (!tab) window.location.href = buildMailtoUrl(emailTo, subject, body);
+    }
+
+    if (viewingClient) {
+      const { data } = await supabase.from('activities').insert([{
+        client_id: viewingClient.id, user_id: user.id,
+        activity_type: 'Email', activity_date: new Date().toISOString().split('T')[0],
+        description: `Drafted — Subject: ${subject}\n\n${body}`,
+        // no outcome field — see Part A
+      }]).select();
+      if (data) setActivities(prev => [data[0], ...prev]);
+    }
+    showToast('Opened in a new tab — send from there.', 'success');
+    setShowEmailComposer(false); setEmailSubject(''); setEmailBody('');
   }
 
   async function handleSaveEmailTemplate(e) {
@@ -1016,44 +1331,46 @@ export default function App() {
       });
   }
 
+  // PART B — bulk flow opens one compose tab per recipient (300ms apart so the
+  // popup blocker doesn't treat the burst as spam).
   async function handleBulkSendEmail(e) {
     e.preventDefault();
     if (!bulkEmailSubject || !bulkEmailBody || selectedClientIds.length === 0) return;
     setBulkEmailSending(true);
-    let sent = 0;
+    let opened = 0, blocked = 0;
     const targets = clients.filter(c => selectedClientIds.includes(c.id) && c.email);
     for (let i = 0; i < targets.length; i++) {
       const c = targets[i];
-      setBulkEmailProgress(`Sending ${i + 1} of ${targets.length}...`);
-      // Sequential on purpose: avoids provider rate limits
-      const res = await fetch('/api/send-email', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: c.email,
-          subject: resolveMergeTags(bulkEmailSubject, c),
-          body: resolveMergeTags(bulkEmailBody, c),
-          fromName: profile.username || 'CRM',
-        }),
-      }).catch(() => null);
-      if (res && res.ok) {
-        sent++;
+      setBulkEmailProgress(`Opening tab ${i + 1} of ${targets.length}...`);
+      const subject = resolveMergeTags(bulkEmailSubject, c);
+      const body = resolveMergeTags(bulkEmailBody, c);
+      const url = emailProvider === 'mailto' ? buildMailtoUrl(c.email, subject, body) : buildGmailUrl(c.email, subject, body);
+      const tab = window.open(url, '_blank', 'noopener,noreferrer');
+      if (tab) {
+        opened++;
         const { data } = await supabase.from('activities').insert([{
           client_id: c.id, user_id: user.id, activity_type: 'Email',
           activity_date: new Date().toISOString().split('T')[0],
-          description: `Bulk email â€” Subject: ${resolveMergeTags(bulkEmailSubject, c)}`,
-          outcome: 'Neutral',
+          description: `Drafted bulk email — Subject: ${subject}`,
         }]).select();
         if (data) setActivities(prev => [data[0], ...prev]);
+      } else {
+        blocked++;
       }
+      if (i < targets.length - 1) await new Promise(r => setTimeout(r, 300));
     }
-    showToast(`Sent to ${sent} clients.`, 'success');
+    if (blocked > 0) {
+      showToast(`Opened ${opened} tab${opened === 1 ? '' : 's'} — ${blocked} blocked. Allow popups for this site and retry.`, 'error');
+    } else {
+      showToast(`Opened ${opened} compose tab${opened === 1 ? '' : 's'} — send each from there.`, 'success');
+    }
     setSelectedClientIds([]);
     setShowBulkEmailModal(false); setBulkEmailSubject(''); setBulkEmailBody(''); setBulkEmailProgress('');
     setBulkEmailSending(false);
   }
 
   // ==========================================
-  // FEATURE 5 â€” AUTOMATION RULES ENGINE
+  // FEATURE 5 — AUTOMATION RULES ENGINE
   // ==========================================
 
   async function executeAutomations(triggerType, triggerValue, clientId) {
@@ -1078,10 +1395,17 @@ export default function App() {
         }]);
         fetchNotifications(user.id);
       }
+      // G11 — set_priority action (used by the LinkedIn recipe)
+      if (rule.action_type === 'set_priority') {
+        const pr = rule.action_value?.priority || 'High';
+        await supabase.from('clients').update({ relationship: pr }).eq('id', clientId);
+        setClients(prev => prev.map(c => c.id === clientId ? { ...c, relationship: pr } : c));
+        showToast(`Automation: priority set to ${pr}.`, 'success');
+      }
       if (rule.action_type === 'change_stage') {
         await supabase.from('clients').update({ status: rule.action_value?.stage }).eq('id', clientId);
         setClients(prev => prev.map(c => c.id === clientId ? { ...c, status: rule.action_value.stage } : c));
-        showToast(`Automation: moved client to "${rule.action_value?.stage}".`, 'success');
+        showToast(`Automation: moved relationship to "${rule.action_value?.stage}".`, 'success');
       }
       if (rule.action_type === 'send_email') {
         const target = clients.find(c => c.id === clientId);
@@ -1102,6 +1426,394 @@ export default function App() {
         .eq('id', rule.id);
       setAutomationRules(prev => prev.map(r => r.id === rule.id ? { ...r, run_count: (r.run_count || 0) + 1 } : r));
     }
+  }
+
+  // ==========================================
+  // G1 — GMAIL SYNC
+  // ==========================================
+
+  async function fetchIntegration(userId) {
+    const [{ data: keys }, { data: logs }] = await Promise.all([
+      supabase.from('api_keys').select('id, name, key_prefix, scopes, last_used_at, revoked, created_at').eq('user_id', userId).order('created_at', { ascending: false }),
+      supabase.from('integration_logs').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(100),
+    ]);
+    if (keys) setApiKeys(keys);
+    if (logs) setIntegrationLogs(logs);
+  }
+
+  // Raw key shown once; only SHA-256 hash + prefix stored.
+  async function handleGenerateApiKey(e) {
+    e.preventDefault();
+    if (!newKeyName.trim()) return;
+    const bytes = new Uint8Array(16); crypto.getRandomValues(bytes);
+    const raw = 'n8n_' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+    const hash = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const { data, error } = await supabase.from('api_keys').insert([{
+      user_id: user.id, name: newKeyName.trim(), key_hash: hash, key_prefix: raw.slice(0, 8), scopes: ['read', 'write'],
+    }]).select('id, name, key_prefix, scopes, last_used_at, revoked, created_at');
+    if (!error && data) { setApiKeys(prev => [data[0], ...prev]); setNewKeyRaw(raw); setNewKeyName(''); }
+    else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  async function handleRevokeApiKey(k) {
+    const { error } = await supabase.from('api_keys').update({ revoked: true }).eq('id', k.id);
+    if (!error) setApiKeys(prev => prev.map(x => x.id === k.id ? { ...x, revoked: true } : x));
+  }
+
+  async function handleConnectN8n(e) {
+    e.preventDefault();
+    if (!n8nHook.url.trim() || n8nHook.events.length === 0) return;
+    const { data, error } = await supabase.from('webhooks').insert([{
+      user_id: user.id, name: 'n8n workflow', url: n8nHook.url.trim(), events: n8nHook.events,
+      secret: (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())).replace(/-/g, ''), enabled: true, provider: 'n8n',
+    }]).select();
+    if (!error && data) { setWebhooks(prev => [data[0], ...prev]); setN8nHook({ url: '', events: [] }); showToast('n8n webhook connected.', 'success'); }
+    else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  async function fetchGmailConn(userId) {
+    const { data } = await supabase.from('gmail_connections')
+      .select('id, email_address, connected_at, last_synced_at, revoked_at, needs_reauth')
+      .eq('user_id', userId).is('revoked_at', null).maybeSingle();
+    setGmailConn(data || null);
+  }
+
+  function handleConnectGmail() {
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    if (!clientId) { showToast('NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set in .env.local.', 'error'); return; }
+    const redirect = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/gmail-oauth`;
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
+      client_id: clientId, redirect_uri: redirect, response_type: 'code',
+      scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send',
+      access_type: 'offline', prompt: 'consent', state: user.id,
+    })}`;
+  }
+
+  function handleDisconnectGmail() {
+    showConfirm('Disconnect Gmail', 'Stop syncing Gmail messages as activities? Already-synced activities are kept.', 'Disconnect', 'danger',
+      async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/gmail-disconnect`, {
+          method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+        }).catch(() => null);
+        if (res?.ok) setGmailConn(null);
+        else showToast('Disconnect failed — try again.', 'error');
+      });
+  }
+
+  async function handleGmailSyncNow() {
+    setGmailSyncing(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/gmail-sync`, {
+      method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+    }).catch(() => null);
+    const out = res ? await res.json().catch(() => ({})) : {};
+    if (res?.ok) {
+      showToast(`Gmail sync complete — ${out.synced ?? 0} new email activit${(out.synced ?? 0) === 1 ? 'y' : 'ies'}${out.autoStopped ? `, ${out.autoStopped} sequence(s) auto-stopped (replied)` : ''}.`, 'success');
+      fetchActivities(user.id);
+      fetchGmailConn(user.id);
+      fetchSequences(user.id); // UPGRADE 2 — pick up server-side reply-stops
+    } else {
+      showToast(`Gmail sync failed: ${out.error || 'network error'}${out.error === 'server_not_configured' || out.detail ? ' — check GOOGLE_CLIENT_SECRET in Supabase function secrets' : ''}`, 'error');
+    }
+    setGmailSyncing(false);
+  }
+
+  // ==========================================
+  // N8N — EMAIL SEQUENCE WORKFLOWS
+  // ==========================================
+
+  async function fetchSequences(userId) {
+    const [{ data: seqs }, { data: steps }, { data: enr }, { data: sends }, { data: settings }] = await Promise.all([
+      supabase.from('email_sequences').select('*').eq('user_id', userId).order('created_at'),
+      supabase.from('sequence_steps').select('*').eq('user_id', userId).order('step_order'),
+      supabase.from('sequence_enrollments').select('*').eq('user_id', userId),
+      supabase.from('sequence_sends').select('*').eq('user_id', userId).order('sent_at', { ascending: false }),
+      supabase.from('email_settings').select('*').eq('user_id', userId).maybeSingle(),
+    ]);
+    if (seqs) setSequences(seqs);
+    if (steps) setSequenceSteps(steps);
+    if (enr) setSequenceEnrollments(enr);
+    if (sends) setSequenceSends(sends);
+    setEmailSettings(settings || null);
+  }
+
+  // UPGRADE 1/7 — Email Automation settings
+  async function handleSaveEmailSettings(patch) {
+    const next = {
+      user_id: user.id,
+      auto_send_enabled: emailSettings?.auto_send_enabled ?? false,
+      daily_send_cap: emailSettings?.daily_send_cap ?? 50,
+      send_days: emailSettings?.send_days ?? [1, 2, 3, 4, 5],
+      send_window_start: emailSettings?.send_window_start ?? 9,
+      send_window_end: emailSettings?.send_window_end ?? 17,
+      send_tz_offset: emailSettings?.send_tz_offset ?? -new Date().getTimezoneOffset(),
+      ...patch,
+    };
+    const { data, error } = await supabase.from('email_settings').upsert([next], { onConflict: 'user_id' }).select();
+    if (!error && data) { setEmailSettings(data[0]); showToast('Email automation settings saved.', 'success'); }
+    else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  // UPGRADE 2 — client-side reply detection fallback (server does this too)
+  async function detectRepliesAndStopSequences(acts, enrs, sendsList) {
+    const stopped = [];
+    for (const en of enrs.filter(e => e.status === 'active')) {
+      const replied = acts.some(a =>
+        a.client_id === en.client_id && a.gmail_message_id &&
+        (a.description || '').startsWith('Gmail — Received') &&
+        new Date(a.created_at) >= new Date(en.enrolled_at));
+      if (!replied) continue;
+      const { error } = await supabase.from('sequence_enrollments')
+        .update({ status: 'replied', stopped_reason: 'replied', next_send_at: null }).eq('id', en.id);
+      if (error) continue;
+      const lastSend = sendsList.filter(s => s.enrollment_id === en.id && !s.replied_at)
+        .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at))[0];
+      if (lastSend) {
+        await supabase.from('sequence_sends').update({ replied_at: new Date().toISOString() }).eq('id', lastSend.id);
+        setSequenceSends(prev => prev.map(s => s.id === lastSend.id ? { ...s, replied_at: new Date().toISOString() } : s));
+      }
+      stopped.push(en.id);
+      dispatchWebhook('email.replied', { enrollment_id: en.id, client_id: en.client_id, sequence_id: en.sequence_id });
+    }
+    if (stopped.length) {
+      setSequenceEnrollments(prev => prev.map(x => stopped.includes(x.id) ? { ...x, status: 'replied', stopped_reason: 'replied', next_send_at: null } : x));
+      showToast(`${stopped.length} enrollment${stopped.length === 1 ? '' : 's'} auto-stopped — they replied.`, 'success');
+    }
+  }
+
+  const seqStepsFor = (id) => sequenceSteps.filter(s => s.sequence_id === id).sort((a, b) => a.step_order - b.step_order || a.id - b.id);
+  const addDaysStr = (days, base = new Date()) => { const d = new Date(base); d.setDate(d.getDate() + (parseInt(days, 10) || 0)); return d.toISOString().split('T')[0]; };
+
+  async function handleCreateSequence(e) {
+    e.preventDefault();
+    if (!newSeqName.trim()) return;
+    const { data, error } = await supabase.from('email_sequences').insert([{
+      user_id: user.id, name: newSeqName.trim(), status: 'draft',
+      trigger_type: newSeqTrigger, trigger_value: newSeqTrigger === 'tag_applied' ? (newSeqTriggerValue || null) : null,
+    }]).select();
+    if (!error && data) {
+      setSequences(prev => [...prev, data[0]]);
+      setNewSeqName(''); setNewSeqTrigger('manual'); setNewSeqTriggerValue('');
+      showToast('Workflow created — add steps, then activate it.', 'success');
+    } else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  async function handleSetSequenceStatus(seq, status) {
+    if (status === 'active' && seqStepsFor(seq.id).length === 0) { showToast('Add at least one step before activating.', 'error'); return; }
+    const { error } = await supabase.from('email_sequences').update({ status }).eq('id', seq.id);
+    if (!error) setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, status } : s));
+  }
+
+  function handleDeleteSequence(seq) {
+    showConfirm('Delete Workflow', `Delete "${seq.name}" and all its steps/enrollments? This cannot be undone.`, 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('email_sequences').delete().eq('id', seq.id);
+        if (!error) {
+          setSequences(prev => prev.filter(s => s.id !== seq.id));
+          setSequenceSteps(prev => prev.filter(s => s.sequence_id !== seq.id));
+          setSequenceEnrollments(prev => prev.filter(s => s.sequence_id !== seq.id));
+        }
+      });
+  }
+
+  async function handleDuplicateSequence(seq) {
+    const { data, error } = await supabase.from('email_sequences').insert([{
+      user_id: user.id, name: `${seq.name} (copy)`, status: 'draft',
+      trigger_type: seq.trigger_type, trigger_value: seq.trigger_value,
+    }]).select();
+    if (error || !data) { showToast(`Error: ${error?.message}`, 'error'); return; }
+    const steps = seqStepsFor(seq.id).map(s => ({
+      sequence_id: data[0].id, user_id: user.id, step_order: s.step_order,
+      wait_days: s.wait_days, subject: s.subject, body: s.body,
+    }));
+    if (steps.length > 0) {
+      const { data: sd } = await supabase.from('sequence_steps').insert(steps).select();
+      if (sd) setSequenceSteps(prev => [...prev, ...sd]);
+    }
+    setSequences(prev => [...prev, data[0]]);
+    showToast('Workflow duplicated as draft.', 'success');
+  }
+
+  // UPGRADE 5/6/8 — add step with channel/condition/A-B, optionally inserted
+  // between existing steps (insertAt = index or null for end).
+  // DB has subject/body NOT NULL, so non-email steps store '' (documented).
+  async function handleAddSequenceStep(e) {
+    e.preventDefault();
+    const d = seqStepDraft;
+    if (!d) return;
+    const isEmail = !d.channel || d.channel === 'email';
+    if (isEmail && (!d.subject?.trim() || !d.body?.trim())) return;
+    if (!isEmail && !d.task_note?.trim()) { showToast('Add a note describing the task.', 'error'); return; }
+    const steps = seqStepsFor(d.sequenceId);
+    const at = d.insertAt == null ? steps.length : Math.min(d.insertAt, steps.length);
+    // shift later steps down by one (batched)
+    await Promise.all(steps.slice(at).map(s =>
+      supabase.from('sequence_steps').update({ step_order: s.step_order + 1 }).eq('id', s.id)));
+    const { data, error } = await supabase.from('sequence_steps').insert([{
+      sequence_id: d.sequenceId, user_id: user.id, step_order: at,
+      wait_days: Math.max(0, parseInt(d.wait_days, 10) || 0),
+      subject: isEmail ? d.subject.trim() : '',
+      body: isEmail ? d.body : '',
+      subject_b: isEmail && d.subject_b?.trim() ? d.subject_b : null,
+      channel: d.channel || 'email',
+      condition: d.condition || 'always',
+      task_note: !isEmail ? d.task_note : null,
+    }]).select();
+    if (!error && data) {
+      setSequenceSteps(prev => [
+        ...prev.map(s => (s.sequence_id === d.sequenceId && s.step_order >= at && s.id !== data[0].id) ? { ...s, step_order: s.step_order + 1 } : s),
+        data[0],
+      ]);
+      setSeqStepDraft(null);
+    } else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  async function handleDeleteSequenceStep(step) {
+    const { error } = await supabase.from('sequence_steps').delete().eq('id', step.id);
+    if (!error) setSequenceSteps(prev => prev.filter(s => s.id !== step.id));
+  }
+
+  async function enrollClientInSequence(seq, clientId) {
+    const steps = seqStepsFor(seq.id);
+    if (steps.length === 0) { showToast('This workflow has no steps yet.', 'error'); return; }
+    const cid = parseInt(clientId, 10);
+    if (sequenceEnrollments.some(en => en.sequence_id === seq.id && en.client_id === cid && en.status === 'active')) {
+      showToast('Already enrolled in this workflow.', 'error'); return;
+    }
+    const { data, error } = await supabase.from('sequence_enrollments').insert([{
+      sequence_id: seq.id, client_id: cid, user_id: user.id,
+      status: 'active', current_step: 0, next_send_at: addDaysStr(steps[0].wait_days),
+    }]).select();
+    if (!error && data) {
+      setSequenceEnrollments(prev => [...prev, data[0]]);
+      dispatchWebhook('sequence.enrolled', data[0]);
+      showToast('Enrolled — first email is in the Outbox when due.', 'success');
+    } else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  async function handleStopEnrollment(enr) {
+    const { error } = await supabase.from('sequence_enrollments').update({ status: 'stopped', next_send_at: null }).eq('id', enr.id);
+    if (!error) setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, status: 'stopped', next_send_at: null } : x));
+  }
+
+  // MANUAL send path (fallback + default when auto-send is off). Runs the SAME
+  // state machine as the server runner: condition skips (U4), channel tasks (U5),
+  // A/B variant pick (U6), sequence_sends row (U3 funnel counting).
+  // Note: manual new-tab sends cannot be open/click tracked — only Gmail auto-sends are.
+  async function handleSendSequenceStep(enr) {
+    const seq = sequences.find(s => s.id === enr.sequence_id);
+    const steps = seqStepsFor(enr.sequence_id);
+    const c = clients.find(x => x.id === enr.client_id);
+    if (!seq || !c) { showToast('Missing sequence or relationship.', 'error'); return; }
+    const today = new Date().toISOString().split('T')[0];
+
+    // UPGRADE 4 — resolve the next step whose condition is met
+    const resolved = resolveDueStep(enr, steps, sequenceSends);
+    if (!resolved) {
+      const patch = { status: 'completed', stopped_reason: 'completed', current_step: steps.length, next_send_at: null };
+      await supabase.from('sequence_enrollments').update(patch).eq('id', enr.id);
+      setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, ...patch } : x));
+      showToast('All remaining steps were skipped by their conditions — sequence completed.', 'success');
+      return;
+    }
+    const { step, index } = resolved;
+    const token = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `tk_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    let description = '';
+    let variant = null;
+
+    if (step.channel && step.channel !== 'email') {
+      // UPGRADE 5 — non-email step becomes a task
+      const title = `${CHANNEL_TASK_LABEL[step.channel] || 'Task for'} ${c.name}${step.task_note ? ' — ' + resolveMergeTags(step.task_note, c) : ''}`.slice(0, 250);
+      const { data: t } = await supabase.from('tasks').insert([{
+        user_id: user.id, client_id: c.id, title, due_date: today, status: 'pending',
+      }]).select();
+      if (t) setTasks(prev => [...prev, t[0]]);
+      description = `Sequence "${seq.name}" — ${step.channel} task created: ${title}`;
+      showToast('Task created for this step — find it in Tasks.', 'success');
+    } else {
+      if (!c.email) { showToast('This relationship has no email address.', 'error'); return; }
+      // UPGRADE 6 — A/B variant
+      const pick = pickSubjectVariant(step, enr);
+      variant = pick.variant;
+      const subject = resolveMergeTags(pick.subject, c);
+      const body = resolveMergeTags(step.body, c);
+      const url = emailProvider === 'mailto' ? buildMailtoUrl(c.email, subject, body) : buildGmailUrl(c.email, subject, body);
+      const tab = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!tab && emailProvider !== 'mailto') window.location.href = buildMailtoUrl(c.email, subject, body);
+      description = `Sequence "${seq.name}" — step ${index + 1}${variant ? ` (variant ${variant})` : ''}: ${subject}`;
+    }
+
+    // UPGRADE 3 — record the send for the funnel (manual sends: no tracking pixel)
+    const { data: sendRow } = await supabase.from('sequence_sends').insert([{
+      user_id: user.id, enrollment_id: enr.id, sequence_id: seq.id, step_id: step.id,
+      client_id: c.id, track_token: token, channel: step.channel || 'email', subject_variant: variant,
+    }]).select();
+    if (sendRow) setSequenceSends(prev => [sendRow[0], ...prev]);
+
+    const { data: act } = await supabase.from('activities').insert([{
+      client_id: c.id, user_id: user.id,
+      activity_type: (!step.channel || step.channel === 'email') ? 'Email' : 'Note',
+      activity_date: today, description,
+    }]).select();
+    if (act) setActivities(prev => [act[0], ...prev]);
+
+    const nextIdx = index + 1;
+    const nextStep = steps[nextIdx];
+    const patch = nextStep
+      ? { current_step: nextIdx, next_send_at: addDaysStr(nextStep.wait_days), last_channel_sent: step.channel || 'email' }
+      : { current_step: nextIdx, status: 'completed', stopped_reason: 'completed', next_send_at: null, last_channel_sent: step.channel || 'email' };
+    await supabase.from('sequence_enrollments').update(patch).eq('id', enr.id);
+    setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, ...patch } : x));
+    await supabase.from('email_sequences').update({ last_run_at: new Date().toISOString() }).eq('id', seq.id);
+    setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, last_run_at: new Date().toISOString() } : s));
+    if (!nextStep) { dispatchWebhook('sequence.completed', { enrollment_id: enr.id, client_id: c.id, sequence_id: seq.id }); showToast('Sequence completed for this relationship.', 'success'); }
+  }
+
+  // UPGRADE 8 — reorder a step up/down (batched step_order swap)
+  async function handleMoveStep(seqId, index, dir) {
+    const steps = seqStepsFor(seqId);
+    const j = index + dir;
+    if (j < 0 || j >= steps.length) return;
+    const a = steps[index], b = steps[j];
+    await Promise.all([
+      supabase.from('sequence_steps').update({ step_order: j }).eq('id', a.id),
+      supabase.from('sequence_steps').update({ step_order: index }).eq('id', b.id),
+    ]);
+    setSequenceSteps(prev => prev.map(s => s.id === a.id ? { ...s, step_order: j } : s.id === b.id ? { ...s, step_order: index } : s));
+  }
+
+  // UPGRADE 8 — inline edit save
+  async function handleSaveStepEdit() {
+    const d = stepEdit;
+    if (!d) return;
+    const patch = {
+      wait_days: Math.max(0, parseInt(d.wait_days, 10) || 0),
+      subject: d.channel === 'email' ? (d.subject || '') : '',
+      body: d.channel === 'email' ? (d.body || '') : '',
+      subject_b: d.channel === 'email' && d.subject_b?.trim() ? d.subject_b : null,
+      condition: d.condition || 'always',
+      channel: d.channel || 'email',
+      task_note: d.channel !== 'email' ? (d.task_note || '') : null,
+    };
+    const { data, error } = await supabase.from('sequence_steps').update(patch).eq('id', d.id).select();
+    if (!error && data) {
+      setSequenceSteps(prev => prev.map(s => s.id === d.id ? data[0] : s));
+      setStepEdit(null);
+    } else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  // G11 — one-click insert of a pre-configured recipe rule
+  async function handleEnableRecipe(recipe) {
+    if (automationRules.some(r => r.name === recipe.name)) { showToast('Recipe already enabled.', 'error'); return; }
+    const { data, error } = await supabase.from('automation_rules').insert([{
+      user_id: user.id, name: recipe.name, enabled: true, ...recipe.rule,
+    }]).select();
+    if (!error && data) {
+      setAutomationRules(prev => [data[0], ...prev]);
+      showToast(`Recipe enabled: ${recipe.name}`, 'success');
+    } else showToast(`Error enabling recipe: ${error?.message}`, 'error');
   }
 
   async function handleCreateRule(e) {
@@ -1134,7 +1846,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 7 â€” FILE ATTACHMENTS
+  // FEATURE 7 — FILE ATTACHMENTS
   // ==========================================
 
   async function handleFileUpload(file) {
@@ -1172,7 +1884,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 9 â€” TAGS
+  // FEATURE 9 — TAGS
   // ==========================================
 
   async function handleCreateTag(e) {
@@ -1193,13 +1905,19 @@ export default function App() {
       if (!error) setClientTagMap(prev => ({ ...prev, [clientId]: (prev[clientId] || []).filter(t => t !== tagId) }));
     } else {
       const { error } = await supabase.from('client_tags').insert([{ client_id: clientId, tag_id: tagId }]);
-      if (!error) setClientTagMap(prev => ({ ...prev, [clientId]: [...(prev[clientId] || []), tagId] }));
+      if (!error) {
+        setClientTagMap(prev => ({ ...prev, [clientId]: [...(prev[clientId] || []), tagId] }));
+        // N8N — auto-enroll workflows triggered by "tag applied"
+        const tagName = tags.find(t => t.id === tagId)?.name;
+        if (tagName) sequences.filter(q => q.status === 'active' && q.trigger_type === 'tag_applied' && q.trigger_value === tagName)
+          .forEach(q => enrollClientInSequence(q, clientId));
+      }
     }
   }
 
   function handleDeleteTag(tag) {
     const count = Object.values(clientTagMap).filter(ids => ids.includes(tag.id)).length;
-    showConfirm('Delete Tag', `Delete tag "${tag.name}"? It will be removed from ${count} client(s).`, 'Delete', 'danger',
+    showConfirm('Delete Tag', `Delete tag "${tag.name}"? It will be removed from ${count} relationship(s).`, 'Delete', 'danger',
       async () => {
         const { error } = await supabase.from('tags').delete().eq('id', tag.id);
         if (!error) {
@@ -1215,19 +1933,19 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 11 â€” WEBHOOKS
+  // FEATURE 11 — WEBHOOKS
   // ==========================================
 
+  // ONE dispatch implementation lives server-side (app/api/v1/_lib/core.js).
+  // The client just forwards the event with the user's JWT.
   async function dispatchWebhook(event, payload) {
-    const matching = webhooks.filter(w => w.enabled && (w.events || []).includes(event));
-    if (matching.length === 0) return;
-    await Promise.allSettled(matching.map(async w => {
-      await fetch('/api/webhook-dispatch', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ webhookUrl: w.url, event, payload, secret: w.secret || null }),
-      });
-      await supabase.from('webhooks').update({ last_triggered_at: new Date().toISOString() }).eq('id', w.id);
-    }));
+    if (!webhooks.some(w => w.enabled && (w.events || []).includes(event))) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    fetch('/api/webhook-dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+      body: JSON.stringify({ event, payload }),
+    }).catch(() => {});
   }
 
   async function handleCreateWebhook(e) {
@@ -1272,7 +1990,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 17 â€” ACTIVITY STREAKS
+  // FEATURE 17 — ACTIVITY STREAKS
   // ==========================================
 
   async function updateStreak() {
@@ -1289,11 +2007,11 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 15 â€” QUICK NOTES (auto-save handled by effect below)
+  // FEATURE 15 — QUICK NOTES (auto-save handled by effect below)
   // ==========================================
 
   // ==========================================
-  // FEATURE 26 â€” GOALS
+  // FEATURE 26 — GOALS
   // ==========================================
 
   const currentMonthStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
@@ -1322,7 +2040,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 27 â€” CLIENT MERGE
+  // FEATURE 27 — CLIENT MERGE
   // ==========================================
 
   async function handleExecuteMerge() {
@@ -1347,7 +2065,7 @@ export default function App() {
       // Delete the source client
       await supabase.from('clients').delete().eq('id', mergeSource.id);
       await Promise.all([fetchClients(user.id), fetchActivities(user.id), fetchTasks(user.id), fetchDeals(user.id)]);
-      showToast('Clients merged successfully.', 'success');
+      showToast('Relationships merged successfully.', 'success');
       setShowMergeTool(false); setMergeSource(null); setMergeTarget(null); setMergeStep(1); setMergeFieldChoices({}); setMergeSearch('');
     } catch (err) {
       showToast(`Merge failed: ${err.message}`, 'error');
@@ -1356,7 +2074,7 @@ export default function App() {
   }
 
   // ==========================================
-  // FEATURE 29 â€” SAVED VIEWS
+  // FEATURE 29 — SAVED VIEWS
   // ==========================================
 
   function applyView(filters) {
@@ -1368,11 +2086,12 @@ export default function App() {
     setFilterScore(filters.filterScore ?? '');
     setFilterTags(filters.filterTags ?? []);
     setFilterHealth(filters.filterHealth ?? '');
+    setFilterSource(filters.filterSource ?? '');
   }
 
   async function handleSaveView(name) {
     if (!name.trim()) return;
-    const filters = { filterPriority, filterStatus, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterTags, filterHealth };
+    const filters = { filterPriority, filterStatus, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterTags, filterHealth, filterSource };
     const { data, error } = await supabase.from('saved_views').insert([{ user_id: user.id, name: name.trim(), filters }]).select();
     if (!error && data) {
       setSavedViews(prev => [...prev, data[0]]);
@@ -1392,33 +2111,49 @@ export default function App() {
   function clearAllFilters() {
     setFilterPriority('All'); setFilterStatus('All'); setFilterDateAdded('');
     setFilterHasDeals(false); setFilterHasActivity(''); setFilterScore('');
-    setFilterTags([]); setFilterHealth(''); setSearchTerm('');
+    setFilterTags([]); setFilterHealth(''); setFilterSource(''); setSearchTerm('');
   }
 
   // ==========================================
-  // FEATURE 21 â€” PDF EXPORT
+  // FEATURE 21 — PDF EXPORT
   // ==========================================
 
-  async function handleExportPDF(client) {
-    const res = await fetch('/api/client-report', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client,
-        activities: activities.filter(a => a.client_id === client.id),
-        tasks: tasks.filter(t => t.client_id === client.id),
-        deals: deals.filter(d => d.client_id === client.id),
-      }),
-    }).catch(() => null);
-    if (res && res.ok) {
-      const html = await res.text();
-      const w = window.open('', '_blank');
-      if (w) {
-        w.document.write(html);
-        w.document.close();
-        showToast('Opening print dialog...', 'success');
-        setTimeout(() => w.print(), 400);
-      }
-    } else showToast('Report generation failed.', 'error');
+  // FIX: /api/client-report never existed, so export always failed. The report
+  // is now generated fully client-side and handed to the browser's print dialog.
+  function handleExportPDF(client) {
+    const acts = activities.filter(a => a.client_id === client.id);
+    const tks = tasks.filter(t => t.client_id === client.id && t.status === 'pending');
+    const dls = deals.filter(d => d.client_id === client.id);
+    const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const html = `<!DOCTYPE html><html><head><title>${esc(client.name)} — Relationship Report</title><style>
+      body{font-family:-apple-system,'Segoe UI',sans-serif;margin:40px;color:#111827}
+      h1{margin:0 0 4px;font-size:24px} .muted{color:#6b7280;font-size:12px}
+      h2{font-size:14px;border-bottom:1px solid #e5e7eb;padding-bottom:4px;margin-top:28px}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+      td,th{padding:6px 8px;border-bottom:1px solid #f3f4f6;text-align:left;vertical-align:top}
+      th{color:#9ca3af;text-transform:uppercase;font-size:10px;letter-spacing:.05em}
+      @media print{body{margin:16px}}
+    </style></head><body>
+      <h1>${esc(client.name)}</h1>
+      <p class="muted">${esc(client.email || '')}${client.phone_number ? ' · ' + esc(client.phone_number) : ''} · Stage: ${esc(client.status || '—')} · Priority: ${esc(client.relationship || '—')} · Generated ${new Date().toLocaleDateString()}</p>
+      <h2>Details</h2><table>
+        <tr><th>Country</th><td>${esc(client.country || '—')}</td><th>Source</th><td>${esc(client.source || '—')}</td></tr>
+        <tr><th>Company</th><td>${esc(client.company_name || '—')}</td><th>Website</th><td>${esc(client.company_url || '—')}</td></tr>
+        <tr><th>Birthday</th><td>${esc(client.birthday || '—')}</td><th>LinkedIn</th><td>${esc(client.linkedin_url || '—')}</td></tr>
+      </table>
+      <h2>Deals (${dls.length})</h2>
+      ${dls.length === 0 ? '<p class="muted">None.</p>' : `<table><tr><th>Title</th><th>Stage</th><th>Value</th><th>Close</th></tr>${dls.map(d => `<tr><td>${esc(d.title)}</td><td>${esc(d.stage)}</td><td>${esc(fmtCurrency(d.value, d.currency))}</td><td>${esc(d.close_date || '—')}</td></tr>`).join('')}</table>`}
+      <h2>Open Tasks (${tks.length})</h2>
+      ${tks.length === 0 ? '<p class="muted">None.</p>' : `<table><tr><th>Task</th><th>Due</th></tr>${tks.map(t => `<tr><td>${esc(t.title)}</td><td>${esc(t.due_date)}</td></tr>`).join('')}</table>`}
+      <h2>Activity Timeline (${acts.length})</h2>
+      ${acts.length === 0 ? '<p class="muted">None.</p>' : `<table><tr><th>Date</th><th>Type</th><th>Notes</th></tr>${acts.map(a => `<tr><td>${esc(a.activity_date)}</td><td>${esc(a.activity_type)}</td><td>${esc(a.description)}</td></tr>`).join('')}</table>`}
+    </body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { showToast('Popup blocked — allow popups for this site to export.', 'error'); return; }
+    w.document.write(html);
+    w.document.close();
+    showToast('Opening print dialog — choose "Save as PDF".', 'success');
+    setTimeout(() => w.print(), 400);
   }
 
   // ==========================================
@@ -1477,7 +2212,7 @@ export default function App() {
   }
 
   // ==========================================
-  // NOTIFICATIONS â€” Server-side via Edge Function
+  // NOTIFICATIONS — Server-side via Edge Function
   // ==========================================
   // Notifications are now generated server-side by the Supabase Edge Function
   // (daily-notifications) which runs on pg_cron schedule at 8:00 AM UTC.
@@ -1569,6 +2304,30 @@ export default function App() {
         setGlobalSearchResults(prev => ({ ...prev, clients: merged.slice(0, 5) }));
       }
     }
+  }
+
+  // G30 — command actions in the ⌘K palette (simple keyword matching, additive
+  // to the existing search results — never replaces them)
+  function parseCommandAction(term) {
+    const m = term.match(/^(create deal for|log (?:call|note|meeting|email) with|add task for|email)\s+(.+)$/i);
+    if (!m) return null;
+    const namePart = m[2].trim().toLowerCase();
+    const target = clients.find(c => (c.name || '').toLowerCase().includes(namePart));
+    if (!target) return null;
+    const verb = m[1].toLowerCase();
+    const close = () => { setShowGlobalSearch(false); setGlobalSearchTerm(''); };
+    if (verb.startsWith('create deal')) {
+      return { label: `Create deal for ${target.name}`, run: () => { close(); resetDealForm(); setDealClientId(String(target.id)); setShowDealForm(true); } };
+    }
+    if (verb.startsWith('log')) {
+      const type = verb.includes('call') ? 'Call' : verb.includes('meeting') ? 'Meeting' : verb.includes('email') ? 'Email' : 'Note';
+      return { label: `Log ${type.toLowerCase()} with ${target.name}`, run: () => { close(); setActivityType(type); setActiveProfileTab('activity'); setViewingClient(target); setAppStep('CLIENTS'); } };
+    }
+    if (verb.startsWith('add task')) {
+      return { label: `Add task for ${target.name}`, run: () => { close(); setActiveProfileTab('tasks'); setViewingClient(target); setAppStep('CLIENTS'); } };
+    }
+    // email
+    return { label: `Email ${target.name}`, run: () => { close(); setViewingClient(target); setEmailTo(target.email || ''); setShowEmailComposer(true); setAppStep('CLIENTS'); } };
   }
 
   function handleSearchSelection(type, item) {
@@ -1725,7 +2484,7 @@ export default function App() {
     const fieldName = customFieldDefs.find(f => f.id === id)?.field_name || 'Field';
     showConfirm(
       'Delete Custom Field',
-      `WARNING: Deleting the field "${fieldName}" will permanently delete all data stored in it for all clients. This action cannot be undone.`,
+      `WARNING: Deleting the field "${fieldName}" will permanently delete all data stored in it for all relationships. This action cannot be undone.`,
       'Delete Field',
       'danger',
       async () => {
@@ -1739,7 +2498,7 @@ export default function App() {
   function runStatusMigration() {
     showConfirm(
       'Migrate Legacy Statuses',
-      "This will convert old 'Active/Inactive' statuses to the new Pipeline stages ('Active' â†’ 'Engaged', 'Inactive' â†’ 'Inactive'). This may take a moment.",
+      "This will convert old 'Active/Inactive' statuses to the new Pipeline stages ('Active' → 'Engaged', 'Inactive' → 'Inactive'). This may take a moment.",
       'Start Migration',
       'primary',
       async () => {
@@ -1773,7 +2532,9 @@ export default function App() {
       country: clientCountry || null, phone_number: clientPhone || null,
       note_conversation: clientConversation || null, linkedin_url: clientLinkedin || null,
       birthday: clientBirthday || null, relationship: clientRelationship,
-      source: clientSource || null
+      source: clientSource || null,
+      company_name: clientCompanyName || null, company_url: clientCompanyUrl || null,
+      referred_by_client_id: clientReferredBy ? parseInt(clientReferredBy, 10) : null // G18 (clients.id is bigint)
     }]).select();
 
     if (!error && data) {
@@ -1796,10 +2557,15 @@ export default function App() {
       setName(''); setClientEmail(''); setNotes(''); setStatus('New');
       setClientCountry(''); setClientPhone(''); setClientConversation('');
       setClientLinkedin(''); setClientBirthday(''); setClientRelationship('Medium');
+      setClientCompanyName(''); setClientCompanyUrl(''); setClientReferredBy('');
       setClientSource(''); setForceSaveDuplicate(false); setDuplicateWarning(null);
       setFormCustomValues({});
       updateStreak();
       dispatchWebhook('client.created', newClient);
+      if (newClient.source) executeAutomations('source_is', newClient.source, newClient.id); // G11
+      // N8N — auto-enroll workflows triggered by "new relationship added"
+      sequences.filter(q => q.status === 'active' && q.trigger_type === 'new_relationship')
+        .forEach(q => enrollClientInSequence(q, newClient.id));
     } else if (error) {
       setCrmErrorMessage(`Database Sync Error: ${error.message}`);
     }
@@ -1816,7 +2582,9 @@ export default function App() {
       country: editingClient.country || null, phone_number: editingClient.phone_number || null,
       note_conversation: editingClient.note_conversation || null, linkedin_url: editingClient.linkedin_url || null,
       birthday: editingClient.birthday || null, relationship: editingClient.relationship,
-      source: editingClient.source || null
+      source: editingClient.source || null,
+      company_name: editingClient.company_name || null, company_url: editingClient.company_url || null,
+      referred_by_client_id: editingClient.referred_by_client_id || null // G18
     }).eq('id', editingClient.id).select();
 
     // Update custom fields atomically: run all upserts/deletes in parallel and fail together
@@ -1869,9 +2637,9 @@ export default function App() {
   }
 
   function handleDeleteClient(clientId) {
-    const clientName = clients.find(c => c.id === clientId)?.name || 'Client';
+    const clientName = clients.find(c => c.id === clientId)?.name || 'Relationship';
     showConfirm(
-      'Delete Client',
+      'Delete Relationship',
       `Are you sure you want to delete "${clientName}"? This action cannot be undone.`,
       'Delete',
       'danger',
@@ -1939,6 +2707,34 @@ export default function App() {
   // ADVANCED ACTIVITY LOG LOGIC
   // ==========================================
 
+  // G3 — dictate an activity note: final transcripts append to the description
+  // field in real time. Browser-native (Web Speech API), no packages, no server.
+  function toggleVoiceMemo() {
+    const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (!SR) { showToast('Speech recognition is not supported in this browser. Try Chrome or Safari.', 'error'); return; }
+    if (voiceListening) { recognitionRef.current?.stop(); return; }
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = navigator.language || 'en-US';
+    rec.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) {
+          const t = (e.results[i][0]?.transcript || '').trim();
+          if (t) setActivityDesc(prev => (prev ? prev.replace(/\s+$/, '') + ' ' : '') + t);
+        }
+      }
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed') showToast('Microphone access was denied.', 'error');
+      setVoiceListening(false);
+    };
+    rec.onend = () => setVoiceListening(false);
+    recognitionRef.current = rec;
+    rec.start();
+    setVoiceListening(true);
+  }
+
   async function handleAddActivityLog(e) {
     e.preventDefault();
     if (!activityDesc.trim() || !viewingClient) return;
@@ -1949,14 +2745,12 @@ export default function App() {
       user_id: user.id,
       activity_type: activityType,
       activity_date: activityDate,
-      description: activityDesc,
-      outcome: activityOutcome
+      description: activityDesc
     }]).select();
 
     if (!error && data) {
       setActivities([data[0], ...activities]);
       setActivityDesc('');
-      setActivityOutcome('Neutral');
       setActivityDate(new Date().toISOString().split('T')[0]);
       setSavingTemplateName(''); // FEATURE 22: offer "save as template" after logging
       updateStreak();
@@ -2006,6 +2800,7 @@ export default function App() {
     }]).select();
     if (!error && data) {
       setTasks([...tasks, data[0]]);
+      dispatchWebhook('task.created', data[0]);
       setNewTaskTitle('');
       setNewTaskDate('');
       setNewTaskRecurrence('');
@@ -2024,7 +2819,7 @@ export default function App() {
       setTasks(tasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
       if (newStatus === 'done' && task) {
         dispatchWebhook('task.completed', { ...task, status: 'done' });
-        // FEATURE 20 â€” recurring tasks: auto-create next occurrence
+        // FEATURE 20 — recurring tasks: auto-create next occurrence
         if (task.recurrence) {
           const nextDue = new Date(task.due_date);
           if (task.recurrence === 'daily') nextDue.setDate(nextDue.getDate() + 1);
@@ -2059,8 +2854,8 @@ export default function App() {
 
   const handleBulkDelete = () => {
     showConfirm(
-      'Delete Multiple Clients',
-      `You are about to delete ${selectedClientIds.length} client(s). This action cannot be undone.`,
+      'Delete Multiple Relationships',
+      `You are about to delete ${selectedClientIds.length} relationship(s). This action cannot be undone.`,
       'Delete All',
       'danger',
       async () => {
@@ -2079,7 +2874,7 @@ export default function App() {
     const { error } = await supabase.from('clients').update({ status: newStatus }).in('id', selectedClientIds);
     if (!error) {
       setClients(clients.map(c => selectedClientIds.includes(c.id) ? { ...c, status: newStatus } : c));
-      showToast(`Updated ${selectedClientIds.length} clients.`, 'success');
+      showToast(`Updated ${selectedClientIds.length} relationships.`, 'success');
       setSelectedClientIds([]);
     } else {
       showToast(`Bulk Status Error: ${error.message}`, 'error');
@@ -2105,11 +2900,11 @@ export default function App() {
     ].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a'); link.href = url; link.setAttribute('download', 'crm_clients_export.csv');
+    const link = document.createElement('a'); link.href = url; link.setAttribute('download', 'crm_relationships_export.csv');
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
-  // BUG 2 + FEATURE 16 â€” robust PapaParse parsing + validated preview before insert
+  // BUG 2 + FEATURE 16 — robust PapaParse parsing + validated preview before insert
   const handleImportCSV = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -2163,7 +2958,7 @@ export default function App() {
     const { data, error } = await supabase.from('clients').insert(inserts).select();
     if (data && !error) {
       setClients(prev => [...data, ...prev]);
-      showToast(`Imported ${data.length} clients. ${importPreviewData.length - data.length} skipped.`, 'success');
+      showToast(`Imported ${data.length} relationships. ${importPreviewData.length - data.length} skipped.`, 'success');
       setShowImportPreview(false);
       setImportPreviewData([]);
     } else {
@@ -2180,7 +2975,7 @@ export default function App() {
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
 
-  // FEATURE 6 â€” lead scores computed per client
+  // FEATURE 6 — lead scores computed per client
   const clientsWithScores = useMemo(() =>
     (clients || []).filter(Boolean).map(c => ({
       ...c,
@@ -2192,7 +2987,7 @@ export default function App() {
       ),
     })), [clients, activities, tasks, deals]);
 
-  // FEATURE 19 â€” relationship health per client
+  // FEATURE 19 — relationship health per client
   const relationshipHealth = useMemo(() => clients.filter(Boolean).map(c => {
     const acts = activities.filter(a => a.client_id === c.id); // ordered newest-first by fetchActivities
     const lastAct = acts.length > 0 ? new Date(acts[0].activity_date) : new Date(c.created_at);
@@ -2221,11 +3016,11 @@ export default function App() {
       const matchesSearch = (client.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (client.email || '').toLowerCase().includes(searchTerm.toLowerCase()) || (client.country || '').toLowerCase().includes(searchTerm.toLowerCase());
       const matchesPriority = filterPriority === 'All' || client.relationship === filterPriority;
       const matchesStatus = filterStatus === 'All' || client.status === filterStatus;
-      // FEATURE 9 â€” tag filter (client must have every selected tag)
+      // FEATURE 9 — tag filter (client must have every selected tag)
       const matchesTags = filterTags.length === 0 || filterTags.every(id => (clientTagMap[client.id] || []).includes(id));
-      // FEATURE 19 â€” health filter
+      // FEATURE 19 — health filter
       const matchesHealth = !filterHealth || healthByClientId[client.id] === filterHealth;
-      // FEATURE 29 â€” advanced filters
+      // FEATURE 29 — advanced filters
       let matchesDateAdded = true;
       if (filterDateAdded) {
         const created = new Date(client.created_at || 0);
@@ -2237,6 +3032,8 @@ export default function App() {
         if (filterDateAdded === 'this_quarter') matchesDateAdded = created >= new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
       }
       const matchesHasDeals = !filterHasDeals || deals.some(d => d.client_id === client.id);
+      // PART C3 — source filter ('Unknown' matches clients with no source)
+      const matchesSource = !filterSource || (filterSource === 'Unknown' ? !client.source : client.source === filterSource);
       let matchesHasActivity = true;
       if (filterHasActivity) {
         const acts = activities.filter(a => a.client_id === client.id);
@@ -2251,7 +3048,7 @@ export default function App() {
       if (filterScore === 'high') matchesScore = client.leadScore >= 75;
       if (filterScore === 'medium') matchesScore = client.leadScore >= 50 && client.leadScore < 75;
       if (filterScore === 'low') matchesScore = client.leadScore < 50;
-      return matchesSearch && matchesPriority && matchesStatus && matchesTags && matchesHealth && matchesDateAdded && matchesHasDeals && matchesHasActivity && matchesScore;
+      return matchesSearch && matchesPriority && matchesStatus && matchesTags && matchesHealth && matchesDateAdded && matchesHasDeals && matchesHasActivity && matchesScore && matchesSource;
     }).sort((a, b) => {
       if (!a || !b) return 0;
       if (sortBy === 'created_at_desc') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
@@ -2261,11 +3058,11 @@ export default function App() {
       if (sortBy === 'score_desc') return b.leadScore - a.leadScore;
       if (sortBy === 'score_asc') return a.leadScore - b.leadScore;
       return 0;
-    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, deals, activities]);
+    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterSource, deals, activities]);
 
   const activeFilterCount = [
     filterPriority !== 'All', filterStatus !== 'All', filterDateAdded, filterHasDeals,
-    filterHasActivity, filterScore, filterTags.length > 0, filterHealth,
+    filterHasActivity, filterScore, filterTags.length > 0, filterHealth, filterSource,
   ].filter(Boolean).length;
 
   const BUILT_IN_VIEWS = [
@@ -2275,14 +3072,47 @@ export default function App() {
     { name: 'Active Deals', filters: { filterHasDeals: true } },
   ];
 
-  // FEATURE 1 â€” deal rollups
-  const pipelineValue = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + (parseFloat(d.value) || 0), 0), [deals]);
-  const weightedForecast = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + (parseFloat(d.value) || 0) * ((d.probability || 0) / 100), 0), [deals]);
-  const wonValue = useMemo(() => deals.filter(d => d.stage === 'Won').reduce((s, d) => s + (parseFloat(d.value) || 0), 0), [deals]);
+  // FEATURE 1 — deal rollups
+  // G20 — roll-ups normalize to USD via static FX rates (directional, not accounting-grade)
+  const pipelineValue = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + toUSD(d.value, d.currency), 0), [deals]);
+  const weightedForecast = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + toUSD(d.value, d.currency) * ((d.probability || 0) / 100), 0), [deals]);
+  const wonValue = useMemo(() => deals.filter(d => d.stage === 'Won').reduce((s, d) => s + toUSD(d.value, d.currency), 0), [deals]);
   const openDealsCount = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).length, [deals]);
+
+  // N8N — enrollments whose next step is due (the Outbox)
+  const dueSequenceSends = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return sequenceEnrollments
+      .filter(en => en.status === 'active' && en.next_send_at && en.next_send_at <= today)
+      .map(en => {
+        const seq = sequences.find(s => s.id === en.sequence_id);
+        const step = sequenceSteps.filter(s => s.sequence_id === en.sequence_id).sort((a, b) => a.step_order - b.step_order || a.id - b.id)[en.current_step];
+        const c = clients.find(x => x.id === en.client_id);
+        return seq && seq.status === 'active' && step && c ? { enr: en, seq, step, client: c } : null;
+      })
+      .filter(Boolean);
+  }, [sequenceEnrollments, sequences, sequenceSteps, clients]);
+
+  // G19 — MRR from Won recurring deals, normalized to monthly USD
+  const mrr = useMemo(() => deals
+    .filter(d => d.stage === 'Won' && d.is_recurring)
+    .reduce((s, d) => {
+      const usd = toUSD(d.value, d.currency);
+      return s + (d.billing_cycle === 'annual' ? usd / 12 : d.billing_cycle === 'quarterly' ? usd / 3 : usd);
+    }, 0), [deals]);
+
+  // G19 — renewals due in the next 30 days
+  const upcomingRenewals = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const in30 = new Date(); in30.setDate(in30.getDate() + 30);
+    const in30Str = in30.toISOString().split('T')[0];
+    return deals
+      .filter(d => d.is_recurring && d.renewal_date && d.renewal_date >= today && d.renewal_date <= in30Str)
+      .sort((a, b) => a.renewal_date.localeCompare(b.renewal_date));
+  }, [deals]);
   const fmtMoney = (n) => `$${(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
-  // FEATURE 3 â€” reports computed
+  // FEATURE 3 — reports computed
   const reportStats = useMemo(() => {
     const days = parseInt(reportRange, 10);
     const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
@@ -2328,7 +3158,92 @@ export default function App() {
     return { activitiesInRange, activityByType, clientsByStage, dealsByStage, topClientsByActivity, clientsAddedByWeek, winRate, avgResponseTime, taskCompletionRate, avgActivitiesPerClient, clientsBySource };
   }, [reportRange, activities, clients, deals, tasks]);
 
-  // FEATURE 8 â€” calendar events
+  // PART C1 — custom report: group clients by dimension, aggregate the chosen metric
+  const customReportData = useMemo(() => {
+    const days = parseInt(reportRange, 10);
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    const bucketsFor = (c) => {
+      if (customDimension === 'Stage') return [c.status || 'Unknown'];
+      if (customDimension === 'Priority') return [c.relationship || 'Unknown'];
+      if (customDimension === 'Source') return [c.source || 'Unknown'];
+      if (customDimension === 'Tag') {
+        const ids = clientTagMap[c.id] || [];
+        return ids.length ? ids.map(id => tags.find(t => t.id === id)?.name || 'Unknown') : ['Untagged'];
+      }
+      // Month Added — honors the Day/Week/Month grouping selector
+      const d = new Date(c.created_at || 0);
+      if (customDateGrouping === 'day') return [d.toISOString().split('T')[0]];
+      if (customDateGrouping === 'week') {
+        const w = new Date(d); w.setDate(w.getDate() - w.getDay());
+        return [`Wk of ${w.toISOString().split('T')[0]}`];
+      }
+      return [`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`];
+    };
+    const acc = {};
+    clientsWithScores.forEach(c => {
+      const cDealValue = deals.filter(d => d.client_id === c.id).reduce((s, d) => s + (parseFloat(d.value) || 0), 0);
+      const cActs = activities.filter(a => a.client_id === c.id && new Date(a.activity_date) >= cutoff).length;
+      bucketsFor(c).forEach(k => {
+        const b = acc[k] = acc[k] || { count: 0, dealValue: 0, scoreSum: 0, activityCount: 0 };
+        b.count++; b.dealValue += cDealValue; b.scoreSum += c.leadScore || 0; b.activityCount += cActs;
+      });
+    });
+    const metricVal = (b) =>
+      customMetric === 'Count' ? b.count
+      : customMetric === 'Total Deal Value' ? b.dealValue
+      : customMetric === 'Avg Lead Score' ? (b.count ? b.scoreSum / b.count : 0)
+      : b.activityCount; // Activity Count (within the selected range)
+    let rows = Object.entries(acc).map(([label, b]) => ({ label, value: metricVal(b) }));
+    const ordered = customDimension === 'Stage' ? PIPELINE_STAGES : customDimension === 'Priority' ? ['High', 'Medium', 'Low'] : null;
+    if (ordered) rows.sort((a, b) => ordered.indexOf(a.label) - ordered.indexOf(b.label));
+    else if (customDimension === 'Month Added') rows.sort((a, b) => a.label.localeCompare(b.label));
+    else rows.sort((a, b) => b.value - a.value);
+    return rows;
+  }, [customDimension, customMetric, customDateGrouping, reportRange, clientsWithScores, deals, activities, clientTagMap, tags]);
+
+  const fmtCustomValue = (v) =>
+    customMetric === 'Total Deal Value' ? fmtMoney(v)
+    : customMetric === 'Avg Lead Score' ? v.toFixed(1)
+    : v;
+
+  // PART C2 — each stat tile's value now vs its value as of one period ago.
+  // Range-based numbers (Activities, Avg Act/Client) compare current vs prior window;
+  // cumulative numbers (Clients, Pipeline, Win Rate, Task Completion) compare
+  // "now" vs "computed only on data that existed at the period boundary".
+  const comparisonStats = useMemo(() => {
+    if (!compareReports) return null;
+    const days = parseInt(reportRange, 10);
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    const prevCutoff = new Date(); prevCutoff.setDate(prevCutoff.getDate() - days * 2);
+    const inCur = (d) => d >= cutoff;
+    const inPrev = (d) => d >= prevCutoff && d < cutoff;
+
+    const actsCur = activities.filter(a => inCur(new Date(a.activity_date))).length;
+    const actsPrev = activities.filter(a => inPrev(new Date(a.activity_date))).length;
+    const clientsNow = clients.length;
+    const clientsThen = clients.filter(c => new Date(c.created_at) < cutoff).length;
+    const openVal = (list) => list.filter(d => !['Won', 'Lost'].includes(d.stage)).reduce((s, d) => s + (parseFloat(d.value) || 0), 0);
+    const pipeNow = openVal(deals);
+    const pipeThen = openVal(deals.filter(d => new Date(d.created_at) < cutoff));
+    const winRateOf = (list) => {
+      const w = list.filter(d => d.stage === 'Won').length, l = list.filter(d => d.stage === 'Lost').length;
+      return (w + l) > 0 ? Math.round((w / (w + l)) * 100) : 0;
+    };
+    const closedThen = deals.filter(d => ['Won', 'Lost'].includes(d.stage) && new Date(d.close_date || d.created_at) < cutoff);
+    const tcOf = (list) => list.length > 0 ? Math.round((list.filter(t => t.status === 'done').length / list.length) * 100) : 0;
+    const tasksThen = tasks.filter(t => new Date(t.created_at || t.due_date) < cutoff);
+
+    return {
+      'Relationships': [clientsNow, clientsThen],
+      'Activities': [actsCur, actsPrev],
+      'Pipeline $': [pipeNow, pipeThen],
+      'Win Rate': [winRateOf(deals.filter(d => ['Won', 'Lost'].includes(d.stage))), winRateOf(closedThen)],
+      'Task Completion': [tcOf(tasks), tcOf(tasksThen)],
+      'Avg Act/Relationship': [clientsNow > 0 ? actsCur / clientsNow : 0, clientsThen > 0 ? actsPrev / clientsThen : 0],
+    };
+  }, [compareReports, reportRange, activities, clients, deals, tasks]);
+
+  // FEATURE 8 — calendar events
   const calendarEvents = useMemo(() => {
     const events = [];
     const yr = new Date().getFullYear();
@@ -2342,7 +3257,7 @@ export default function App() {
       if (c.birthday) {
         const b = new Date(c.birthday);
         const thisYear = `${yr}-${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
-        events.push({ id: `bday-${c.id}`, date: thisYear, type: 'birthday', label: `ðŸŽ‚ ${c.name}'s birthday`, clientId: c.id, client: c });
+        events.push({ id: `bday-${c.id}`, date: thisYear, type: 'birthday', label: `🎂 ${c.name}'s birthday`, clientId: c.id, client: c });
       }
     });
     deals.forEach(d => {
@@ -2351,7 +3266,7 @@ export default function App() {
     return events;
   }, [tasks, activities, clients, deals, todayStr]);
 
-  // FEATURE 26 â€” goal progress
+  // FEATURE 26 — goal progress
   const goalProgress = useMemo(() => goals.filter(g => g.month === currentMonthStr).map(g => {
     let current = 0;
     const monthStart = new Date(g.month);
@@ -2368,9 +3283,9 @@ export default function App() {
     return { ...g, current, pct: Math.min(Math.round((current / g.target_value) * 100), 100) };
   }), [goals, clients, activities, deals, tasks, currentMonthStr]);
 
-  // FEATURE 30 â€” onboarding
+  // FEATURE 30 — onboarding
   const onboardingSteps = [
-    { title: 'Add your first client', desc: 'Start tracking relationships.', done: clients.length > 0 },
+    { title: 'Add your first relationship', desc: 'Start tracking relationships.', done: clients.length > 0 },
     { title: 'Log your first activity', desc: 'Open a client and log an activity.', done: activities.length > 0 },
     { title: 'Create your first task', desc: 'Stay on top of follow-ups.', done: tasks.length > 0 },
     { title: 'Explore your dashboard', desc: 'Look around for 30 seconds.', done: dashboardExplored },
@@ -2378,7 +3293,7 @@ export default function App() {
   const onboardingDone = onboardingSteps.filter(s => s.done).length;
   const onboardingComplete = onboardingDone === onboardingSteps.length;
 
-  // FEATURE 6 â€” top leads for dashboard widget
+  // FEATURE 6 — top leads for dashboard widget
   const topLeads = useMemo(() => [...clientsWithScores].sort((a, b) => b.leadScore - a.leadScore).slice(0, 5), [clientsWithScores]);
 
   const totalPages = useMemo(() => Math.ceil(filteredAndSortedClients.length / itemsPerPage) || 1, [filteredAndSortedClients, itemsPerPage]);
@@ -2436,7 +3351,7 @@ export default function App() {
 
   if (appStep === 'LOADING') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] text-gray-900 font-sans">
+      <div className="min-h-screen flex items-center justify-center bg-[#FAFAFA] dark:bg-[#0A0A0A] text-gray-900 dark:text-gray-100 font-sans">
         <div className="flex flex-col items-center gap-4">
           <div className="w-5 h-5 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
           <span className="text-[13px] font-medium tracking-wide text-gray-500">Initializing workspace...</span>
@@ -2446,7 +3361,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] dark:bg-gray-950 text-gray-900 dark:text-gray-100 font-sans flex flex-col selection:bg-gray-900 selection:text-white relative">
+    <div className="min-h-screen bg-[#FAFAFA] dark:bg-[#0A0A0A] text-gray-900 dark:text-gray-100 font-sans flex flex-col selection:bg-gray-900 selection:text-white relative">
       
       {/* GLOBAL SEARCH COMMAND PALETTE */}
       {showGlobalSearch && (
@@ -2454,7 +3369,7 @@ export default function App() {
           <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] border border-gray-100" onClick={e => e.stopPropagation()}>
             <div className="flex items-center px-4 py-3 border-b border-gray-100 bg-gray-50/50">
               <SearchIcon className="text-gray-400" />
-              <input type="text" autoFocus placeholder="Search clients, emails, activity notes... (Cmd+K)" value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} className="w-full bg-transparent border-none focus:ring-0 px-3 py-1 text-[15px] outline-none placeholder-gray-400" />
+              <input type="text" autoFocus placeholder='Search... or try "create deal for Sarah", "log call with Sarah"' value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { const a = parseCommandAction(globalSearchTerm); if (a) { e.preventDefault(); a.run(); } } }} className="w-full bg-transparent border-none focus:ring-0 px-3 py-1 text-[15px] outline-none placeholder-gray-400" />
               <button onClick={() => setShowGlobalSearch(false)} className="text-[10px] font-bold text-gray-400 bg-gray-200 px-2 py-1 rounded hover:bg-gray-300">ESC</button>
             </div>
             
@@ -2463,15 +3378,29 @@ export default function App() {
                 <p className="text-[13px] text-gray-400 p-4 text-center">Type at least 2 characters to search.</p>
               ) : (
                 <div className="space-y-4 p-2">
+                  {/* G30 — COMMAND ACTION (if the query parses as one) */}
+                  {(() => {
+                    const action = parseCommandAction(globalSearchTerm);
+                    if (!action) return null;
+                    return (
+                      <div>
+                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3 mb-2">Actions</h4>
+                        <button onClick={action.run} className="w-full flex items-center justify-between p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors text-left group">
+                          <span className="text-[14px] font-semibold text-indigo-800">⚡ {action.label}</span>
+                          <span className="text-[11px] font-bold text-indigo-400 border border-indigo-200 px-1.5 py-0.5 rounded group-hover:bg-white">Run ↵</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
                   {/* CLIENT MATCHES */}
                   {globalSearchResults.clients.length > 0 && (
                     <div>
-                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3 mb-2">Clients</h4>
+                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3 mb-2">Relationships</h4>
                       {globalSearchResults.clients.map(c => (
                         <button key={c.id} onClick={() => handleSearchSelection('client', c)} className="w-full flex items-center justify-between p-3 hover:bg-gray-50 rounded-xl transition-colors text-left group">
                           <div>
                             <p className="text-[14px] font-semibold text-gray-900">{c.name}</p>
-                            <p className="text-[12px] text-gray-500">{c.email} {c.phone_number ? `â€¢ ${c.phone_number}` : ''}</p>
+                            <p className="text-[12px] text-gray-500">{c.email} {c.phone_number ? `• ${c.phone_number}` : ''}</p>
                           </div>
                           <span className="text-[12px] text-gray-400 group-hover:text-gray-900 transition-colors">View Profile &rarr;</span>
                         </button>
@@ -2488,7 +3417,7 @@ export default function App() {
                         return (
                           <button key={a.id} onClick={() => handleSearchSelection('activity', a)} className="w-full flex flex-col p-3 hover:bg-gray-50 rounded-xl transition-colors text-left group gap-1">
                             <div className="flex justify-between w-full items-center">
-                              <span className="text-[12px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{parentClient?.name || 'Unknown Client'}</span>
+                              <span className="text-[12px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{parentClient?.name || 'Unknown Relationship'}</span>
                               <span className="text-[11px] text-gray-400">{a.activity_date}</span>
                             </div>
                             <p className="text-[13px] text-gray-800 line-clamp-2 leading-snug">{a.description}</p>
@@ -2508,8 +3437,88 @@ export default function App() {
         </div>
       )}
       
-      {/* PREMIUM TOP NAVIGATION BAR */}
-      <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40 shadow-sm">
+      {/* PART E — LEFT SIDEBAR (desktop, 240px) */}
+      {user && (
+        <aside className="hidden md:flex flex-col fixed inset-y-0 left-0 w-60 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 z-40">
+          {/* Logo */}
+          <div className="flex items-center gap-2.5 px-5 h-16 shrink-0 border-b border-gray-100 dark:border-gray-800">
+            <div className="w-6 h-6 bg-gray-900 dark:bg-gray-100 rounded-md" />
+            <span className="text-[15px] font-semibold tracking-tight">Student CRM</span>
+          </div>
+          {/* Nav items */}
+          <nav className="flex-1 overflow-y-auto px-3 py-4 flex flex-col gap-0.5">
+            {[
+              ['DASHBOARD', 'Dashboard'],
+              ['CLIENTS', 'Relationships'],
+              ['DEALS', 'Deals'],
+              ['N8N', 'N8N'],
+              ['GLOBAL_TASKS', 'Tasks'],
+              ['CALENDAR', 'Calendar'],
+              ['REPORTS', 'Reports'],
+              ['SETTINGS', 'Settings'],
+            ].map(([step, label]) => (
+              <button key={step} onClick={() => setAppStep(step)} className={`text-left px-3 py-2 rounded-xl text-[13px] font-medium transition-all ${appStep === step ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-semibold' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>
+                {label}
+              </button>
+            ))}
+          </nav>
+          {/* Utilities + user block */}
+          <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-800 space-y-0.5">
+            <button onClick={() => setShowGlobalSearch(true)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
+              <span className="flex items-center gap-2"><SearchIcon /> Search</span>
+              <span className="text-[10px] font-semibold border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 rounded text-gray-400">⌘K</span>
+            </button>
+            <div className="relative">
+              <button onClick={() => setShowNotifications(!showNotifications)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
+                <span className="flex items-center gap-2"><BellIcon /> Notifications</span>
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="text-[10px] font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5">{notifications.filter(n => !n.read).length}</span>
+                )}
+              </button>
+              {showNotifications && (
+                <div className="absolute left-full bottom-0 ml-3 w-80 bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-800 overflow-hidden z-50">
+                  <div className="p-3 bg-gray-50/80 dark:bg-gray-800/80 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+                    <span className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">Notifications</span>
+                    {notifications.filter(n => !n.read).length > 0 && (
+                      <button onClick={() => notifications.forEach(n => !n.read && handleMarkNotificationRead(n.id, n.reference_id, n.type))} className="text-[11px] text-indigo-600 font-medium hover:underline">Mark all read</button>
+                    )}
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <EmptyState title="All caught up" desc="Notifications about tasks and birthdays will appear here." />
+                    ) : (
+                      notifications.slice(0, 10).map(n => (
+                        <div key={n.id} onClick={() => handleMarkNotificationRead(n.id, n.reference_id, n.type)} className={`p-3 border-b border-gray-50 dark:border-gray-800 last:border-0 cursor-pointer transition-colors ${n.read ? 'bg-white dark:bg-gray-900 opacity-60' : 'bg-indigo-50/30 dark:bg-indigo-900/10 hover:bg-indigo-50/50'}`}>
+                          <p className="text-[12px] font-medium text-gray-900 dark:text-gray-100 leading-snug">{n.message}</p>
+                          <p className="text-[10px] text-gray-400 mt-1">{new Date(n.created_at).toLocaleDateString()}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <button onClick={toggleDarkMode} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
+              {darkMode ? '☀️ Light mode' : '🌙 Dark mode'}
+            </button>
+            <div className="flex items-center gap-2.5 px-3 pt-3 mt-1 border-t border-gray-100 dark:border-gray-800">
+              <span className="w-8 h-8 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-bold flex items-center justify-center shrink-0">
+                {(profile.username || user.email || '?').slice(0, 2).toUpperCase()}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-semibold text-gray-900 dark:text-gray-100 truncate">{profile.username || user.email}</p>
+                <p className="text-[10px] text-gray-400 truncate">{workspace ? workspace.name : 'Solo workspace'}</p>
+              </div>
+              <button onClick={handleLogout} title="Log out" className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 p-1 transition-colors">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {/* TOP NAVIGATION BAR (mobile when logged in; all sizes when logged out) */}
+      <nav className={`bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-40 shadow-sm ${user ? 'md:hidden' : ''}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-14 items-center">
             <div className="flex items-center gap-8">
@@ -2522,7 +3531,7 @@ export default function App() {
                 <div className="hidden md:flex items-center gap-1">
                   {[
                     ['DASHBOARD', 'Dashboard'],
-                    ['CLIENTS', 'Clients Pipeline'],
+                    ['CLIENTS', 'Relationships'],
                     ['DEALS', 'Deals'],
                     ['GLOBAL_TASKS', 'Tasks'],
                     ['CALENDAR', 'Calendar'],
@@ -2558,7 +3567,7 @@ export default function App() {
                 {/* Search Trigger */}
                 <button onClick={() => setShowGlobalSearch(true)} className="text-gray-500 hover:text-gray-900 p-1 rounded-full transition-colors hidden sm:flex items-center gap-2 group" title="Search (Cmd+K)">
                   <SearchIcon />
-                  <span className="text-[11px] font-medium border border-gray-200 px-1.5 py-0.5 rounded text-gray-400 group-hover:bg-gray-100 transition-colors">âŒ˜K</span>
+                  <span className="text-[11px] font-medium border border-gray-200 px-1.5 py-0.5 rounded text-gray-400 group-hover:bg-gray-100 transition-colors">⌘K</span>
                 </button>
 
                 {/* Notifications Bell */}
@@ -2613,8 +3622,9 @@ export default function App() {
             <div className="px-4 py-3 flex flex-col gap-1">
               {[
                 ['DASHBOARD', 'Dashboard'],
-                ['CLIENTS', 'Clients Pipeline'],
+                ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
+                ['N8N', 'N8N'],
                 ['GLOBAL_TASKS', 'Tasks'],
                 ['CALENDAR', 'Calendar'],
                 ['REPORTS', 'Reports'],
@@ -2640,18 +3650,22 @@ export default function App() {
             }
           }}
           className="fixed bottom-6 right-4 md:bottom-8 md:right-8 z-50 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 p-4 rounded-full shadow-xl hover:bg-gray-800 dark:hover:bg-white hover:scale-105 transition-all active:scale-95 group flex items-center justify-center"
-          title="Add New Client"
+          title="Add New Relationship"
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
         </button>
       )}
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-        
+      {/* FIX: page padding lives on the inner wrapper so it can never fight the
+          sidebar offset (md:pl-60) for padding-left â€” content always sits beside
+          the 240px nav at every breakpoint, no horizontal scrollbar. */}
+      <main className={`flex-1 w-full min-w-0 ${user ? 'md:pl-60' : ''}`}>
+        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+
         {/* VIEW: LOG IN */}
         {appStep === 'LOG_IN' && (
           <div className="max-w-[400px] mx-auto mt-10 sm:mt-20">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 sm:p-10">
+            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-8 sm:p-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-1">Welcome back</h2>
               <p className="text-[13px] text-gray-500 mb-6">Enter your credentials to access your workspace.</p>
               
@@ -2683,13 +3697,13 @@ export default function App() {
                     <button type="button" onClick={() => {setAppStep('FORGOT_PASSWORD'); setAuthMessage('');}} className="text-gray-500 hover:text-gray-800 focus:outline-none transition-colors">Forgot password?</button>
                   </label>
                   <div className="relative">
-                    <input type={showLoginPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showLoginPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowLoginPassword(!showLoginPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showLoginPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
                   </div>
                 </div>
-                <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
+                <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
                   {authLoading ? 'Signing in...' : 'Sign In'}
                 </button>
               </form>
@@ -2700,7 +3714,7 @@ export default function App() {
         {/* VIEW: SIGN UP */}
         {appStep === 'SIGN_UP' && (
           <div className="max-w-[400px] mx-auto mt-10 sm:mt-20">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 sm:p-10">
+            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-8 sm:p-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-1">Create an account</h2>
               <p className="text-[13px] text-gray-500 mb-6">Enter your details below to get started.</p>
 
@@ -2719,7 +3733,7 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Password</label>
                   <div className="relative">
-                    <input type={showSignupPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showSignupPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowSignupPassword(!showSignupPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showSignupPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -2728,7 +3742,7 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Confirm Password</label>
                   <div className="relative">
-                    <input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showConfirmPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -2737,7 +3751,7 @@ export default function App() {
                     <p className="text-[11px] text-red-500 mt-1">Passwords do not match</p>
                   )}
                 </div>
-                <button type="submit" disabled={authLoading || (confirmPassword.length > 0 && password !== confirmPassword)} className="w-full py-2.5 px-4 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center disabled:opacity-50 disabled:hover:bg-gray-900">
+                <button type="submit" disabled={authLoading || (confirmPassword.length > 0 && password !== confirmPassword)} className="w-full py-2.5 px-4 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center disabled:opacity-50 disabled:hover:bg-gray-900">
                   {authLoading ? 'Creating Account...' : 'Sign Up'}
                 </button>
               </form>
@@ -2748,7 +3762,7 @@ export default function App() {
         {/* VIEW: VERIFY OTP */}
         {appStep === 'VERIFY_OTP' && (
           <div className="max-w-[400px] mx-auto mt-10 sm:mt-20">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 sm:p-10">
+            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-8 sm:p-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-1">Check your email</h2>
               <p className="text-[13px] text-gray-500 mb-6">We sent a verification code to {email}.</p>
               
@@ -2763,7 +3777,7 @@ export default function App() {
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Verification Code</label>
                   <input type="text" value={otpToken} onChange={(e) => setOtpToken(e.target.value)} required placeholder="123456" className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors tracking-widest text-center" />
                 </div>
-                <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
+                <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
                   {authLoading ? 'Verifying...' : 'Verify Email'}
                 </button>
               </form>
@@ -2774,7 +3788,7 @@ export default function App() {
         {/* VIEW: FORGOT PASSWORD */}
         {appStep === 'FORGOT_PASSWORD' && (
           <div className="max-w-[400px] mx-auto mt-10 sm:mt-20">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 sm:p-10">
+            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-8 sm:p-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-1">Reset Password</h2>
               <p className="text-[13px] text-gray-500 mb-6">Enter your email and we'll send you a reset link.</p>
               
@@ -2793,7 +3807,7 @@ export default function App() {
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Email address</label>
                     <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                   </div>
-                  <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
+                  <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
                     {authLoading ? 'Sending...' : 'Send Reset Link'}
                   </button>
                 </form>
@@ -2806,13 +3820,13 @@ export default function App() {
         {appStep === 'DASHBOARD' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Overview</h1>
-              <p className="text-[13px] text-gray-500">Monitor your workspace activity and client directory.</p>
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Overview</h1>
+              <p className="text-[13px] text-gray-500">Monitor your workspace activity and relationship directory.</p>
             </div>
 
             {/* ONBOARDING CHECKLIST (Feature 30) */}
             {!onboardingComplete && !onboardingDismissed && (
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm animate-in fade-in">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow animate-in fade-in">
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div>
                     <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">Welcome to your CRM! Get started in 4 steps:</h3>
@@ -2826,11 +3840,11 @@ export default function App() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {onboardingSteps.map((step, i) => (
                     <div key={i} className={`flex items-start gap-3 p-3 rounded-xl border ${step.done ? 'border-green-100 dark:border-green-900 bg-green-50/40 dark:bg-green-900/10' : 'border-gray-100 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-700/30'}`}>
-                      <span className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${step.done ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300'}`}>{step.done ? 'âœ“' : i + 1}</span>
+                      <span className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${step.done ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300'}`}>{step.done ? '✓' : i + 1}</span>
                       <div className="flex-1">
                         <p className={`text-[13px] font-semibold ${step.done ? 'text-green-800 dark:text-green-300 line-through' : 'text-gray-900 dark:text-gray-100'}`}>{step.title}</p>
                         <p className="text-[11px] text-gray-500 mt-0.5">{step.desc}</p>
-                        {!step.done && i === 0 && <button onClick={() => { setAppStep('CLIENTS'); setTimeout(() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' }), 100); }} className="mt-1.5 text-[12px] font-semibold text-indigo-600 hover:underline">Add Client &rarr;</button>}
+                        {!step.done && i === 0 && <button onClick={() => { setAppStep('CLIENTS'); setTimeout(() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' }), 100); }} className="mt-1.5 text-[12px] font-semibold text-indigo-600 hover:underline">Add Relationship &rarr;</button>}
                         {!step.done && i === 2 && <button onClick={() => setAppStep('GLOBAL_TASKS')} className="mt-1.5 text-[12px] font-semibold text-indigo-600 hover:underline">Go to Tasks &rarr;</button>}
                       </div>
                     </div>
@@ -2843,15 +3857,15 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               
               {/* Activity Chart */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 lg:col-span-1 flex flex-col">
-                <h3 className="text-[14px] font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 dark:border-gray-800 lg:col-span-1 flex flex-col">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-indigo-500"></span> Activity This Week
                 </h3>
                 <div className="flex-1 flex items-end gap-2 h-32 mt-auto pb-2">
                   {chartData.map(d => (
-                    <div key={d.date} className="flex-1 flex flex-col items-center gap-2 group relative">
-                      <div className="w-full bg-indigo-100 rounded-sm relative overflow-hidden" style={{ height: '100px' }}>
-                        <div className="absolute bottom-0 w-full bg-indigo-500 transition-all duration-500" style={{ height: `${(d.count / maxChartVal) * 100}%` }}></div>
+                    <div key={d.date} className="hover-lift flex-1 flex flex-col items-center gap-2 group relative">
+                      <div className="w-full bg-indigo-100 dark:bg-indigo-500/15 rounded-sm relative overflow-hidden" style={{ height: '100px' }}>
+                        <div className="anim-grow-h absolute bottom-0 w-full bg-indigo-500 transition-all duration-500" style={{ height: `${(d.count / maxChartVal) * 100}%` }}></div>
                       </div>
                       <span className="text-[10px] text-gray-400">{d.label}</span>
                       {/* Tooltip */}
@@ -2864,35 +3878,35 @@ export default function App() {
               </div>
 
               {/* Tasks Widgets */}
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 dark:border-gray-800 lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
-                  <h3 className="text-[14px] font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-red-500"></span> Overdue Tasks
                   </h3>
                   <div className="space-y-3">
                     {tasks.filter(t => t.status === 'pending' && new Date(t.due_date) < new Date(todayStr)).length === 0 && <p className="text-[13px] text-gray-500">No overdue tasks!</p>}
                     {tasks.filter(t => t.status === 'pending' && new Date(t.due_date) < new Date(todayStr)).slice(0,4).map(task => (
-                      <div key={task.id} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+                      <div key={task.id} className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
                         <div>
-                          <p className="text-[13px] font-medium text-red-600 truncate max-w-[150px]">{task.title}</p>
+                          <p className="text-[13px] font-medium text-red-600 dark:text-red-400 truncate max-w-[150px]">{task.title}</p>
                           <p className="text-[11px] text-gray-500">Due: {task.due_date}</p>
                         </div>
-                        <button onClick={() => { setViewingClient(clients.find(c => c.id === task.client_id)); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-900 font-medium hover:underline shrink-0">View Client</button>
+                        <button onClick={() => { setViewingClient(clients.find(c => c.id === task.client_id)); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-900 dark:text-gray-100 font-medium hover:underline shrink-0">View Relationship</button>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 <div>
-                  <h3 className="text-[14px] font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-blue-500"></span> Due Today
                   </h3>
                   <div className="space-y-3">
                     {tasks.filter(t => t.status === 'pending' && t.due_date === todayStr).length === 0 && <p className="text-[13px] text-gray-500">Nothing due today!</p>}
                     {tasks.filter(t => t.status === 'pending' && t.due_date === todayStr).slice(0,4).map(task => (
-                      <div key={task.id} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
-                        <p className="text-[13px] font-medium text-gray-900 truncate max-w-[150px]">{task.title}</p>
-                        <button onClick={() => { setViewingClient(clients.find(c => c.id === task.client_id)); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-900 font-medium hover:underline shrink-0">View Client</button>
+                      <div key={task.id} className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                        <p className="text-[13px] font-medium text-gray-900 dark:text-gray-100 truncate max-w-[150px]">{task.title}</p>
+                        <button onClick={() => { setViewingClient(clients.find(c => c.id === task.client_id)); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-900 dark:text-gray-100 font-medium hover:underline shrink-0">View Relationship</button>
                       </div>
                     ))}
                   </div>
@@ -2901,38 +3915,38 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Total records</p>
-                <p className="text-2xl font-bold tracking-tight text-gray-900 mt-1">{clients.length}</p>
+                <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{clients.length}</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">High Priority</p>
-                <p className="text-2xl font-bold tracking-tight text-gray-900 mt-1">{clients.filter(c => c.relationship === 'High').length}</p>
+                <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{clients.filter(c => c.relationship === 'High').length}</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Active Stage</p>
-                <p className="text-2xl font-bold tracking-tight text-gray-900 mt-1">{clients.filter(c => c.status === 'Active').length}</p>
+                <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{clients.filter(c => c.status === 'Active').length}</p>
               </div>
-              <div className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">New Stage</p>
-                <p className="text-2xl font-bold tracking-tight text-gray-900 mt-1">{clients.filter(c => c.status === 'New').length}</p>
+                <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{clients.filter(c => c.status === 'New').length}</p>
               </div>
-              <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Open Deals</p>
                 <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{openDealsCount}</p>
               </div>
-              <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Pipeline Value</p>
                 <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{fmtMoney(pipelineValue)}</p>
               </div>
             </div>
 
             {/* NEW WIDGETS ROW: Streak, Goals, Top Leads, Health, Sources */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="anim-stagger grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {/* Your Streak (Feature 17) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3">
-                  <span>ðŸ”¥</span> Your Streak
+                  <span>🔥</span> Your Streak
                 </h3>
                 <p className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{streakData.current} day{streakData.current === 1 ? '' : 's'}</p>
                 <p className="text-[12px] text-gray-500 mt-1">Longest: {streakData.longest} days</p>
@@ -2945,14 +3959,14 @@ export default function App() {
                   })}
                 </div>
                 <p className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mt-3">
-                  {streakData.current === 0 ? 'Start your streak!' : streakData.current >= 30 ? 'On fire! ðŸ”¥' : streakData.current >= 7 ? 'One week! Keep it going!' : 'Keep it going!'}
+                  {streakData.current === 0 ? 'Start your streak!' : streakData.current >= 30 ? 'On fire! 🔥' : streakData.current >= 7 ? 'One week! Keep it going!' : 'Keep it going!'}
                 </p>
               </div>
 
               {/* Monthly Goals (Feature 26) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5"><span>ðŸŽ¯</span> Monthly Goals</h3>
+                  <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5"><span>🎯</span> Monthly Goals</h3>
                   <button onClick={() => setShowGoalForm(true)} className="text-[12px] font-medium text-indigo-600 hover:underline">Set Goals</button>
                 </div>
                 {goalProgress.length === 0 ? (
@@ -2960,15 +3974,15 @@ export default function App() {
                 ) : (
                   <div className="space-y-3">
                     {goalProgress.map(g => (
-                      <div key={g.id} className="relative">
+                      <div key={g.id} className="relative hover-lift rounded-lg">
                         <div className="flex justify-between text-[12px] mb-1">
-                          <span className="font-medium text-gray-700 dark:text-gray-300">{{ new_clients: 'New Clients', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</span>
-                          <span className="font-bold text-gray-900 dark:text-gray-100">{g.current} of {g.target_value} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${g.pct >= 100 ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'}`}>{g.pct}%</span></span>
+                          <span className="font-medium text-gray-700 dark:text-gray-300">{{ new_clients: 'New Relationships', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</span>
+                          <span className="font-bold text-gray-900 dark:text-gray-100"><CountUp value={g.current} /> of {g.target_value} <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${g.pct >= 100 ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'}`}><CountUp value={g.pct} suffix="%" /></span></span>
                         </div>
                         <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
-                          <div className={`h-full rounded-full transition-all duration-500 ${g.pct >= 100 ? 'bg-green-500' : g.pct >= 50 ? 'bg-blue-500' : 'bg-yellow-400'}`} style={{ width: `${g.pct}%` }} />
+                          <div className={`anim-grow-w h-full rounded-full transition-all duration-500 ${g.pct >= 100 ? 'bg-green-500' : g.pct >= 50 ? 'bg-blue-500' : 'bg-yellow-400'}`} style={{ width: `${g.pct}%` }} />
                         </div>
-                        {g.pct >= 100 && <span className="goal-confetti absolute -top-1 right-0 text-[14px]">ðŸŽ‰</span>}
+                        {g.pct >= 100 && <span className="goal-confetti absolute -top-1 right-0 text-[14px]">🎉</span>}
                       </div>
                     ))}
                   </div>
@@ -2976,14 +3990,14 @@ export default function App() {
               </div>
 
               {/* Top Leads (Feature 6) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>â­</span> Top Leads</h3>
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>⭐</span> Top Leads</h3>
                 {topLeads.length === 0 ? (
-                  <p className="text-[13px] text-gray-400 py-2">Add clients to see lead scores.</p>
+                  <p className="text-[13px] text-gray-400 py-2">Add relationships to see lead scores.</p>
                 ) : (
                   <div className="space-y-2.5">
                     {topLeads.map(c => (
-                      <div key={c.id} className="flex items-center justify-between gap-2">
+                      <div key={c.id} className="hover-lift rounded-lg px-1 flex items-center justify-between gap-2 hover:bg-gray-50 dark:hover:bg-gray-800/50">
                         <span className="text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate flex-1">{c.name}</span>
                         <ScoreBar score={c.leadScore} />
                         <button onClick={() => { setViewingClient(c); setAppStep('CLIENTS'); }} className="text-[12px] text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 font-medium shrink-0">View</button>
@@ -2994,8 +4008,8 @@ export default function App() {
               </div>
 
               {/* Relationship Health (Feature 19) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ’—</span> Relationship Health</h3>
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>💗</span> Relationship Health</h3>
                 <div className="space-y-2">
                   {[['Excellent', 'bg-green-500'], ['Good', 'bg-teal-500'], ['Fair', 'bg-yellow-400'], ['At Risk', 'bg-orange-500'], ['Critical', 'bg-red-500']].map(([label, color]) => {
                     const count = healthCounts[label] || 0;
@@ -3006,7 +4020,7 @@ export default function App() {
                         <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-16 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{label}</span>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-6 text-right">{count}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                          <div className={`h-full rounded-full ${color}`} style={{ width: `${(count / total) * 100}%` }} />
+                          <div className={`anim-grow-w h-full rounded-full ${color}`} style={{ width: `${(count / total) * 100}%` }} />
                         </div>
                       </button>
                     );
@@ -3014,12 +4028,49 @@ export default function App() {
                 </div>
               </div>
 
+              {/* G19 — Recurring Revenue */}
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>🔁</span> Recurring Revenue</h3>
+                <div className="flex gap-6">
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">MRR</p>
+                    <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{fmtMoney(mrr)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">ARR</p>
+                    <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{fmtMoney(mrr * 12)}</p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1.5">From Won deals marked recurring, normalized monthly.</p>
+                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Renewals (next 30 days)</p>
+                  {upcomingRenewals.length === 0 ? (
+                    <p className="text-[12px] text-gray-400">No renewals coming up.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {upcomingRenewals.slice(0, 4).map(d => {
+                        const rc = clients.find(c => c.id === d.client_id);
+                        return (
+                          <div key={d.id} className="flex items-center gap-2 text-[12px]">
+                            <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-1">{d.title}</span>
+                            <span className="text-gray-400 shrink-0">{d.renewal_date}</span>
+                            {rc && (
+                              <button onClick={() => { setViewingClient(rc); setActivityType('Call'); setActivityDesc(`Renewal call — ${d.title} renews ${d.renewal_date}.`); setAppStep('CLIENTS'); }} className="text-indigo-600 font-medium hover:underline shrink-0">Log renewal call</button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Top Sources (Feature 25) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>ðŸ“</span> Top Sources</h3>
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>📍</span> Top Sources</h3>
                 {(() => {
                   const top = CLIENT_SOURCES.map(s => [s, clients.filter(c => c.source === s).length]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
-                  if (top.length === 0) return <p className="text-[13px] text-gray-400 py-2">No sources recorded yet â€” set a source when adding clients.</p>;
+                  if (top.length === 0) return <p className="text-[13px] text-gray-400 py-2">No sources recorded yet — set a source when adding relationships.</p>;
                   return (
                     <div className="space-y-2.5">
                       {top.map(([source, count]) => (
@@ -3038,9 +4089,9 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
               {/* Birthdays */}
-              <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm space-y-4 flex flex-col">
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>ðŸŽ‚</span> Birthdays (Next 30 Days)
+                  <span>🎂</span> Birthdays (Next 30 Days)
                 </h3>
                 <div className="space-y-2.5 overflow-y-auto flex-1">
                   {upcomingBirthdays.length === 0 ? (
@@ -3057,9 +4108,9 @@ export default function App() {
               </div>
 
               {/* Recent Activity */}
-              <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm space-y-4 flex flex-col">
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>âš¡</span> Recently Added Profiles
+                  <span>⚡</span> Recently Added Profiles
                 </h3>
                 <div className="space-y-2.5 flex-1">
                   {recentActivity.length === 0 ? (
@@ -3081,13 +4132,13 @@ export default function App() {
               </div>
 
               {/* Stale Clients */}
-              <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm space-y-4 flex flex-col">
+              <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>â„ï¸</span> Stale Clients (&gt;30 Days)
+                  <span>❄️</span> Stale Relationships (&gt;30 Days)
                 </h3>
                 <div className="space-y-2.5 flex-1">
                   {staleClients.length === 0 ? (
-                    <p className="text-[13px] text-gray-400 py-2">All active clients have recent activity. Great job!</p>
+                    <p className="text-[13px] text-gray-400 py-2">All active relationships have recent activity. Great job!</p>
                   ) : (
                     staleClients.map(c => (
                       <button key={c.id} onClick={() => {setViewingClient(c); setAppStep('CLIENTS');}} className="w-full flex items-center justify-between p-2.5 rounded-lg border border-red-50 bg-red-50/40 hover:bg-red-50 transition-colors text-left group">
@@ -3109,16 +4160,16 @@ export default function App() {
         {/* VIEW: CLIENTS */}
         {appStep === 'CLIENTS' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            {/* FEATURE 10 â€” read-only banner for viewers */}
+            {/* FEATURE 10 — read-only banner for viewers */}
             {isViewer && (
               <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-[13px] font-medium text-blue-800">
-                ðŸ‘ï¸ Read-only access â€” you can view clients but not edit them. Ask a workspace admin for a higher role.
+                👁️ Read-only access — you can view relationships but not edit them. Ask a workspace admin for a higher role.
               </div>
             )}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-1">CRM Pipeline</h1>
-                <p className="text-[13px] text-gray-500">Manage client data, pipeline stages, custom fields, and records.</p>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 mb-1">CRM Pipeline</h1>
+                <p className="text-[13px] text-gray-500">Manage relationship data, pipeline stages, custom fields, and records.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {/* Kanban Toggle */}
@@ -3135,7 +4186,7 @@ export default function App() {
 
             {/* ADD CLIENT FORM */}
             {canEdit && (
-            <div id="add-client-form" className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm space-y-4">
+            <div id="add-client-form" className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4">
               <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400">Add New Student Profile Card</h3>
               {crmErrorMessage && <div className="p-2 bg-red-50 text-red-700 text-[12px] rounded-lg border border-red-100">{crmErrorMessage}</div>}
               
@@ -3143,19 +4194,29 @@ export default function App() {
                 <input type="text" required placeholder="Name *" value={name} onChange={e => setName(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <div className="flex flex-col">
                   <input type="email" required placeholder="Email *" value={clientEmail} onChange={e => setClientEmail(e.target.value)} className="px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
-                  {/* FEATURE 14 â€” duplicate detection */}
+                  {/* FEATURE 14 — duplicate detection */}
                   {duplicateWarning && (
                     <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg mt-1">
                       <span className="text-[12px] text-yellow-800">
-                        âš ï¸ A client with this email already exists:
+                        ⚠️ A relationship with this email already exists:
                         <button type="button" onClick={() => setViewingClient(duplicateWarning)} className="font-semibold ml-1 underline">{duplicateWarning.name}</button>
                       </span>
                     </div>
                   )}
                 </div>
-                <input type="text" placeholder="Country" value={clientCountry} onChange={e => setClientCountry(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                <input type="text" list="country-list" placeholder="Country" value={clientCountry} onChange={e => setClientCountry(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="text" placeholder="Phone Number" value={clientPhone} onChange={e => setClientPhone(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
                 <input type="url" placeholder="LinkedIn URL" value={clientLinkedin} onChange={e => setClientLinkedin(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+
+                {/* PART F — company fields */}
+                <input type="text" placeholder="Company Name" value={clientCompanyName} onChange={e => setClientCompanyName(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                <input type="text" placeholder="Company Website" value={clientCompanyUrl} onChange={e => setClientCompanyUrl(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+
+                {/* G18 — referral chain */}
+                <select value={clientReferredBy} onChange={e => setClientReferredBy(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
+                  <option value="">Referred by: —</option>
+                  {[...clients].sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(c => <option key={c.id} value={c.id}>Referred by: {c.name}</option>)}
+                </select>
                 
                 <div className="flex items-center gap-1">
                   <label className="text-[11px] font-medium text-gray-400 px-1 whitespace-nowrap">Birth:</label>
@@ -3172,7 +4233,7 @@ export default function App() {
                   {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
 
-                {/* FEATURE 25 â€” source tracking */}
+                {/* FEATURE 25 — source tracking */}
                 <select value={clientSource} onChange={e => setClientSource(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
                   <option value="">Source: Unknown</option>
                   {CLIENT_SOURCES.map(s => <option key={s} value={s}>Source: {s}</option>)}
@@ -3202,7 +4263,7 @@ export default function App() {
                   {duplicateWarning && !forceSaveDuplicate && (
                     <button type="button" onClick={() => setForceSaveDuplicate(true)} className="px-3 py-2 text-[12px] font-medium text-yellow-700 bg-white border border-yellow-300 rounded-lg hover:bg-yellow-50 whitespace-nowrap">Save anyway</button>
                   )}
-                  <button type="submit" disabled={!!duplicateWarning && !forceSaveDuplicate} className="px-5 py-2 font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm transition-all whitespace-nowrap disabled:opacity-50 disabled:hover:bg-gray-900">Save Client</button>
+                  <button type="submit" disabled={!!duplicateWarning && !forceSaveDuplicate} className="px-5 py-2 font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg shadow-sm transition-all whitespace-nowrap disabled:opacity-50 disabled:hover:bg-gray-900">Save Relationship</button>
                 </div>
               </form>
             </div>
@@ -3241,12 +4302,12 @@ export default function App() {
                       <option value="created_at_asc">Oldest Added</option>
                       <option value="name_asc">Name (A-Z)</option>
                       <option value="name_desc">Name (Z-A)</option>
-                      <option value="score_desc">Score: Highâ†’Low</option>
-                      <option value="score_asc">Score: Lowâ†’High</option>
+                      <option value="score_desc">Score: High→Low</option>
+                      <option value="score_asc">Score: Low→High</option>
                     </select>
                   </div>
                 )}
-                {/* FEATURE 29 â€” expand advanced filters */}
+                {/* FEATURE 29 — expand advanced filters */}
                 <button onClick={() => setShowMoreFilters(!showMoreFilters)} className="relative px-3 py-1.5 border border-gray-200 rounded-md bg-white text-[12px] font-medium text-gray-700 hover:bg-gray-50">
                   More Filters
                   {activeFilterCount > 0 && <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-gray-900 text-white rounded-full text-[9px] font-bold flex items-center justify-center">{activeFilterCount}</span>}
@@ -3257,7 +4318,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* FEATURE 29 â€” SAVED VIEWS PILLS */}
+            {/* FEATURE 29 — SAVED VIEWS PILLS */}
             <div className="flex flex-wrap items-center gap-2 text-[12px]">
               {BUILT_IN_VIEWS.map(v => (
                 <button key={v.name} onClick={() => { clearAllFilters(); applyView(v.filters); }} className="px-3 py-1 rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 font-medium">{v.name}</button>
@@ -3265,7 +4326,7 @@ export default function App() {
               {savedViews.map(v => (
                 <span key={v.id} className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700 font-medium">
                   <button onClick={() => { clearAllFilters(); applyView(v.filters || {}); }}>{v.name}</button>
-                  <button onClick={() => handleDeleteView(v.id)} className="hover:opacity-60 ml-0.5">Ã—</button>
+                  <button onClick={() => handleDeleteView(v.id)} className="hover:opacity-60 ml-0.5">×</button>
                 </span>
               ))}
               {activeFilterCount > 0 && (
@@ -3275,13 +4336,13 @@ export default function App() {
                   <form onSubmit={e => { e.preventDefault(); handleSaveView(savingViewName); }} className="inline-flex items-center gap-1">
                     <input autoFocus type="text" placeholder="View name..." value={savingViewName} onChange={e => setSavingViewName(e.target.value)} className="px-2 py-1 border border-gray-200 rounded-full text-[12px] focus:outline-none" />
                     <button type="submit" className="px-2 py-1 bg-gray-900 text-white rounded-full text-[11px] font-medium">Save</button>
-                    <button type="button" onClick={() => setSavingViewName(null)} className="text-gray-400 px-1">Ã—</button>
+                    <button type="button" onClick={() => setSavingViewName(null)} className="text-gray-400 px-1">×</button>
                   </form>
                 )
               )}
             </div>
 
-            {/* FEATURE 29 â€” MORE FILTERS PANEL */}
+            {/* FEATURE 29 — MORE FILTERS PANEL */}
             {showMoreFilters && (
               <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-[13px] animate-in fade-in">
                 <div>
@@ -3308,7 +4369,7 @@ export default function App() {
                   <select value={filterScore} onChange={e => setFilterScore(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
                     <option value="">Any</option>
                     <option value="high">High (75+)</option>
-                    <option value="medium">Medium (50â€“74)</option>
+                    <option value="medium">Medium (50–74)</option>
                     <option value="low">Low (&lt;50)</option>
                   </select>
                 </div>
@@ -3317,6 +4378,14 @@ export default function App() {
                   <select value={filterHealth} onChange={e => setFilterHealth(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
                     <option value="">Any</option>
                     {['Excellent', 'Good', 'Fair', 'At Risk', 'Critical'].map(h => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Source</label>
+                  <select value={filterSource} onChange={e => setFilterSource(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                    <option value="">Any</option>
+                    <option value="Unknown">Unknown / not set</option>
+                    {CLIENT_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div className="flex items-center gap-2">
@@ -3343,7 +4412,7 @@ export default function App() {
             {/* BULK ACTIONS BAR (Table mode only) */}
             {viewMode === 'table' && selectedClientIds.length > 0 && (
               <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-center justify-between animate-in fade-in">
-                <span className="text-[13px] font-medium text-blue-800">{selectedClientIds.length} clients selected</span>
+                <span className="text-[13px] font-medium text-blue-800">{selectedClientIds.length} relationships selected</span>
                 <div className="flex flex-wrap items-center gap-2">
                   <select onChange={e => {if(e.target.value) handleBulkStatusUpdate(e.target.value); e.target.value='';}} className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-md text-[12px] font-medium hover:bg-gray-50 outline-none">
                     <option value="">Change Status...</option>
@@ -3357,24 +4426,25 @@ export default function App() {
 
             {/* DATA VIEW CONTAINER */}
             {loadingClients ? (
-              <div className="p-12 text-center text-[13px] text-gray-400 bg-white rounded-2xl border border-gray-200">Loading records...</div>
+              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm"><SkeletonRows rows={6} /></div>
             ) : filteredAndSortedClients.length === 0 ? (
-              <div className="p-12 text-center bg-white rounded-2xl border border-gray-200">
+              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
                 {clients.length === 0 ? (
-                  <>
-                    <p className="text-[14px] font-semibold text-gray-900">No clients yet</p>
-                    <p className="text-[13px] text-gray-400 mt-1">Add your first client to start tracking relationships.</p>
-                    <button onClick={() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' })} className="mt-4 px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Your First Client</button>
-                  </>
+                  <EmptyState
+                    title="No relationships yet"
+                    desc="Add your first relationship to start tracking."
+                    ctaLabel="Add Your First Relationship"
+                    onCta={() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' })}
+                  />
                 ) : (
-                  <p className="text-[13px] text-gray-400">No matching records found. Try adjusting your filters.</p>
+                  <EmptyState title="No matching records" desc="Try adjusting or clearing your filters." ctaLabel="Clear all filters" onCta={clearAllFilters} />
                 )}
               </div>
             ) : (
               viewMode === 'table' ? (
                 /* ------------------- TABLE VIEW ------------------- */
-                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in">
-                  {/* FEATURE 12 â€” mobile card layout */}
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden animate-in fade-in">
+                  {/* FEATURE 12 — mobile card layout */}
                   <div className="block md:hidden space-y-3 p-3">
                     {paginatedClients.map(client => {
                       const isSelected = selectedClientIds.includes(client.id);
@@ -3382,11 +4452,11 @@ export default function App() {
                         <div key={client.id} className={`relative p-4 rounded-xl border ${isSelected ? 'border-gray-400 bg-gray-50' : 'border-gray-200 bg-white'}`}>
                           <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(client.id)} className="absolute top-4 left-4 rounded border-gray-300 text-gray-900 focus:ring-0" />
                           <div className="pl-8">
-                            <p className="text-[14px] font-bold text-gray-900">{client.name} {client.quick_note && <span className="text-[12px]">ðŸ“</span>}</p>
+                            <p className="text-[14px] font-bold text-gray-900">{client.name} {client.quick_note && <span className="text-[12px]">📝</span>}</p>
                             <p className="text-[12px] text-gray-500 break-all">{client.email}</p>
                             <div className="flex flex-wrap items-center gap-2 mt-2">
                               <span className="text-[11px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">{client.status}</span>
-                              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${client.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' : client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{client.relationship}</span>
+                              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ring-inset ${client.relationship === 'High' ? 'bg-red-50 text-red-700 ring-red-600/10' : client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 ring-orange-600/10' : 'bg-blue-50 text-blue-700 ring-blue-600/10'}`}>{client.relationship}</span>
                               <ScoreBar score={client.leadScore || 0} />
                             </div>
                             <div className="flex gap-4 mt-3 text-[13px] font-medium">
@@ -3414,7 +4484,7 @@ export default function App() {
                           <th className="p-4 w-10 text-center">
                             <input type="checkbox" checked={paginatedClients.length > 0 && paginatedClients.every(c => selectedClientIds.includes(c.id))} onChange={(e) => handleSelectAll(e, paginatedClients)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
                           </th>
-                          <th className="p-4">Client</th>
+                          <th className="p-4">Relationship</th>
                           <th className="p-4">Tags</th>
                           <th className="p-4">Priority</th>
                           <th className="p-4">Score</th>
@@ -3433,9 +4503,14 @@ export default function App() {
                               </td>
                               <td className="p-4">
                                 <div>
-                                  <span className="font-semibold text-gray-900 text-[14px] block">
+                                  <span className="font-semibold text-gray-900 text-[14px] flex items-center gap-1.5">
+                                    {/* G17 — company logo in the table row */}
+                                    {companyFaviconUrl(client.company_url) && (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={companyFaviconUrl(client.company_url, 32)} alt="" className="w-4 h-4 rounded shrink-0" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
+                                    )}
                                     {client.name}
-                                    {client.quick_note && <span className="ml-1.5 text-[12px]" title={client.quick_note.slice(0, 60)}>ðŸ“</span>}
+                                    {client.quick_note && <span className="ml-1.5 text-[12px]" title={client.quick_note.slice(0, 60)}>📝</span>}
                                   </span>
                                   <span className="text-[11px] text-gray-400 block font-normal mt-0.5">{client.email}</span>
                                 </div>
@@ -3450,10 +4525,10 @@ export default function App() {
                                 </div>
                               </td>
                               <td className="p-4">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                                  client.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' :
-                                  client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-100' :
-                                  'bg-blue-50 text-blue-700 border-blue-100'
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ring-inset ${
+                                  client.relationship === 'High' ? 'bg-red-50 text-red-700 ring-red-600/10' :
+                                  client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 ring-orange-600/10' :
+                                  'bg-blue-50 text-blue-700 ring-blue-600/10'
                                 }`}>
                                   {client.relationship || 'Low'}
                                 </span>
@@ -3478,8 +4553,8 @@ export default function App() {
                               <td className="p-4">
                                 {(() => {
                                   const h = healthByClientId[client.id];
-                                  const cls = { Excellent: 'bg-green-50 text-green-700 border-green-100', Good: 'bg-teal-50 text-teal-700 border-teal-100', Fair: 'bg-yellow-50 text-yellow-700 border-yellow-100', 'At Risk': 'bg-orange-50 text-orange-700 border-orange-100', Critical: 'bg-red-50 text-red-700 border-red-100' }[h] || 'bg-gray-50 text-gray-500 border-gray-100';
-                                  return <button onClick={() => setFilterHealth(h)} className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}>{h}</button>;
+                                  const cls = { Excellent: 'bg-green-50 text-green-700 ring-green-600/10', Good: 'bg-teal-50 text-teal-700 ring-teal-600/10', Fair: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20', 'At Risk': 'bg-orange-50 text-orange-700 ring-orange-600/10', Critical: 'bg-red-50 text-red-700 ring-red-600/10' }[h] || 'bg-gray-50 text-gray-500 border-gray-100';
+                                  return <button onClick={() => setFilterHealth(h)} className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ring-inset ${cls}`}>{h}</button>;
                                 })()}
                               </td>
                               <td className="p-4 text-right font-normal">
@@ -3524,7 +4599,7 @@ export default function App() {
                     return (
                       <div
                         key={stage}
-                        className="flex-shrink-0 w-72 md:w-80 bg-gray-200/50 rounded-2xl flex flex-col border border-gray-200"
+                        className="flex-shrink-0 w-[280px] bg-gray-200/50 rounded-2xl flex flex-col border border-gray-100"
                         style={{ scrollSnapAlign: 'start' }}
                         onDragOver={handleDragOver}
                         onDrop={e => handleDrop(e, stage)}
@@ -3544,14 +4619,15 @@ export default function App() {
                                 draggable
                                 onDragStart={e => handleDragStart(e, client.id)}
                                 onClick={() => setViewingClient(client)}
-                                className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-sm hover:shadow transition-shadow cursor-grab active:cursor-grabbing flex flex-col gap-2 relative group"
+                                className="bg-white dark:bg-gray-900 p-3.5 rounded-xl border border-gray-100 dark:border-gray-800 border-l-4 shadow-sm hover:shadow-md active:shadow-lg transition-shadow cursor-grab active:cursor-grabbing flex flex-col gap-2 relative group"
+                                style={{ borderLeftColor: STAGE_COLORS[stage] || '#9CA3AF' }}
                               >
                                 <div className="flex justify-between items-start">
                                   <p className="text-[13px] font-bold text-gray-900 leading-tight pr-4">{client.name}</p>
-                                  <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
-                                    client.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' :
-                                    client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-100' :
-                                    'bg-blue-50 text-blue-700 border-blue-100'
+                                  <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ring-1 ring-inset ${
+                                    client.relationship === 'High' ? 'bg-red-50 text-red-700 ring-red-600/10' :
+                                    client.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 ring-orange-600/10' :
+                                    'bg-blue-50 text-blue-700 ring-blue-600/10'
                                   }`}>{client.relationship}</span>
                                 </div>
                                 <div className="text-[11px] text-gray-500 truncate">{client.email}</div>
@@ -3582,11 +4658,11 @@ export default function App() {
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Deals Pipeline</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Deals Pipeline</h1>
                 <p className="text-[13px] text-gray-500">Track opportunities, forecast revenue, and close more deals.</p>
               </div>
               {canEdit && (
-                <button onClick={() => { resetDealForm(); setShowDealForm(true); }} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">+ New Deal</button>
+                <button onClick={() => { resetDealForm(); setShowDealForm(true); }} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">+ New Deal</button>
               )}
             </div>
 
@@ -3597,26 +4673,37 @@ export default function App() {
                 ['Won', fmtMoney(wonValue)],
                 ['Deal Count', deals.length],
               ].map(([label, value]) => (
-                <div key={label} className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                <div key={label} className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
                   <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{value}</p>
                 </div>
               ))}
             </div>
 
+            {/* PART C3 — drill-down stage filter (set from Reports) */}
+            {dealsStageFilter && (
+              <div className="flex items-center gap-2 p-3 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 rounded-lg text-[13px] font-medium text-indigo-800 dark:text-indigo-300">
+                Showing only <span className="font-bold">{dealsStageFilter}</span> deals
+                <button onClick={() => setDealsStageFilter('')} className="ml-auto px-2 py-0.5 rounded-full bg-white dark:bg-gray-800 border border-indigo-200 dark:border-indigo-700 text-[12px] hover:bg-indigo-100">Show all stages ×</button>
+              </div>
+            )}
+
             {deals.length === 0 ? (
-              <div className="p-12 text-center bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700">
-                <p className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">No deals yet</p>
-                <p className="text-[13px] text-gray-400 mt-1">Create your first deal to start tracking your pipeline.</p>
-                {canEdit && <button onClick={() => { resetDealForm(); setShowDealForm(true); }} className="mt-4 px-4 py-2 text-[13px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Create Deal</button>}
+              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                <EmptyState
+                  title="No deals yet"
+                  desc="Create your first deal to start tracking your pipeline."
+                  ctaLabel={canEdit ? 'Create Deal' : undefined}
+                  onCta={canEdit ? () => { resetDealForm(); setShowDealForm(true); } : undefined}
+                />
               </div>
             ) : (
               <div className="flex gap-4 overflow-x-auto pb-4 animate-in fade-in" style={{ scrollSnapType: 'x mandatory' }}>
-                {DEAL_STAGES.map(stage => {
+                {(dealsStageFilter ? DEAL_STAGES.filter(s => s === dealsStageFilter) : DEAL_STAGES).map(stage => {
                   const stageDeals = deals.filter(d => d.stage === stage);
-                  const stageValue = stageDeals.reduce((s, d) => s + (parseFloat(d.value) || 0), 0);
+                  const stageValue = stageDeals.reduce((s, d) => s + toUSD(d.value, d.currency), 0);
                   return (
-                    <div key={stage} className="flex-shrink-0 w-72 md:w-80 bg-gray-200/50 dark:bg-gray-800/60 rounded-2xl flex flex-col border border-gray-200 dark:border-gray-700"
+                    <div key={stage} className="flex-shrink-0 w-[280px] bg-gray-200/50 dark:bg-gray-800/60 rounded-2xl flex flex-col border border-gray-100 dark:border-gray-800"
                       style={{ scrollSnapAlign: 'start' }}
                       onDragOver={handleDragOver} onDrop={e => handleDealDrop(e, stage)}>
                       <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-100/50 dark:bg-gray-800 rounded-t-2xl flex justify-between items-center">
@@ -3634,20 +4721,28 @@ export default function App() {
                           const dealClient = clients.find(c => c.id === deal.client_id);
                           return (
                             <div key={deal.id} draggable onDragStart={e => handleDealDragStart(e, deal.id)}
-                              className="bg-white dark:bg-gray-800 p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow transition-shadow cursor-grab active:cursor-grabbing flex flex-col gap-2 group">
+                              className="bg-white dark:bg-gray-900 p-3.5 rounded-xl border border-gray-100 dark:border-gray-800 border-l-4 shadow-sm hover:shadow-md active:shadow-lg transition-shadow cursor-grab active:cursor-grabbing flex flex-col gap-2 group"
+                              style={{ borderLeftColor: STAGE_COLORS[stage] || '#9CA3AF' }}>
                               <div className="flex justify-between items-start gap-2">
                                 <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{deal.title}</p>
-                                <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-800">{deal.probability}%</span>
+                                <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 ring-1 ring-inset ring-indigo-600/20 dark:ring-indigo-400/30">{deal.probability}%</span>
                               </div>
-                              <div className="text-[11px] text-gray-500 truncate">{dealClient?.name || 'Unknown client'}</div>
+                              <div className="text-[11px] text-gray-500 truncate">{dealClient?.name || 'Unknown relationship'}</div>
                               <div className="flex items-center justify-between">
-                                <span className="text-[13px] font-bold text-gray-900 dark:text-gray-100">{fmtMoney(deal.value)}</span>
+                                <span className="text-[13px] font-bold text-gray-900 dark:text-gray-100">
+                                  {fmtCurrency(deal.value, deal.currency)}
+                                  {(deal.currency || 'USD') !== 'USD' && (
+                                    <span className="ml-1 text-[10px] font-medium text-gray-400" title="Approximate USD (static rate)">≈ {fmtMoney(toUSD(deal.value, deal.currency))} USD</span>
+                                  )}
+                                </span>
                                 {deal.close_date && <span className="text-[10px] text-gray-400">Close: {deal.close_date}</span>}
                               </div>
                               {canEdit && (
                                 <div className="flex gap-2 text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                                   <button onClick={() => {
                                     setEditingDeal(deal); setDealTitle(deal.title); setDealValue(String(deal.value ?? ''));
+                                    setDealCurrency(deal.currency || 'USD');
+                                    setDealIsRecurring(!!deal.is_recurring); setDealBillingCycle(deal.billing_cycle || 'monthly'); setDealRenewalDate(deal.renewal_date || '');
                                     setDealStage(deal.stage); setDealProbability(deal.probability ?? 50);
                                     setDealCloseDate(deal.close_date || ''); setDealNotes(deal.notes || '');
                                     setDealClientId(String(deal.client_id)); setShowDealForm(true);
@@ -3675,89 +4770,195 @@ export default function App() {
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Reports</h1>
-                <p className="text-[13px] text-gray-500">Analytics across clients, activities, deals, and tasks.</p>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Reports</h1>
+                <p className="text-[13px] text-gray-500">Analytics across relationships, activities, deals, and tasks.</p>
               </div>
-              <div className="bg-gray-200/50 dark:bg-gray-800 p-1 rounded-lg flex items-center gap-1">
-                {[['7', '7d'], ['30', '30d'], ['90', '90d'], ['365', '1yr']].map(([v, label]) => (
-                  <button key={v} onClick={() => setReportRange(v)} className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-all ${reportRange === v ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>{label}</button>
-                ))}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="bg-gray-200/50 dark:bg-gray-800 p-1 rounded-lg flex items-center gap-1">
+                  {[['7', '7d'], ['30', '30d'], ['90', '90d'], ['365', '1yr']].map(([v, label]) => (
+                    <button key={v} onClick={() => setReportRange(v)} className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-all ${reportRange === v ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>{label}</button>
+                  ))}
+                </div>
+                {/* PART C2 — period comparison toggle */}
+                <button onClick={() => setCompareReports(!compareReports)} className={`px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-all ${compareReports ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 border-gray-900 dark:border-gray-100' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                  Compare to previous period {compareReports ? '✓' : ''}
+                </button>
               </div>
             </div>
 
+            {/* PART C4 — saved report pills */}
+            {customReports.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Saved reports:</span>
+                {customReports.map(r => (
+                  <span key={r.id} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium">
+                    <button onClick={() => applyCustomReport(r)}>{r.name}</button>
+                    <button onClick={() => handleCycleReportFrequency(r)} title="Cycle email schedule: off → weekly → monthly" className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${r.send_frequency ? 'bg-indigo-600 text-white' : 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-400'}`}>
+                      ✉ {r.send_frequency === 'weekly' ? 'wk' : r.send_frequency === 'monthly' ? 'mo' : 'off'}
+                    </button>
+                    <button onClick={() => handleDeleteCustomReport(r.id)} className="hover:opacity-60">×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* PART C1 — CUSTOM REPORT BUILDER */}
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">Build Custom Report</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* PART C5 — CSV export of the displayed table */}
+                  <button onClick={exportCustomReportCSV} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm">Export CSV</button>
+                  {savingReportName === null ? (
+                    <button onClick={() => setSavingReportName('')} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Save this report</button>
+                  ) : (
+                    <form onSubmit={e => { e.preventDefault(); handleSaveCustomReport(savingReportName); }} className="inline-flex items-center gap-1">
+                      <input autoFocus type="text" placeholder="Report name..." value={savingReportName} onChange={e => setSavingReportName(e.target.value)} className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg text-[12px] focus:outline-none" />
+                      <button type="submit" className="px-3 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-[12px] font-medium">Save</button>
+                      <button type="button" onClick={() => setSavingReportName(null)} className="text-gray-400 px-1">×</button>
+                    </form>
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[13px]">
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Dimension (group by)</label>
+                  <select value={customDimension} onChange={e => setCustomDimension(e.target.value)} className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg bg-white p-2 text-gray-700 focus:outline-none">
+                    {['Stage', 'Priority', 'Source', 'Tag', 'Month Added'].map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Metric</label>
+                  <select value={customMetric} onChange={e => setCustomMetric(e.target.value)} className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg bg-white p-2 text-gray-700 focus:outline-none">
+                    {['Count', 'Total Deal Value', 'Avg Lead Score', 'Activity Count'].map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Date grouping {customDimension !== 'Month Added' && <span className="normal-case font-normal">(for "Month Added")</span>}</label>
+                  <select value={customDateGrouping} onChange={e => setCustomDateGrouping(e.target.value)} disabled={customDimension !== 'Month Added'} className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg bg-white p-2 text-gray-700 focus:outline-none disabled:opacity-50">
+                    {[['day', 'Day'], ['week', 'Week'], ['month', 'Month']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+              </div>
+              {customReportData.length === 0 ? (
+                <p className="text-[13px] text-gray-400 text-center py-6">No data for this configuration yet.</p>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Bar chart (same pure-Tailwind pattern as the fixed charts) */}
+                  <div className="space-y-2.5">
+                    {customReportData.map(row => {
+                      const max = Math.max(...customReportData.map(r => r.value), 1);
+                      return (
+                        <button key={row.label} onClick={() => drillCustomDimension(row.label)} disabled={customDimension === 'Month Added'} className="w-full flex items-center gap-3 group disabled:cursor-default">
+                          <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-28 truncate text-left group-hover:text-gray-900 dark:group-hover:text-gray-100" title={row.label}>{row.label}</span>
+                          <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+                            <div className="anim-grow-w h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(row.value / max) * 100}%` }} />
+                          </div>
+                          <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-16 text-right">{fmtCustomValue(row.value)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Table */}
+                  <div className="overflow-y-auto max-h-64 border border-gray-100 dark:border-gray-700 rounded-xl">
+                    <table className="w-full text-left text-[12px]">
+                      <thead className="sticky top-0 bg-gray-50 dark:bg-gray-700">
+                        <tr className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                          <th className="p-2.5">{customDimension}</th>
+                          <th className="p-2.5 text-right">{customMetric}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                        {customReportData.map(row => (
+                          <tr key={row.label} onClick={() => drillCustomDimension(row.label)} className={customDimension !== 'Month Added' ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50' : ''}>
+                            <td className="p-2.5 font-semibold text-gray-900 dark:text-gray-100">{row.label}</td>
+                            <td className="p-2.5 text-right font-bold text-gray-900 dark:text-gray-100">{fmtCustomValue(row.value)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Stat tiles — clickable (C3) with prior-period deltas (C2) */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               {[
-                ['Clients Total', clients.length],
-                ['Activities', reportStats.activitiesInRange.length],
-                ['Pipeline $', fmtMoney(pipelineValue)],
-                ['Win Rate', `${reportStats.winRate}%`],
-                ['Task Completion', `${reportStats.taskCompletionRate}%`],
-                ['Avg Act/Client', reportStats.avgActivitiesPerClient],
-              ].map(([label, value]) => (
-                <div key={label} className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-200/80 dark:border-gray-700 shadow-sm">
+                ['Relationships', clients.length, () => { clearAllFilters(); setAppStep('CLIENTS'); }],
+                ['Activities', reportStats.activitiesInRange.length, () => { clearAllFilters(); setFilterHasActivity(reportRange === '7' ? 'last_7' : 'last_30'); setAppStep('CLIENTS'); }],
+                ['Pipeline $', fmtMoney(pipelineValue), () => { setDealsStageFilter(''); setAppStep('DEALS'); }],
+                ['Win Rate', `${reportStats.winRate}%`, () => { setDealsStageFilter('Won'); setAppStep('DEALS'); }],
+                ['Task Completion', `${reportStats.taskCompletionRate}%`, () => setAppStep('GLOBAL_TASKS')],
+                ['Avg Act/Relationship', reportStats.avgActivitiesPerClient, () => { clearAllFilters(); setAppStep('CLIENTS'); }],
+              ].map(([label, value, onClick]) => (
+                <button key={label} onClick={onClick} className="bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm text-left hover:shadow-md hover:border-gray-300 dark:hover:border-gray-500 transition-all">
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
                   <p className="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{value}</p>
-                </div>
+                  {compareReports && comparisonStats?.[label] && (
+                    <DeltaBadge current={comparisonStats[label][0]} prev={comparisonStats[label][1]} />
+                  )}
+                </button>
               ))}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Chart 1 â€” Activity by type */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+              {/* Chart 1 — Activity by type */}
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Activity by Type</h3>
                 <div className="space-y-3">
                   {Object.entries(reportStats.activityByType).map(([type, count]) => {
                     const max = Math.max(...Object.values(reportStats.activityByType), 1);
                     const color = { Note: 'bg-gray-400', Call: 'bg-blue-500', Email: 'bg-green-500', Meeting: 'bg-purple-500' }[type];
                     return (
-                      <div key={type} className="flex items-center gap-3">
-                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-16">{type}</span>
+                      <button key={type} onClick={() => { setCalendarView('agenda'); setAppStep('CALENDAR'); }} className="w-full flex items-center gap-3 group" title="See activities in the Calendar agenda">
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-16 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{type}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
-                          <div className={`h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${(count / max) * 100}%` }} />
+                          <div className={`anim-grow-w h-full rounded-full ${color} transition-all duration-500`} style={{ width: `${(count / max) * 100}%` }} />
                         </div>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Chart 2 â€” Pipeline funnel */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+              {/* Chart 2 — Pipeline funnel */}
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Pipeline Funnel</h3>
                 <div className="space-y-3">
                   {PIPELINE_STAGES.map(stage => {
                     const count = reportStats.clientsByStage[stage] || 0;
                     const max = Math.max(...Object.values(reportStats.clientsByStage), 1);
                     return (
-                      <div key={stage} className="flex items-center gap-3">
-                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-20">{stage}</span>
+                      <button key={stage} onClick={() => { clearAllFilters(); setFilterStatus(stage); setAppStep('CLIENTS'); }} className="w-full flex items-center gap-3 group" title={`View ${stage} relationships`}>
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-20 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{stage}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
-                          <div className="h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
+                          <div className="anim-grow-w h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
                         </div>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Chart 3 â€” Deal stages */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+              {/* Chart 3 — Deal stages */}
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Deal Stages</h3>
                 <div className="space-y-2">
                   {DEAL_STAGES.map(stage => {
                     const s = reportStats.dealsByStage[stage] || { count: 0, value: 0 };
                     const pct = deals.length > 0 ? Math.round((s.count / deals.length) * 100) : 0;
                     return (
-                      <div key={stage} className="flex items-center gap-3 py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0">
-                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-28">{stage}</span>
-                        <span className="text-[12px] text-gray-500 w-8">{s.count}</span>
-                        <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-20">{fmtMoney(s.value)}</span>
+                      <button key={stage} onClick={() => { setDealsStageFilter(stage); setAppStep('DEALS'); }} className="w-full flex items-center gap-3 py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0 group" title={`View ${stage} deals`}>
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-28 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{stage}</span>
+                        <span className="text-[12px] text-gray-500 w-8 text-left">{s.count}</span>
+                        <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-20 text-left">{fmtMoney(s.value)}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                          <div className="h-full rounded-full bg-gray-900 dark:bg-gray-300" style={{ width: `${pct}%` }} />
+                          <div className="anim-grow-w h-full rounded-full bg-gray-900 dark:bg-gray-300" style={{ width: `${pct}%` }} />
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -3766,16 +4967,16 @@ export default function App() {
                 )}
               </div>
 
-              {/* Chart 4 â€” Clients added over time */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col">
-                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Clients Added (8 Weeks)</h3>
+              {/* Chart 4 — Clients added over time */}
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Relationships Added (8 Weeks)</h3>
                 <div className="flex-1 flex items-end gap-2 h-32 mt-auto pb-2">
                   {reportStats.clientsAddedByWeek.map((w, i) => {
                     const max = Math.max(...reportStats.clientsAddedByWeek.map(x => x.count), 1);
                     return (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-2 group relative">
+                      <div key={i} className="hover-lift flex-1 flex flex-col items-center gap-2 group relative">
                         <div className="w-full bg-indigo-100 dark:bg-indigo-900/40 rounded-sm relative overflow-hidden" style={{ height: '100px' }}>
-                          <div className="absolute bottom-0 w-full bg-indigo-500 transition-all duration-500" style={{ height: `${(w.count / max) * 100}%` }} />
+                          <div className="anim-grow-h absolute bottom-0 w-full bg-indigo-500 transition-all duration-500" style={{ height: `${(w.count / max) * 100}%` }} />
                         </div>
                         <span className="text-[9px] text-gray-400">{w.label}</span>
                         <div className="absolute -top-8 bg-gray-900 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{w.count}</div>
@@ -3785,29 +4986,29 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Chart 5 â€” Clients by source (Feature 25) */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Clients by Source</h3>
+              {/* Chart 5 — Clients by source (Feature 25) */}
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Relationships by Source</h3>
                 <div className="space-y-3">
                   {CLIENT_SOURCES.map(source => {
                     const count = reportStats.clientsBySource[source] || 0;
                     const max = Math.max(...Object.values(reportStats.clientsBySource), 1);
                     return (
-                      <div key={source} className="flex items-center gap-3">
-                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-24">{source}</span>
+                      <button key={source} onClick={() => { clearAllFilters(); setFilterSource(source); setAppStep('CLIENTS'); }} className="w-full flex items-center gap-3 group" title={`View relationships from ${source}`}>
+                        <span className="text-[12px] font-medium text-gray-600 dark:text-gray-300 w-24 text-left group-hover:text-gray-900 dark:group-hover:text-gray-100">{source}</span>
                         <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
-                          <div className="h-full rounded-full bg-teal-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
+                          <div className="anim-grow-w h-full rounded-full bg-teal-500 transition-all duration-500" style={{ width: `${(count / max) * 100}%` }} />
                         </div>
                         <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100 w-8 text-right">{count}</span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Table â€” Most active clients */}
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Most Active Clients</h3>
+              {/* Table — Most active clients */}
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-4">Most Active Relationships</h3>
                 {reportStats.topClientsByActivity.length === 0 ? (
                   <p className="text-[13px] text-gray-400">No activities logged in this range.</p>
                 ) : (
@@ -3846,7 +5047,7 @@ export default function App() {
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Calendar</h1>
+                  <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Calendar</h1>
                   <p className="text-[13px] text-gray-500">Tasks, activities, birthdays, and deal close dates in one view.</p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -3858,11 +5059,11 @@ export default function App() {
               </div>
 
               {calendarView === 'month' ? (
-                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-4 sm:p-6">
+                <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow p-4 sm:p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <button onClick={() => setCalendarDate(new Date(y, m - 1, 1))} className="px-3 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">&larr; Prev</button>
+                    <button onClick={() => setCalendarDate(new Date(y, m - 1, 1))} className="px-3 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">&larr; Prev</button>
                     <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">{calendarDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</h3>
-                    <button onClick={() => setCalendarDate(new Date(y, m + 1, 1))} className="px-3 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">Next &rarr;</button>
+                    <button onClick={() => setCalendarDate(new Date(y, m + 1, 1))} className="px-3 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">Next &rarr;</button>
                   </div>
                   <div className="grid grid-cols-7 gap-1 text-center mb-1">
                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
@@ -3890,7 +5091,7 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6 space-y-4">
+                <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow p-6 space-y-4">
                   {next30.filter(ds => eventsOn(ds).length > 0).length === 0 && (
                     <p className="text-[13px] text-gray-400 text-center py-8">Nothing scheduled in the next 30 days.</p>
                   )}
@@ -3899,7 +5100,7 @@ export default function App() {
                     if (evs.length === 0) return null;
                     return (
                       <div key={ds}>
-                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">{new Date(ds + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}{ds === todayStr ? ' Â· Today' : ''}</h4>
+                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">{new Date(ds + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}{ds === todayStr ? ' · Today' : ''}</h4>
                         <div className="space-y-1.5">
                           {evs.map(ev => {
                             const evClient = clients.find(c => c.id === ev.clientId);
@@ -3920,7 +5121,7 @@ export default function App() {
 
               {/* SELECTED DAY PANEL */}
               {calendarView === 'month' && selectedCalendarDay && (
-                <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm p-6 space-y-4 animate-in fade-in">
+                <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow p-6 space-y-4 animate-in fade-in">
                   <div className="flex items-center justify-between">
                     <h3 className="text-[14px] font-bold text-gray-900 dark:text-gray-100">{new Date(selectedCalendarDay + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
                     <button onClick={() => setSelectedCalendarDay(null)} className="text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-bold">&times;</button>
@@ -3970,7 +5171,7 @@ export default function App() {
                       <select name="calTaskClient" className="px-2 py-1.5 text-[13px] border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:outline-none">
                         {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
-                      <button type="submit" disabled={!newTaskTitle} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50 shadow-sm">Add Task</button>
+                      <button type="submit" disabled={!newTaskTitle} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 disabled:opacity-50 shadow-sm">Add Task</button>
                     </form>
                   )}
                 </div>
@@ -3988,30 +5189,30 @@ export default function App() {
           const tcFiles = clientFiles.filter(f => f.client_id === tc.id);
           const events = [
             ...tcActs.map(a => ({ id: `a-${a.id}`, date: a.activity_date, sort: a.created_at, kind: 'activity', color: { Note: 'bg-gray-400', Call: 'bg-blue-500', Email: 'bg-green-500', Meeting: 'bg-purple-500' }[a.activity_type] || 'bg-gray-400', title: `${a.activity_type}`, detail: a.description })),
-            ...tcTasks.map(t => ({ id: `t-${t.id}`, date: t.due_date, sort: t.created_at || t.due_date, kind: t.status === 'done' ? 'task-done' : 'task', color: t.status === 'done' ? 'bg-green-500' : 'bg-gray-300', title: `${t.status === 'done' ? 'âœ“ ' : ''}Task: ${t.title}`, detail: `Due ${t.due_date}` })),
-            ...tcDeals.map(d => ({ id: `d-${d.id}`, date: d.close_date || (d.created_at || '').split('T')[0], sort: d.created_at, kind: 'deal', color: 'bg-emerald-500', title: `Deal: ${d.title}`, detail: `${fmtMoney(d.value)} Â· ${d.stage}` })),
-            ...tcFiles.map(f => ({ id: `f-${f.id}`, date: (f.created_at || '').split('T')[0], sort: f.created_at, kind: 'file', color: 'bg-amber-500', title: `ðŸ“Ž ${f.file_name}`, detail: formatFileSize(f.file_size) })),
+            ...tcTasks.map(t => ({ id: `t-${t.id}`, date: t.due_date, sort: t.created_at || t.due_date, kind: t.status === 'done' ? 'task-done' : 'task', color: t.status === 'done' ? 'bg-green-500' : 'bg-gray-300', title: `${t.status === 'done' ? '✓ ' : ''}Task: ${t.title}`, detail: `Due ${t.due_date}` })),
+            ...tcDeals.map(d => ({ id: `d-${d.id}`, date: d.close_date || (d.created_at || '').split('T')[0], sort: d.created_at, kind: 'deal', color: 'bg-emerald-500', title: `Deal: ${d.title}`, detail: `${fmtMoney(d.value)} · ${d.stage}` })),
+            ...tcFiles.map(f => ({ id: `f-${f.id}`, date: (f.created_at || '').split('T')[0], sort: f.created_at, kind: 'file', color: 'bg-amber-500', title: `📎 ${f.file_name}`, detail: formatFileSize(f.file_size) })),
           ].sort((a, b) => new Date(b.sort || b.date || 0) - new Date(a.sort || a.date || 0));
           return (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <button onClick={() => { setTimelineClient(null); setAppStep('CLIENTS'); }} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">&larr; Back to Clients</button>
+              <button onClick={() => { setTimelineClient(null); setAppStep('CLIENTS'); }} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">&larr; Back to Relationships</button>
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{tc.name}</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">{tc.name}</h1>
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{tc.status}</span>
-                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${tc.relationship === 'High' ? 'bg-red-50 text-red-700 border-red-100' : tc.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>{tc.relationship}</span>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset ${tc.relationship === 'High' ? 'bg-red-50 text-red-700 ring-red-600/10' : tc.relationship === 'Medium' ? 'bg-orange-50 text-orange-700 ring-orange-600/10' : 'bg-blue-50 text-blue-700 ring-blue-600/10'}`}>{tc.relationship}</span>
                 <ScoreBar score={tc.leadScore || 0} />
-                {canEdit && <button onClick={() => setEditingClient(tc)} className="ml-auto px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Edit</button>}
+                {canEdit && <button onClick={() => setEditingClient(tc)} className="ml-auto px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Edit</button>}
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="space-y-4">
-                  <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-2 text-[13px]">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Client Info</h3>
+                  <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow space-y-2 text-[13px]">
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Relationship Info</h3>
                     <p className="break-all"><span className="text-gray-400">Email:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.email}</span></p>
-                    <p><span className="text-gray-400">Phone:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.phone_number || 'â€”'}</span></p>
-                    <p><span className="text-gray-400">Country:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.country || 'â€”'}</span></p>
-                    <p><span className="text-gray-400">Source:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.source || 'â€”'}</span></p>
+                    <p><span className="text-gray-400">Phone:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.phone_number || '—'}</span></p>
+                    <p><span className="text-gray-400">Country:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.country || '—'}</span></p>
+                    <p><span className="text-gray-400">Source:</span> <span className="font-semibold text-gray-800 dark:text-gray-200">{tc.source || '—'}</span></p>
                   </div>
-                  <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                  <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                     <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Deals ({tcDeals.length})</h3>
                     {tcDeals.length === 0 ? <p className="text-[12px] text-gray-400 italic">No deals.</p> : tcDeals.map(d => (
                       <div key={d.id} className="flex justify-between py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0 text-[13px]">
@@ -4020,7 +5221,7 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-                  <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                  <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                     <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Open Tasks ({tcTasks.filter(t => t.status === 'pending').length})</h3>
                     {tcTasks.filter(t => t.status === 'pending').length === 0 ? <p className="text-[12px] text-gray-400 italic">No open tasks.</p> : tcTasks.filter(t => t.status === 'pending').map(t => (
                       <div key={t.id} className="flex justify-between py-1.5 border-b border-gray-50 dark:border-gray-700/50 last:border-0 text-[13px]">
@@ -4030,10 +5231,10 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-                <div className="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+                <div className="lg:col-span-2 bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-4">Full History</h3>
                   {events.length === 0 ? (
-                    <p className="text-[13px] text-gray-400 text-center py-8">No history yet â€” log an activity to get started.</p>
+                    <p className="text-[13px] text-gray-400 text-center py-8">No history yet — log an activity to get started.</p>
                   ) : (
                     <div className="relative pl-6 space-y-5 before:absolute before:left-[7px] before:top-1 before:bottom-1 before:w-px before:bg-gray-200 dark:before:bg-gray-700">
                       {events.map(ev => (
@@ -4055,7 +5256,7 @@ export default function App() {
                       const { data, error } = await supabase.from('activities').insert([{
                         client_id: tc.id, user_id: user.id, activity_type: activityType,
                         activity_date: new Date().toISOString().split('T')[0],
-                        description: activityDesc, outcome: activityOutcome,
+                        description: activityDesc,
                       }]).select();
                       if (!error && data) {
                         setActivities(prev => [data[0], ...prev]);
@@ -4066,7 +5267,7 @@ export default function App() {
                       } else showToast(`Error logging activity: ${error?.message}`, 'error');
                     }} className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-700 flex gap-2">
                       <textarea placeholder="Log an activity..." value={activityDesc} onChange={e => setActivityDesc(e.target.value)} rows={2} className="flex-1 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:outline-none" />
-                      <button type="submit" className="px-3 text-[12px] font-medium text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Log</button>
+                      <button type="submit" className="px-3 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Log</button>
                     </form>
                   )}
                 </div>
@@ -4080,7 +5281,7 @@ export default function App() {
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-1">Task Management</h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 mb-1">Task Management</h1>
                 <p className="text-[13px] text-gray-500">Track and manage all client action items.</p>
               </div>
               <div className="flex gap-2">
@@ -4089,13 +5290,15 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-6 space-y-4">
               {tasks.filter(t => t.status === tasksFilter).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).length === 0 && (
                 tasks.length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-[14px] font-semibold text-gray-900">No tasks yet</p>
-                    <p className="text-[13px] text-gray-500 mt-1">Create tasks to stay on top of your follow-ups â€” open a client profile to add one.</p>
-                  </div>
+                  <EmptyState
+                    title="No tasks yet"
+                    desc="Create tasks to stay on top of your follow-ups — open a relationship profile to add one."
+                    ctaLabel="Go to Relationships"
+                    onCta={() => setAppStep('CLIENTS')}
+                  />
                 ) : (
                   <p className="text-center text-[13px] text-gray-500 py-8">No {tasksFilter} tasks found.</p>
                 )
@@ -4110,13 +5313,13 @@ export default function App() {
                       <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="w-5 h-5 rounded border-gray-300 text-gray-900 focus:ring-gray-900 cursor-pointer" />
                       <div>
                         <div className={`text-[14px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
-                          {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>ðŸ” </span>}
+                          {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>🔁 </span>}
                           {task.title}
                         </div>
                         <div className="text-[12px] text-gray-500 mt-0.5">
                           Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span> 
-                          &nbsp;â€¢&nbsp; 
-                          Client: <button onClick={() => { setViewingClient(client); setAppStep('CLIENTS'); }} className="text-gray-900 font-medium hover:underline">{client?.name || 'Unknown'}</button>
+                          &nbsp;•&nbsp; 
+                          Relationship: <button onClick={() => { setViewingClient(client); setAppStep('CLIENTS'); }} className="text-gray-900 font-medium hover:underline">{client?.name || 'Unknown'}</button>
                         </div>
                       </div>
                     </div>
@@ -4127,34 +5330,323 @@ export default function App() {
           </div>
         )}
 
+        {/* VIEW: N8N — EMAIL SEQUENCE WORKFLOWS */}
+        {appStep === 'N8N' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">N8N</h1>
+              <p className="text-[13px] text-gray-500">Automated email sequences — build a workflow, enroll relationships, and each follow-up lands in your Outbox when due.</p>
+            </div>
+
+            {/* OUTBOX — due sends */}
+            {dueSequenceSends.length > 0 && (
+              <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl p-5 space-y-2">
+                <h3 className="text-[14px] font-semibold text-indigo-900 dark:text-indigo-200">Outbox — {dueSequenceSends.length} email{dueSequenceSends.length === 1 ? '' : 's'} due</h3>
+                {dueSequenceSends.map(({ enr, seq, step, client: c }) => (
+                  <div key={enr.id} className="flex flex-wrap items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-3 border border-indigo-100 dark:border-indigo-800">
+                    <div className="flex-1 min-w-[180px]">
+                      <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">{c.name} <span className="text-gray-400 font-normal">· step {enr.current_step + 1} of {seqStepsFor(seq.id).length} · {seq.name}</span></p>
+                      <p className="text-[12px] text-gray-500 truncate">{resolveMergeTags(step.subject, c)}</p>
+                    </div>
+                    <button onClick={() => handleStopEnrollment(enr)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Stop</button>
+                    <button onClick={() => handleSendSequenceStep(enr)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Send now →</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* NEW WORKFLOW */}
+            <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+              <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">New Workflow</h3>
+              <form onSubmit={handleCreateSequence} className="flex flex-wrap gap-2 text-[13px]">
+                <input type="text" required placeholder="Workflow name (e.g. Cold outreach — agencies)" value={newSeqName} onChange={e => setNewSeqName(e.target.value)} className="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                <select value={newSeqTrigger} onChange={e => setNewSeqTrigger(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                  <option value="manual">Trigger: Manual enroll</option>
+                  <option value="new_relationship">Trigger: New relationship added</option>
+                  <option value="tag_applied">Trigger: Tag applied</option>
+                </select>
+                {newSeqTrigger === 'tag_applied' && (
+                  <select required value={newSeqTriggerValue} onChange={e => setNewSeqTriggerValue(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                    <option value="">— pick tag —</option>
+                    {tags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                  </select>
+                )}
+                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Workflow</button>
+              </form>
+            </div>
+
+            {/* WORKFLOW LIST */}
+            {sequences.length === 0 ? (
+              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                <EmptyState title="No workflows yet" desc="Create a workflow above, add email steps with wait times, then activate it." />
+              </div>
+            ) : sequences.map(seq => {
+              const steps = seqStepsFor(seq.id);
+              const enrolled = sequenceEnrollments.filter(en => en.sequence_id === seq.id);
+              const activeEnr = enrolled.filter(en => en.status === 'active');
+              const statusCls = { draft: 'bg-gray-100 text-gray-600 ring-gray-500/10', active: 'bg-green-50 text-green-700 ring-green-600/10', paused: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20' }[seq.status];
+              return (
+                <div key={seq.id} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">{seq.name}</h3>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset capitalize ${statusCls}`}>{seq.status}</span>
+                    <span className="text-[11px] text-gray-400">
+                      Trigger: {{ manual: 'Manual', new_relationship: 'New relationship', tag_applied: `Tag "${seq.trigger_value}"` }[seq.trigger_type]}
+                      {' · '}{activeEnr.length} enrolled{enrolled.length !== activeEnr.length ? ` (${enrolled.length} total)` : ''}
+                      {' · '}Last run: {seq.last_run_at ? new Date(seq.last_run_at).toLocaleString() : 'never'}
+                    </span>
+                    <div className="ml-auto flex flex-wrap gap-2 text-[12px] font-medium">
+                      {seq.status !== 'active' && <button onClick={() => handleSetSequenceStatus(seq, 'active')} className="px-3 py-1 rounded-full bg-green-600 text-white hover:opacity-90">{seq.status === 'paused' ? 'Resume' : 'Activate'}</button>}
+                      {seq.status === 'active' && <button onClick={() => handleSetSequenceStatus(seq, 'paused')} className="px-3 py-1 rounded-full bg-yellow-500 text-white hover:opacity-90">Pause</button>}
+                      <button onClick={() => handleDuplicateSequence(seq)} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Duplicate</button>
+                      <button onClick={() => handleDeleteSequence(seq)} className="text-red-500 hover:text-red-700">Delete</button>
+                    </div>
+                  </div>
+
+                  {/* UPGRADE 3 — live funnel + UPGRADE 8 — enrollment list */}
+                  {(() => {
+                    const sSends = sequenceSends.filter(s => s.sequence_id === seq.id);
+                    const f = {
+                      Sent: sSends.length,
+                      Opened: sSends.filter(s => s.opened_at).length,
+                      Clicked: sSends.filter(s => s.clicked_at).length,
+                      Replied: sSends.filter(s => s.replied_at).length,
+                    };
+                    const max = Math.max(f.Sent, 1);
+                    return (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="p-3 border border-gray-100 dark:border-gray-800 rounded-xl">
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Funnel {f.Sent > 0 && <span className="normal-case font-normal">· open {Math.round((f.Opened / f.Sent) * 100)}% · click {Math.round((f.Clicked / f.Sent) * 100)}% · reply {Math.round((f.Replied / f.Sent) * 100)}%</span>}</p>
+                          {Object.entries(f).map(([k, v]) => (
+                            <div key={k} className="flex items-center gap-2 py-0.5">
+                              <span className="text-[11px] font-medium text-gray-500 w-14">{k}</span>
+                              <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-3 overflow-hidden">
+                                <div className={`anim-grow-w h-full rounded-full ${{ Sent: 'bg-gray-400', Opened: 'bg-blue-500', Clicked: 'bg-indigo-500', Replied: 'bg-green-500' }[k]}`} style={{ width: `${(v / max) * 100}%` }} />
+                              </div>
+                              <span className="text-[11px] font-bold text-gray-900 dark:text-gray-100 w-6 text-right">{v}</span>
+                            </div>
+                          ))}
+                          <p className="text-[10px] text-gray-400 mt-1.5">Open/click tracking applies to auto-sent (Gmail) emails only — manual tab sends can't be tracked.</p>
+                        </div>
+                        <div className="p-3 border border-gray-100 dark:border-gray-800 rounded-xl max-h-44 overflow-y-auto">
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Enrollments ({enrolled.length})</p>
+                          {enrolled.length === 0 ? <p className="text-[12px] text-gray-400">Nobody enrolled yet.</p> : enrolled.map(en => {
+                            const ec = clients.find(x => x.id === en.client_id);
+                            return (
+                              <div key={en.id} className="flex items-center gap-2 py-1 text-[12px]">
+                                <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-1">{ec?.name || '?'}</span>
+                                <span className="text-gray-400">step {Math.min(en.current_step + 1, steps.length)}/{steps.length}</span>
+                                {en.status === 'replied' ? (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/10">Replied — auto-stopped</span>
+                                ) : (
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset capitalize ${en.status === 'active' ? 'bg-blue-50 text-blue-700 ring-blue-600/10' : en.status === 'completed' ? 'bg-gray-100 text-gray-600 ring-gray-500/10' : 'bg-red-50 text-red-700 ring-red-600/10'}`}>{en.status}</span>
+                                )}
+                                {en.status === 'active' && (emailSettings?.auto_send_enabled && gmailConn && !gmailConn.needs_reauth
+                                  ? <span className="text-[10px] text-green-600 font-medium shrink-0">Auto-sends {en.next_send_at}</span>
+                                  : <button onClick={() => handleStopEnrollment(en)} className="text-[10px] text-red-400 hover:text-red-600 shrink-0">stop</button>)}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* UPGRADE 8 — TIMELINE (spine, chips, inline edit, add-between, reorder) */}
+                  <div className="relative pl-4 space-y-1 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-px before:bg-gray-200 dark:before:bg-gray-700">
+                    {steps.map((st, i) => {
+                      const stSends = sequenceSends.filter(s => s.step_id === st.id);
+                      const abA = stSends.filter(s => s.subject_variant === 'A');
+                      const abB = stSends.filter(s => s.subject_variant === 'B');
+                      const rate = (arr) => arr.length ? Math.round((arr.filter(s => s.opened_at).length / arr.length) * 100) : 0;
+                      const chLabel = SEQ_CHANNELS.find(c => c.value === (st.channel || 'email'))?.label || '✉️ Email';
+                      const isEditing = stepEdit?.id === st.id;
+                      return (
+                        <div key={st.id}>
+                          {/* add-between */}
+                          <button onClick={() => setSeqStepDraft({ sequenceId: seq.id, insertAt: i, wait_days: 3, channel: 'email', condition: 'always', subject: '', subject_b: '', body: '', task_note: '' })} className="ml-2 text-[10px] font-semibold text-gray-300 hover:text-indigo-600 transition-colors">＋ insert step here</button>
+                          <div className="flex items-center gap-2 py-0.5 text-[11px] font-semibold text-gray-400">
+                            <span className="relative -left-4 w-3.5 h-3.5 rounded-full bg-white dark:bg-gray-900 ring-2 ring-gray-300 dark:ring-gray-600 shrink-0" />
+                            {isEditing ? (
+                              <label className="-ml-3 flex items-center gap-1">Wait <input type="number" min="0" value={stepEdit.wait_days} onChange={e => setStepEdit({ ...stepEdit, wait_days: e.target.value })} className="w-14 px-1.5 py-0.5 border border-gray-200 rounded focus:outline-none" /> days</label>
+                            ) : (
+                              <button onClick={() => setStepEdit({ ...st })} className="-ml-3 hover:text-gray-700 dark:hover:text-gray-200" title="Click to edit">Wait {st.wait_days} day{st.wait_days === 1 ? '' : 's'}{i === 0 ? ' after enrollment' : ''} ✎</button>
+                            )}
+                          </div>
+                          <div className="flex items-start gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl bg-gray-50/50 dark:bg-gray-800/40 group hover-lift">
+                            <span className="w-6 h-6 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white dark:bg-gray-900 ring-1 ring-inset ring-gray-300/60 dark:ring-gray-600">{chLabel}</span>
+                                {(st.condition || 'always') !== 'always' && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-600/10">{SEQ_CONDITIONS.find(c => c.value === st.condition)?.label}</span>
+                                )}
+                                {st.subject_b && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20">A/B test</span>}
+                              </div>
+                              {isEditing ? (
+                                <div className="space-y-1.5">
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <select value={stepEdit.channel || 'email'} onChange={e => setStepEdit({ ...stepEdit, channel: e.target.value })} className="px-2 py-1 text-[12px] border border-gray-200 rounded-lg bg-white focus:outline-none">
+                                      {SEQ_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                    </select>
+                                    <select value={stepEdit.condition || 'always'} onChange={e => setStepEdit({ ...stepEdit, condition: e.target.value })} className="px-2 py-1 text-[12px] border border-gray-200 rounded-lg bg-white focus:outline-none">
+                                      {SEQ_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                    </select>
+                                  </div>
+                                  {(stepEdit.channel || 'email') === 'email' ? (
+                                    <>
+                                      <input type="text" value={stepEdit.subject || ''} onChange={e => setStepEdit({ ...stepEdit, subject: e.target.value })} placeholder="Subject A" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                                      <input type="text" value={stepEdit.subject_b || ''} onChange={e => setStepEdit({ ...stepEdit, subject_b: e.target.value })} placeholder="Subject B (optional — makes this an A/B test)" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                                      <textarea rows={3} value={stepEdit.body || ''} onChange={e => setStepEdit({ ...stepEdit, body: e.target.value })} className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                                    </>
+                                  ) : (
+                                    <textarea rows={2} value={stepEdit.task_note || ''} onChange={e => setStepEdit({ ...stepEdit, task_note: e.target.value })} placeholder="Task instructions, e.g. Mention the webinar — {{name}} attended" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                                  )}
+                                  <div className="flex gap-2 justify-end">
+                                    <button onClick={() => setStepEdit(null)} className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+                                    <button onClick={handleSaveStepEdit} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-gray-900 rounded-lg hover:opacity-90">Save</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  {(st.channel || 'email') === 'email' ? (
+                                    <>
+                                      <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{st.subject}{st.subject_b ? <span className="text-gray-400 font-normal"> / B: {st.subject_b}</span> : ''}</p>
+                                      <p className="text-[12px] text-gray-500 line-clamp-2 whitespace-pre-wrap">{st.body}</p>
+                                    </>
+                                  ) : (
+                                    <p className="text-[13px] text-gray-700 dark:text-gray-300">{st.task_note || 'Manual task step'}</p>
+                                  )}
+                                  <p className="text-[10px] text-gray-400 mt-1">
+                                    Sent {stSends.length} · Opened {stSends.filter(s => s.opened_at).length} · Clicked {stSends.filter(s => s.clicked_at).length} · Replied {stSends.filter(s => s.replied_at).length}
+                                    {st.subject_b && (abA.length + abB.length) > 0 && (
+                                      <span className={'ml-2 font-semibold ' + (rate(abA) >= rate(abB) ? 'text-green-600' : 'text-amber-600')}>
+                                        A/B: A {rate(abA)}% ({abA.length}) vs B {rate(abB)}% ({abB.length}) — {rate(abA) === rate(abB) ? 'tie' : rate(abA) > rate(abB) ? 'A wins' : 'B wins'}
+                                      </span>
+                                    )}
+                                  </p>
+                                </>
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                              <button onClick={() => handleMoveStep(seq.id, i, -1)} disabled={i === 0} className="text-[11px] text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30" title="Move up">▲</button>
+                              <button onClick={() => handleMoveStep(seq.id, i, 1)} disabled={i === steps.length - 1} className="text-[11px] text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30" title="Move down">▼</button>
+                              <button onClick={() => showConfirm('Delete Step', 'Delete this step?', 'Delete', 'danger', async () => handleDeleteSequenceStep(st))} className="text-[11px] font-medium text-red-400 hover:text-red-600">✕</button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Add step */}
+                    {seqStepDraft?.sequenceId === seq.id ? (
+                      <form onSubmit={handleAddSequenceStep} className="border border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-3 space-y-2 text-[13px]">
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <label className="flex items-center gap-1.5 text-[12px] text-gray-500">Wait
+                            <input type="number" min="0" value={seqStepDraft.wait_days} onChange={e => setSeqStepDraft({ ...seqStepDraft, wait_days: e.target.value })} className="w-16 px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none" />
+                            days, then send:
+                          </label>
+                          {/* UPGRADE 5 — channel selector */}
+                          <select value={seqStepDraft.channel || 'email'} onChange={e => setSeqStepDraft({ ...seqStepDraft, channel: e.target.value })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
+                            {SEQ_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                          </select>
+                          {/* UPGRADE 4 — condition */}
+                          <select value={seqStepDraft.condition || 'always'} onChange={e => setSeqStepDraft({ ...seqStepDraft, condition: e.target.value })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
+                            {SEQ_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                          </select>
+                          {(seqStepDraft.channel || 'email') === 'email' && emailTemplates.length > 0 && (
+                            <select onChange={e => { const t = emailTemplates.find(x => String(x.id) === e.target.value); if (t) setSeqStepDraft({ ...seqStepDraft, subject: t.subject, body: t.body }); }} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
+                              <option value="">Use template…</option>
+                              {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                            </select>
+                          )}
+                        </div>
+                        {(seqStepDraft.channel || 'email') === 'email' ? (
+                          <>
+                            <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={seqStepDraft.subject} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                            {/* UPGRADE 6 — B variant */}
+                            {seqStepDraft.showB ? (
+                              <input type="text" placeholder="Subject B (A/B test — sent to half of enrollments)" value={seqStepDraft.subject_b || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject_b: e.target.value })} className="w-full px-3 py-2 border border-amber-200 rounded-lg focus:outline-none focus:border-amber-400" />
+                            ) : (
+                              <button type="button" onClick={() => setSeqStepDraft({ ...seqStepDraft, showB: true })} className="text-[11px] font-semibold text-amber-600 hover:underline">＋ Add B variant (A/B test)</button>
+                            )}
+                            <textarea rows={3} required placeholder="Body" value={seqStepDraft.body} onChange={e => setSeqStepDraft({ ...seqStepDraft, body: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                          </>
+                        ) : (
+                          <textarea rows={2} required placeholder="Task instructions — e.g. Mention their webinar question. Supports {{name}}." value={seqStepDraft.task_note || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, task_note: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                        )}
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setSeqStepDraft(null)} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+                          <button type="submit" className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Step</button>
+                        </div>
+                      </form>
+                    ) : (
+                      <button onClick={() => setSeqStepDraft({ sequenceId: seq.id, insertAt: null, wait_days: steps.length === 0 ? 0 : 3, channel: 'email', condition: 'always', subject: '', subject_b: '', body: '', task_note: '' })} className="w-full px-3 py-2 text-[12px] font-medium text-gray-500 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl hover:border-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">+ Add step {steps.length > 0 ? `(step ${steps.length + 1})` : '(first email)'}</button>
+                    )}
+                  </div>
+
+                  {/* Enroll / Run — UPGRADE 8: multi-select */}
+                  <div className="flex flex-wrap items-start gap-2 pt-3 border-t border-gray-100 dark:border-gray-800">
+                    <details className="relative">
+                      <summary className="px-3 py-1.5 text-[13px] border border-gray-200 rounded-lg bg-white text-gray-700 cursor-pointer select-none list-none">
+                        {Object.values(enrollMulti[seq.id] || {}).filter(Boolean).length || 'Pick'} relationship{Object.values(enrollMulti[seq.id] || {}).filter(Boolean).length === 1 ? '' : 's'} ▾
+                      </summary>
+                      <div className="absolute z-20 mt-1 w-64 max-h-48 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 space-y-0.5">
+                        {clients.filter(c => c.email).map(c => (
+                          <label key={c.id} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
+                            <input type="checkbox" checked={!!(enrollMulti[seq.id] || {})[c.id]} onChange={e => setEnrollMulti(prev => ({ ...prev, [seq.id]: { ...(prev[seq.id] || {}), [c.id]: e.target.checked } }))} className="rounded border-gray-300 focus:ring-0" />
+                            <span className="truncate">{c.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                    <button onClick={async () => {
+                      const ids = Object.entries(enrollMulti[seq.id] || {}).filter(([, v]) => v).map(([k]) => k);
+                      for (const id of ids) await enrollClientInSequence(seq, id);
+                      setEnrollMulti(prev => ({ ...prev, [seq.id]: {} }));
+                    }} disabled={!Object.values(enrollMulti[seq.id] || {}).some(Boolean)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">▶ Enroll / Run</button>
+                    {activeEnr.length > 0 && (
+                      <span className="text-[11px] text-gray-400">Next sends: {activeEnr.slice(0, 3).map(en => `${clients.find(c => c.id === en.client_id)?.name || '?'} → ${en.next_send_at}`).join(' · ')}{activeEnr.length > 3 ? ' …' : ''}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-[12px] text-yellow-800 dark:text-yellow-300">
+              ⚠️ Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait here for one-click manual sending via compose tabs. With Auto-send ON + your own Gmail connected (Settings → Gmail Sync), the sequence-runner cron sends them automatically from YOUR Gmail address inside your send window, with open/click tracking.
+            </div>
+          </div>
+        )}
+
         {/* VIEW: SETTINGS */}
         {appStep === 'SETTINGS' && (
           <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 pb-12">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-gray-900 mb-1">Account Settings</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 mb-1">Account Settings</h1>
               <p className="text-[13px] text-gray-500">Manage your profile, security preferences, system configuration, and custom CRM fields.</p>
             </div>
 
             {settingsMessage.text && (
-              <div className={`p-4 rounded-xl text-[13px] font-medium border ${settingsMessage.type === 'error' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-green-50 text-green-700 border-green-100'}`}>
+              <div className={`p-4 rounded-xl text-[13px] font-medium ring-1 ring-inset ${settingsMessage.type === 'error' ? 'bg-red-50 text-red-700 ring-red-600/10' : 'bg-green-50 text-green-700 ring-green-600/10'}`}>
                 {settingsMessage.text}
               </div>
             )}
 
-            {/* FEATURE 10 â€” Team & Workspace (first section) */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            {/* FEATURE 10 — Team & Workspace (first section) */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Team & Workspace</h2>
               {!workspace ? (
                 <>
                   <p className="text-[13px] text-gray-500 mb-4">You're in solo mode. Create a workspace to invite teammates and share your CRM.</p>
                   <form onSubmit={handleCreateWorkspace} className="flex flex-wrap gap-2 max-w-md">
                     <input type="text" placeholder="Workspace name..." value={newWorkspaceName} onChange={e => setNewWorkspaceName(e.target.value)} className="flex-1 min-w-[160px] px-3 py-2 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" required />
-                    <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Create Workspace</button>
+                    <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Workspace</button>
                   </form>
                 </>
               ) : (
                 <>
-                  <p className="text-[13px] text-gray-500 mb-4">Workspace: <span className="font-bold text-gray-900">{workspace.name}</span> Â· Your role: <span className="font-semibold capitalize">{myRole}</span></p>
+                  <p className="text-[13px] text-gray-500 mb-4">Workspace: <span className="font-bold text-gray-900">{workspace.name}</span> · Your role: <span className="font-semibold capitalize">{myRole}</span></p>
                   <div className="space-y-2 mb-5">
                     {workspaceMembers.map(m => (
                       <div key={m.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
@@ -4181,7 +5673,7 @@ export default function App() {
                   {['owner', 'admin'].includes(myRole) && (
                     <form onSubmit={handleInviteMember} className="flex flex-wrap gap-2 max-w-md mb-4">
                       <input type="email" placeholder="teammate@company.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} className="flex-1 min-w-[160px] px-3 py-2 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" required />
-                      <button type="submit" disabled={inviteLoading} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50">{inviteLoading ? 'Inviting...' : 'Invite'}</button>
+                      <button type="submit" disabled={inviteLoading} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">{inviteLoading ? 'Inviting...' : 'Invite'}</button>
                     </form>
                   )}
                   {myRole !== 'owner' && (
@@ -4191,8 +5683,203 @@ export default function App() {
               )}
             </div>
 
+            {/* n8n & API INTEGRATION HUB */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-6">
+              <div>
+                <h2 className="text-[15px] font-bold text-gray-900">n8n & API Integration</h2>
+                <p className="text-[12px] text-gray-500 mt-1">Two-way: n8n reads/writes CRM data via the REST API below, and CRM events trigger your n8n workflows via webhooks.</p>
+              </div>
+
+              {/* A — API KEYS */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">API Keys (inbound)</h4>
+                {newKeyRaw && (
+                  <div className="p-3 mb-2 bg-yellow-50 border border-yellow-200 rounded-xl text-[12px]">
+                    <p className="font-semibold text-yellow-800 mb-1">Copy this key now — you won't see it again.</p>
+                    <div className="flex gap-2 items-center">
+                      <code className="flex-1 bg-white border border-yellow-200 rounded px-2 py-1 font-mono text-[11px] break-all">{newKeyRaw}</code>
+                      <button onClick={() => { navigator.clipboard?.writeText(newKeyRaw); showToast('Key copied.', 'success'); }} className="px-2 py-1 text-[11px] font-semibold bg-gray-900 text-white rounded">Copy</button>
+                      <button onClick={() => setNewKeyRaw(null)} className="text-gray-400">×</button>
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-1.5 mb-2">
+                  {apiKeys.length === 0 && <p className="text-[12px] text-gray-400">No keys yet.</p>}
+                  {apiKeys.map(k => (
+                    <div key={k.id} className="flex items-center gap-2 p-2 border border-gray-100 rounded-lg text-[12px]">
+                      <span className="font-semibold text-gray-900">{k.name}</span>
+                      <code className="text-gray-400 font-mono">{k.key_prefix}••••</code>
+                      <span className="text-gray-400">{(k.scopes || []).join('+')}</span>
+                      <span className="text-gray-400 ml-auto">{k.last_used_at ? `used ${new Date(k.last_used_at).toLocaleDateString()}` : 'never used'}</span>
+                      {k.revoked ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/10">revoked</span>
+                        : <button onClick={() => handleRevokeApiKey(k)} className="text-red-500 hover:text-red-700 font-medium">Revoke</button>}
+                    </div>
+                  ))}
+                </div>
+                <form onSubmit={handleGenerateApiKey} className="flex gap-2">
+                  <input type="text" required placeholder='Key name (e.g. "n8n production")' value={newKeyName} onChange={e => setNewKeyName(e.target.value)} className="flex-1 px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none" />
+                  <button type="submit" className="px-3 py-2 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90">Generate API Key</button>
+                </form>
+              </div>
+
+              {/* B — CONNECT n8n (outbound) */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Connect to n8n (outbound webhooks)</h4>
+                <form onSubmit={handleConnectN8n} className="space-y-2">
+                  <input type="url" required placeholder="https://your-n8n-host/webhook/xxxx (Webhook Trigger URL)" value={n8nHook.url} onChange={e => setN8nHook({ ...n8nHook, url: e.target.value })} className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none" />
+                  <div className="flex flex-wrap gap-1.5">
+                    {WEBHOOK_EVENTS.map(ev => (
+                      <button key={ev.value} type="button" onClick={() => setN8nHook(prev => ({ ...prev, events: prev.events.includes(ev.value) ? prev.events.filter(x => x !== ev.value) : [...prev.events, ev.value] }))}
+                        className={`text-[11px] font-semibold px-2 py-1 rounded-full ring-1 ring-inset ${n8nHook.events.includes(ev.value) ? 'bg-gray-900 text-white ring-gray-900' : 'bg-white text-gray-500 ring-gray-200'}`}>{ev.label}</button>
+                    ))}
+                  </div>
+                  <button type="submit" className="px-3 py-2 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90">Create n8n Webhook</button>
+                </form>
+                {webhooks.filter(w => w.provider === 'n8n').map(w => (
+                  <div key={w.id} className="mt-2 p-2 border border-gray-100 rounded-lg text-[12px] flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">{w.name}</span><code className="text-gray-400 truncate max-w-[200px]">{w.url}</code>
+                    <span className="text-gray-400">signing secret:</span>
+                    <button onClick={() => { navigator.clipboard?.writeText(w.secret || ''); showToast('Secret copied.', 'success'); }} className="px-2 py-0.5 text-[11px] font-semibold bg-gray-100 rounded">Copy secret</button>
+                    <button onClick={() => handleTestWebhook(w)} className="text-indigo-600 font-medium">Send test event</button>
+                    {w.last_status_code != null && <span className="text-gray-400">last: {w.last_status_code}</span>}
+                  </div>
+                ))}
+                <p className="text-[11px] text-gray-400 mt-1.5">Bodies are {'{ event, timestamp, data }'} signed with HMAC-SHA256 in the X-CRM-Signature header — verify in an n8n Function node with your secret. HTTPS URLs only.</p>
+              </div>
+
+              {/* C — API REFERENCE */}
+              <details className="border border-gray-100 rounded-xl p-3">
+                <summary className="text-[12px] font-semibold text-gray-700 cursor-pointer">API Reference — paste into n8n HTTP Request nodes</summary>
+                <div className="mt-2 text-[11px] font-mono text-gray-600 space-y-1 overflow-x-auto">
+                  <p className="font-sans text-gray-500">Base URL: this app's origin · Header: Authorization: Bearer &lt;your key&gt; · Responses: {'{ ok, data }'}</p>
+                  <p>GET  /api/v1/me</p>
+                  <p>GET  /api/v1/relationships?status=&priority=&search=&limit=&offset=</p>
+                  <p>POST /api/v1/relationships {'{ name*, email*, phone_number, company_name, company_url, status, relationship, source, linkedin_url, notes }'}</p>
+                  <p>GET|PATCH|DELETE /api/v1/relationships/:id</p>
+                  <p>GET  /api/v1/relationships/:id/activities</p>
+                  <p>POST /api/v1/activities {'{ client_id*, activity_type*, description*, activity_date? }'}</p>
+                  <p>GET  /api/v1/deals?stage= · POST /api/v1/deals {'{ client_id*, title*, value, stage, ... }'} · PATCH /api/v1/deals/:id</p>
+                  <p>GET  /api/v1/tasks?status= · POST /api/v1/tasks {'{ client_id*, title*, due_date }'} · PATCH /api/v1/tasks/:id</p>
+                  <p>POST /api/v1/sequences/:id/enroll {'{ client_id* }'}</p>
+                  <p className="font-sans text-gray-500">curl example: curl -H "Authorization: Bearer n8n_..." {'{origin}'}/api/v1/me</p>
+                </div>
+              </details>
+
+              {/* D — ACTIVITY LOG */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Integration Activity Log</h4>
+                  <select value={logDirFilter} onChange={e => setLogDirFilter(e.target.value)} className="text-[11px] border border-gray-200 rounded p-0.5 ml-auto">
+                    <option value="all">All</option><option value="inbound">Inbound</option><option value="outbound">Outbound</option><option value="failed">Failed only</option>
+                  </select>
+                  <button onClick={() => fetchIntegration(user.id)} className="text-[11px] text-indigo-600 font-medium">Refresh</button>
+                </div>
+                <div className="max-h-56 overflow-y-auto border border-gray-100 rounded-xl divide-y divide-gray-50 text-[11px]">
+                  {integrationLogs.filter(l => logDirFilter === 'all' || (logDirFilter === 'failed' ? !l.ok : l.direction === logDirFilter)).slice(0, 50).map(l => (
+                    <div key={l.id} className="flex items-center gap-2 px-2 py-1.5">
+                      <span className="text-gray-400 w-32 shrink-0">{new Date(l.created_at).toLocaleString()}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-1 ring-inset ${l.direction === 'inbound' ? 'bg-blue-50 text-blue-700 ring-blue-600/10' : 'bg-purple-50 text-purple-700 ring-purple-600/10'}`}>{l.direction}</span>
+                      <span className="font-mono truncate flex-1">{l.method ? `${l.method} ` : ''}{l.event}</span>
+                      <span className={`font-bold ${l.ok ? 'text-green-600' : 'text-red-500'}`}>{l.status_code ?? '—'}</span>
+                    </div>
+                  ))}
+                  {integrationLogs.length === 0 && <p className="p-3 text-gray-400">No integration calls yet.</p>}
+                </div>
+              </div>
+            </div>
+
+            {/* UPGRADE 1 & 7 — EMAIL AUTOMATION */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Automation</h2>
+              <p className="text-[13px] text-gray-500 mb-4">When enabled, due sequence steps send themselves every 15 minutes from your connected Gmail (within your send window). When off, steps wait in the N8N Outbox for manual sending — both paths always work.</p>
+              <div className="space-y-4 text-[13px]">
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Sender = the user's OWN connected Gmail (Resend removed) */}
+                  {gmailConn && !gmailConn.needs_reauth ? (
+                    <span className="text-[13px] text-gray-700">Sends as <span className="font-semibold text-gray-900">{gmailConn.email_address || 'your Gmail'}</span></span>
+                  ) : (
+                    <span className="text-[13px] text-gray-500">No Gmail connected — <button onClick={handleConnectGmail} className="font-semibold text-indigo-600 hover:underline">Connect Gmail</button> to enable auto-send.</span>
+                  )}
+                  <button
+                    onClick={() => handleSaveEmailSettings({ auto_send_enabled: !(emailSettings?.auto_send_enabled) })}
+                    disabled={!gmailConn || gmailConn.needs_reauth}
+                    title={!gmailConn || gmailConn.needs_reauth ? 'Connect Gmail first' : ''}
+                    className={`px-4 py-2 text-[13px] font-semibold rounded-xl shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${emailSettings?.auto_send_enabled ? 'bg-green-600 text-white' : 'bg-gray-900 text-white hover:opacity-90'}`}>
+                    {emailSettings?.auto_send_enabled ? 'Auto-send: ON ✓' : 'Auto-send: OFF — enable'}
+                  </button>
+                </div>
+                {gmailConn?.needs_reauth && (
+                  <p className="text-[12px] text-red-700 bg-red-50 border border-red-100 rounded-lg p-2">Gmail connection expired — reconnect to resume sending. <button onClick={handleConnectGmail} className="font-semibold underline">Reconnect</button></p>
+                )}
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Send days</label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => {
+                      const on = (emailSettings?.send_days ?? [1, 2, 3, 4, 5]).includes(i);
+                      return (
+                        <button key={d} onClick={() => {
+                          const cur = emailSettings?.send_days ?? [1, 2, 3, 4, 5];
+                          handleSaveEmailSettings({ send_days: on ? cur.filter(x => x !== i) : [...cur, i].sort() });
+                        }} className={`px-3 py-1 rounded-full text-[12px] font-semibold ring-1 ring-inset ${on ? 'bg-gray-900 text-white ring-gray-900' : 'bg-white text-gray-500 ring-gray-200 hover:ring-gray-400'}`}>{d}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-4">
+                  <label className="text-[12px] text-gray-500 flex items-center gap-2">Window
+                    <select value={emailSettings?.send_window_start ?? 9} onChange={e => handleSaveEmailSettings({ send_window_start: parseInt(e.target.value, 10) })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none">
+                      {[...Array(24)].map((_, h) => <option key={h} value={h}>{h}:00</option>)}
+                    </select>
+                    to
+                    <select value={emailSettings?.send_window_end ?? 17} onChange={e => handleSaveEmailSettings({ send_window_end: parseInt(e.target.value, 10) })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none">
+                      {[...Array(24)].map((_, h) => <option key={h} value={h + 1}>{h + 1}:00</option>)}
+                    </select>
+                  </label>
+                  <label className="text-[12px] text-gray-500 flex items-center gap-2">Timezone
+                    <select value={emailSettings?.send_tz_offset ?? -new Date().getTimezoneOffset()} onChange={e => handleSaveEmailSettings({ send_tz_offset: parseInt(e.target.value, 10) })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none">
+                      {[-12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(h => (
+                        <option key={h} value={Math.round(h * 60)}>UTC{h >= 0 ? '+' : ''}{h}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-[12px] text-gray-500 flex items-center gap-2">Daily cap
+                    <input type="number" min="1" defaultValue={emailSettings?.daily_send_cap ?? 50} onBlur={e => handleSaveEmailSettings({ daily_send_cap: Math.max(1, parseInt(e.target.value, 10) || 50) })} className="w-20 px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none" />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* G1 — GMAIL SYNC */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <h2 className="text-[15px] font-bold text-gray-900 mb-2">Gmail Sync</h2>
+              {!gmailConn ? (
+                <>
+                  <p className="text-[13px] text-gray-500 mb-4">Connect Gmail (read-only) to automatically log emails to and from your relationships as Email activities.</p>
+                  <button onClick={handleConnectGmail} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Connect Gmail for automatic activity sync</button>
+                </>
+              ) : (
+                <>
+                  <p className="text-[13px] text-gray-500 mb-4">
+                    Connected{gmailConn.email_address ? <> as <span className="font-semibold text-gray-900">{gmailConn.email_address}</span></> : ''} · since {new Date(gmailConn.connected_at).toLocaleDateString()}
+                    {gmailConn.last_synced_at ? <> · last synced {new Date(gmailConn.last_synced_at).toLocaleString()}</> : ' · never synced yet'}
+                  </p>
+                  {gmailConn.needs_reauth && (
+                    <p className="text-[12px] text-red-700 bg-red-50 border border-red-100 rounded-lg p-2 mb-3">Gmail connection expired — reconnect to resume syncing and sending. <button onClick={handleConnectGmail} className="font-semibold underline">Reconnect</button></p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={handleGmailSyncNow} disabled={gmailSyncing} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                      {gmailSyncing && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                      {gmailSyncing ? 'Syncing…' : 'Sync now'}
+                    </button>
+                    <button onClick={handleDisconnectGmail} className="px-4 py-2 text-[13px] font-medium text-red-600 bg-red-50 border border-red-100 rounded-xl hover:bg-red-100">Disconnect</button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-3">Scans the last 7 days for messages to/from relationship emails; duplicates are skipped automatically. Scheduled background sync can be added with pg_cron once you want it.</p>
+                </>
+              )}
+            </div>
+
             {/* Profile Information Block */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-5">Profile Information</h2>
               <form onSubmit={handleUpdateProfile} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -4206,7 +5893,7 @@ export default function App() {
                   </div>
                   <div>
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Country / Region</label>
-                    <input type="text" value={profile.country} onChange={e => setProfile({...profile, country: e.target.value})} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    <input type="text" list="country-list" value={profile.country} onChange={e => setProfile({...profile, country: e.target.value})} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
                   </div>
                   <div>
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">LinkedIn Profile</label>
@@ -4214,17 +5901,17 @@ export default function App() {
                   </div>
                 </div>
                 <div className="flex justify-end pt-2">
-                  <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Save Profile Updates</button>
+                  <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">Save Profile Updates</button>
                 </div>
               </form>
             </div>
 
             {/* NEW: Custom Fields Configuration */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-5">
                 <div>
                   <h2 className="text-[15px] font-bold text-gray-900">Custom Fields</h2>
-                  <p className="text-[12px] text-gray-500 mt-1">Add education-specific tracking metrics (School, Major, Grad Year) or other personalized data fields for your clients.</p>
+                  <p className="text-[12px] text-gray-500 mt-1">Add education-specific tracking metrics (School, Major, Grad Year) or other personalized data fields for your relationships.</p>
                 </div>
               </div>
               
@@ -4272,20 +5959,20 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="flex items-end justify-end">
-                      <button type="submit" className="w-full sm:w-auto px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Add Field</button>
+                      <button type="submit" className="w-full sm:w-auto px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">Add Field</button>
                     </div>
                   )}
                 </div>
                 {newCfType === 'select' && (
                   <div className="flex justify-end mt-3">
-                    <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Add Dropdown Field</button>
+                    <button type="submit" className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">Add Dropdown Field</button>
                   </div>
                 )}
               </form>
             </div>
 
             {/* Data Admin Tools */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-5">Data Tools</h2>
               <button onClick={runStatusMigration} className="px-4 py-2 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">
                 Migrate Legacy "Active/Inactive" Status to New Pipeline Stages
@@ -4293,10 +5980,10 @@ export default function App() {
               <p className="text-[11px] text-gray-500 mt-2">Use this utility once if you have old CRM entries showing raw "Active" or "Inactive" tags in the Pipeline column to port them cleanly to the new Kanban Board structure.</p>
             </div>
 
-            {/* FEATURE 4 â€” Email Templates */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            {/* FEATURE 4 — Email Templates */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Templates</h2>
-              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer. Delivery uses Resend's sandbox sender (onboarding@resend.dev) â€” verify your own domain in Resend before production use, or emails may land in spam.</p>
+              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer and N8N sequence steps. Merge tags: {'{{name}} {{email}} {{phone}} {{stage}} {{company}}'}.</p>
               <div className="space-y-2 mb-5">
                 {emailTemplates.length === 0 ? (
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No templates yet.</p>
@@ -4316,30 +6003,30 @@ export default function App() {
               <form onSubmit={handleSaveEmailTemplate} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
                 <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-500">{editingTemplate ? 'Edit Template' : 'New Template'}</h4>
                 <input type="text" required placeholder="Template name" value={templateName} onChange={e => setTemplateName(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
-                <input type="text" required placeholder="Subject â€” supports {{name}} {{email}} {{phone}} {{stage}}" value={templateSubject} onChange={e => setTemplateSubject(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={templateSubject} onChange={e => setTemplateSubject(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
                 <textarea rows={4} required placeholder="Body" value={templateBody} onChange={e => setTemplateBody(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
                 <div className="flex justify-end gap-2">
-                  {editingTemplate && <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(''); setTemplateBody(''); }} className="px-4 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>}
-                  <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">{editingTemplate ? 'Save Changes' : 'Add Template'}</button>
+                  {editingTemplate && <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(''); setTemplateBody(''); }} className="px-4 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>}
+                  <button type="submit" className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">{editingTemplate ? 'Save Changes' : 'Add Template'}</button>
                 </div>
               </form>
             </div>
 
-            {/* FEATURE 5 â€” Automation Rules */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            {/* FEATURE 5 — Automation Rules */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h2 className="text-[15px] font-bold text-gray-900">Automation Rules</h2>
                   <p className="text-[12px] text-gray-500 mt-1">When something happens in your CRM, do something automatically.</p>
                 </div>
-                <button onClick={() => setShowRuleForm(!showRuleForm)} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm shrink-0">{showRuleForm ? 'Close' : 'Add Rule'}</button>
+                <button onClick={() => setShowRuleForm(!showRuleForm)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm shrink-0">{showRuleForm ? 'Close' : 'Add Rule'}</button>
               </div>
               <div className="space-y-2 mb-4">
                 {automationRules.length === 0 ? (
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No automation rules yet.</p>
                 ) : automationRules.map(r => {
                   const triggerLabel = {
-                    stage_change: `Client moves to "${r.trigger_value}"`,
+                    stage_change: `Relationship moves to "${r.trigger_value}"`,
                     deal_stage_change: `Deal moves to "${r.trigger_value}"`,
                     no_activity_days: `No activity for ${r.trigger_value} days`,
                     task_overdue: 'A task becomes overdue',
@@ -4347,22 +6034,44 @@ export default function App() {
                   const actionLabel = {
                     create_task: `Create task "${r.action_value?.title || 'Follow up'}"`,
                     send_notification: 'Send a notification',
-                    change_stage: `Move client to "${r.action_value?.stage}"`,
+                    change_stage: `Move relationship to "${r.action_value?.stage}"`,
                     send_email: 'Send an email',
                   }[r.action_type] || r.action_type;
                   return (
                     <div key={r.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
                       <div className="flex-1 min-w-0">
                         <p className="text-[13px] font-semibold text-gray-900">{r.name}</p>
-                        <p className="text-[11px] text-gray-500 truncate">When: {triggerLabel} â†’ Then: {actionLabel}</p>
+                        <p className="text-[11px] text-gray-500 truncate">When: {triggerLabel} → Then: {actionLabel}</p>
                       </div>
-                      {(r.run_count || 0) > 0 && <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full shrink-0">ran Ã—{r.run_count}</span>}
+                      {(r.run_count || 0) > 0 && <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full shrink-0">ran ×{r.run_count}</span>}
                       <button onClick={() => handleToggleRule(r)} className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 transition-colors ${r.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>{r.enabled ? 'On' : 'Off'}</button>
                       <button onClick={() => handleDeleteRule(r.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700 shrink-0">Delete</button>
                     </div>
                   );
                 })}
               </div>
+              {/* G11 — RECIPES GALLERY */}
+              <div className="mb-4">
+                <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-500 mb-2">Recipes — enable in one click</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {AUTOMATION_RECIPES.map(r => {
+                    const enabled = automationRules.some(x => x.name === r.name);
+                    return (
+                      <div key={r.name} className="p-3 border border-gray-100 rounded-xl bg-gray-50/50 flex flex-col gap-1.5">
+                        <p className="text-[13px] font-semibold text-gray-900">{r.name}</p>
+                        <p className="text-[11px] text-gray-500 flex-1">{r.desc}</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-gray-400">{r.note}</span>
+                          <button onClick={() => handleEnableRecipe(r)} disabled={enabled} className={`px-2.5 py-1 text-[11px] font-semibold rounded-full ${enabled ? 'bg-green-100 text-green-700' : 'bg-gray-900 text-white hover:opacity-90'}`}>
+                            {enabled ? 'Enabled ✓' : 'Enable'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               {showRuleForm && (
                 <form onSubmit={handleCreateRule} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-[13px]">
                   <input type="text" required placeholder="Rule name (e.g. Follow up new engaged clients)" value={newRule.name} onChange={e => setNewRule({ ...newRule, name: e.target.value })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
@@ -4370,7 +6079,7 @@ export default function App() {
                     <div>
                       <label className="block text-[11px] font-medium text-gray-700 mb-1">When (trigger)</label>
                       <select value={newRule.triggerType} onChange={e => setNewRule({ ...newRule, triggerType: e.target.value, triggerValue: '' })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700">
-                        <option value="stage_change">Client stage changes to...</option>
+                        <option value="stage_change">Relationship stage changes to...</option>
                         <option value="deal_stage_change">Deal stage changes to...</option>
                         <option value="no_activity_days">No activity for N days (daily check)</option>
                         <option value="task_overdue">Task becomes overdue (daily check)</option>
@@ -4392,7 +6101,7 @@ export default function App() {
                       )}
                       <p className="text-[11px] text-gray-400 mt-1.5">
                         {{
-                          stage_change: 'Fires immediately when a client is dragged or edited into this stage.',
+                          stage_change: 'Fires immediately when a relationship is dragged or edited into this stage.',
                           deal_stage_change: 'Fires immediately when a deal moves to this stage.',
                           no_activity_days: 'Evaluated by the daily notification job.',
                           task_overdue: 'Evaluated by the daily notification job.',
@@ -4404,7 +6113,7 @@ export default function App() {
                       <select value={newRule.actionType} onChange={e => setNewRule({ ...newRule, actionType: e.target.value, actionValue: {} })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700">
                         <option value="create_task">Create a task</option>
                         <option value="send_notification">Send a notification</option>
-                        <option value="change_stage">Change client stage</option>
+                        <option value="change_stage">Change relationship stage</option>
                         <option value="send_email">Send an email</option>
                       </select>
                       {newRule.actionType === 'create_task' && (
@@ -4425,31 +6134,31 @@ export default function App() {
                       {newRule.actionType === 'send_email' && (
                         <div className="mt-2 space-y-2">
                           <input type="text" placeholder="Subject" value={newRule.actionValue.subject || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, subject: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
-                          <textarea rows={2} placeholder="Body â€” supports {{name}} etc." value={newRule.actionValue.body || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, body: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
+                          <textarea rows={2} placeholder="Body — supports {{name}} etc." value={newRule.actionValue.body || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, body: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
                         </div>
                       )}
                     </div>
                   </div>
                   <div className="flex justify-end">
-                    <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Create Rule</button>
+                    <button type="submit" className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Rule</button>
                   </div>
                 </form>
               )}
             </div>
 
-            {/* FEATURE 9 â€” Tags */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            {/* FEATURE 9 — Tags */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-4">Tags</h2>
               <div className="space-y-2 mb-5">
                 {tags.length === 0 ? (
-                  <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No tags yet â€” create tags to segment your clients.</p>
+                  <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No tags yet — create tags to segment your relationships.</p>
                 ) : tags.map(t => {
                   const count = Object.values(clientTagMap).filter(ids => ids.includes(t.id)).length;
                   return (
                     <div key={t.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
                       <span className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
                       <span className="text-[13px] font-semibold text-gray-900 flex-1">{t.name}</span>
-                      <span className="text-[11px] text-gray-400">{count} client{count === 1 ? '' : 's'}</span>
+                      <span className="text-[11px] text-gray-400">{count} relationship{count === 1 ? '' : 's'}</span>
                       <button onClick={() => handleDeleteTag(t)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>
                     </div>
                   );
@@ -4468,18 +6177,18 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-                <button type="submit" className="px-4 py-2 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Tag</button>
+                <button type="submit" className="px-4 py-2 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Tag</button>
               </form>
             </div>
 
-            {/* FEATURE 11 â€” Webhooks & Integrations */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            {/* FEATURE 11 — Webhooks & Integrations */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h2 className="text-[15px] font-bold text-gray-900">Webhooks & Integrations</h2>
                   <p className="text-[12px] text-gray-500 mt-1">POST CRM events to any URL. Payloads are signed with HMAC-SHA256 (X-CRM-Signature) when a secret is set.</p>
                 </div>
-                <button onClick={() => setShowWebhookForm(!showWebhookForm)} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm shrink-0">{showWebhookForm ? 'Close' : 'Add Webhook'}</button>
+                <button onClick={() => setShowWebhookForm(!showWebhookForm)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm shrink-0">{showWebhookForm ? 'Close' : 'Add Webhook'}</button>
               </div>
               <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 mb-4 text-[12px] text-orange-800">
                 <strong>Zapier tip:</strong> create a Zap with a "Catch Hook" trigger, paste the hook URL here, and pick the events to forward. Every event arrives as JSON: <code className="font-mono text-[11px]">{'{ event, payload, timestamp }'}</code>.
@@ -4508,7 +6217,7 @@ export default function App() {
               {showWebhookForm && (
                 <form onSubmit={handleCreateWebhook} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-[13px]">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <input type="text" required placeholder="Name (e.g. Zapier â€” new clients)" value={newWebhook.name} onChange={e => setNewWebhook({ ...newWebhook, name: e.target.value })} className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                    <input type="text" required placeholder="Name (e.g. Zapier — new clients)" value={newWebhook.name} onChange={e => setNewWebhook({ ...newWebhook, name: e.target.value })} className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
                     <input type="url" required placeholder="https://hooks.zapier.com/..." value={newWebhook.url} onChange={e => setNewWebhook({ ...newWebhook, url: e.target.value })} className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
                   </div>
                   <input type="text" placeholder="Signing secret (optional)" value={newWebhook.secret} onChange={e => setNewWebhook({ ...newWebhook, secret: e.target.value })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
@@ -4521,17 +6230,17 @@ export default function App() {
                     ))}
                   </div>
                   <div className="flex justify-end">
-                    <button type="submit" className="px-4 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Add Webhook</button>
+                    <button type="submit" className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Webhook</button>
                   </div>
                 </form>
               )}
             </div>
 
-            {/* FEATURE 26 â€” Goals management */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            {/* FEATURE 26 — Goals management */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-4">
                 <h2 className="text-[15px] font-bold text-gray-900">Monthly Goals</h2>
-                <button onClick={() => setShowGoalForm(true)} className="px-3 py-1.5 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Set Goal</button>
+                <button onClick={() => setShowGoalForm(true)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Set Goal</button>
               </div>
               {goals.length === 0 ? (
                 <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No goals yet.</p>
@@ -4540,8 +6249,8 @@ export default function App() {
                   {[...goals].sort((a, b) => (b.month || '').localeCompare(a.month || '')).map(g => (
                     <div key={g.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
                       <div className="flex-1">
-                        <p className="text-[13px] font-semibold text-gray-900">{{ new_clients: 'New Clients', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</p>
-                        <p className="text-[11px] text-gray-400">{new Date(g.month + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} Â· Target: {g.target_value}</p>
+                        <p className="text-[13px] font-semibold text-gray-900">{{ new_clients: 'New Relationships', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</p>
+                        <p className="text-[11px] text-gray-400">{new Date(g.month + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} · Target: {g.target_value}</p>
                       </div>
                       <button onClick={() => handleDeleteGoal(g.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>
                     </div>
@@ -4551,7 +6260,7 @@ export default function App() {
             </div>
 
             {/* Password Security Block */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-5">Security & Authentication</h2>
               <form onSubmit={handleUpdatePassword} className="space-y-4 max-w-md">
                 <div>
@@ -4582,20 +6291,20 @@ export default function App() {
                   </div>
                 </div>
                 <div className="pt-2">
-                  <button type="submit" className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm">Update Password</button>
+                  <button type="submit" className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors shadow-sm">Update Password</button>
                 </div>
               </form>
             </div>
 
             {/* Data Management Block */}
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Data Management</h2>
               <p className="text-[13px] text-gray-500 mb-5">Manually trigger a sync to generate any pending notifications for tasks and birthdays.</p>
               <div className="space-y-3">
                 <button 
                   onClick={handleResyncNotifications} 
                   disabled={notificationSyncLoading}
-                  className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm disabled:opacity-50 disabled:hover:bg-gray-900 flex items-center gap-2"
+                  className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm disabled:opacity-50 disabled:hover:bg-gray-900 flex items-center gap-2"
                 >
                   {notificationSyncLoading && (
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -4613,12 +6322,13 @@ export default function App() {
             {/* Danger Zone Block */}
             <div className="bg-red-50 p-6 sm:p-8 rounded-2xl border border-red-100">
               <h2 className="text-[15px] font-bold text-red-900 mb-2">Danger Zone</h2>
-              <p className="text-[13px] text-red-700 mb-5">Permanently remove your account and all associated client data from the servers. This action is irreversible.</p>
+              <p className="text-[13px] text-red-700 mb-5">Permanently remove your account and all associated relationship data from the servers. This action is irreversible.</p>
               <button onClick={() => setShowDeleteModal(true)} className="px-4 py-2 text-[13px] font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors shadow-sm">Delete Account</button>
             </div>
           </div>
         )}
 
+        </div>
       </main>
 
       {/* --- MODALS --- */}
@@ -4636,8 +6346,8 @@ export default function App() {
                     {clientsWithScores.find(c => c.id === viewingClient.id)?.leadScore ?? 0}
                   </span>
                 </div>
-                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Client Profile</p>
-                {/* FEATURE 9 â€” tags on profile */}
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Relationship Profile</p>
+                {/* FEATURE 9 — tags on profile */}
                 <div className="flex flex-wrap items-center gap-1 mt-1.5">
                   {(clientTagMap[viewingClient.id] || []).map(tid => {
                     const t = tags.find(x => x.id === tid);
@@ -4659,38 +6369,17 @@ export default function App() {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {/* FEATURE 2 â€” AI summary trigger */}
-                <button onClick={() => handleGenerateAISummary(viewingClient)} className="px-3 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">âœ¨ AI Summary</button>
                 <button onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="w-7 h-7 rounded-full bg-white border border-gray-200 flex items-center justify-center font-bold text-gray-400 hover:text-gray-800 hover:shadow-sm transition-all">&times;</button>
               </div>
             </div>
 
             <div className="p-6 space-y-6 text-[13px] overflow-y-auto flex-1">
 
-              {/* FEATURE 2 â€” AI SUMMARY BOX */}
-              {aiSummaryLoading && aiSummaryClientId === viewingClient.id && (
-                <div className="space-y-2 animate-pulse">
-                  <div className="h-3 bg-gray-200 rounded-full w-full" />
-                  <div className="h-3 bg-gray-200 rounded-full w-5/6" />
-                  <div className="h-3 bg-gray-200 rounded-full w-4/6" />
-                </div>
-              )}
-              {!aiSummaryLoading && aiSummary && aiSummaryClientId === viewingClient.id && (
-                <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <span>âœ¨</span>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-500">AI Summary</span>
-                  </div>
-                  <p className="text-[13px] text-indigo-900 whitespace-pre-wrap leading-relaxed">{aiSummary}</p>
-                  <button onClick={() => handleGenerateAISummary(viewingClient, true)} className="text-[11px] font-medium text-indigo-600 hover:underline mt-2">Regenerate</button>
-                </div>
-              )}
-
-              {/* FEATURE 23 â€” SMART FOLLOW-UP SUGGESTION */}
+              {/* FEATURE 23 — SMART FOLLOW-UP SUGGESTION */}
               {followUpLoading && <div className="h-10 bg-green-50 border border-green-100 rounded-xl animate-pulse" />}
               {!followUpLoading && followUpSuggestion && (
                 <div className="bg-green-50 rounded-xl p-3 border border-green-100">
-                  <p className="text-[13px] text-green-900">ðŸ’¡ <span className="font-semibold">Suggested:</span> {followUpSuggestion}</p>
+                  <p className="text-[13px] text-green-900">💡 <span className="font-semibold">Suggested:</span> {followUpSuggestion}</p>
                   <div className="flex gap-3 mt-2 text-[12px] font-medium">
                     <button onClick={() => { setActivityType('Note'); setActivityDesc(followUpSuggestion); setActiveProfileTab('activity'); }} className="text-green-700 hover:underline">Log this as a note</button>
                     <button onClick={() => { setNewTaskTitle(followUpSuggestion.slice(0, 100)); setActiveProfileTab('tasks'); }} className="text-green-700 hover:underline">Create task</button>
@@ -4718,6 +6407,31 @@ export default function App() {
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Source</span>
                   <span className="font-semibold text-gray-800 block">{viewingClient.source || 'Unknown'}</span>
                 </div>
+                {/* PART F — company row with Visit link */}
+                <div className="space-y-0.5">
+                  <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Company</span>
+                  {viewingClient.company_name || viewingClient.company_url ? (
+                    <span className="font-semibold text-gray-800 flex items-center gap-2 flex-wrap">
+                      {/* G17 — auto-fetched company logo */}
+                      {companyFaviconUrl(viewingClient.company_url) && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={companyFaviconUrl(viewingClient.company_url)} alt="" className="w-5 h-5 rounded" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
+                      )}
+                      {viewingClient.company_name || '—'}
+                      {viewingClient.company_url && (
+                        <a
+                          href={viewingClient.company_url.startsWith('http') ? viewingClient.company_url : `https://${viewingClient.company_url}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-[12px] font-semibold text-indigo-600 hover:underline"
+                        >
+                          Visit ↗
+                        </a>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-gray-400 font-normal italic">Not specified</span>
+                  )}
+                </div>
               </div>
 
               {/* DYNAMIC CUSTOM FIELDS RENDER IN PROFILE */}
@@ -4730,7 +6444,7 @@ export default function App() {
                       return (
                         <div key={cf.id} className="space-y-0.5">
                           <span className="text-[11px] font-bold text-gray-500 block">{cf.field_name}</span>
-                          <span className="font-semibold text-gray-900 block">{cv ? cv.value : 'â€”'}</span>
+                          <span className="font-semibold text-gray-900 block">{cv ? cv.value : '—'}</span>
                         </div>
                       )
                     })}
@@ -4742,25 +6456,53 @@ export default function App() {
                 <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">LinkedIn</span>
                 {viewingClient.linkedin_url ? (
                   <a href={viewingClient.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-gray-900 font-semibold hover:underline flex items-center gap-1 break-all">
-                    {viewingClient.linkedin_url} <span className="text-[10px] font-normal text-gray-400">â†—</span>
+                    {viewingClient.linkedin_url} <span className="text-[10px] font-normal text-gray-400">↗</span>
                   </a>
                 ) : (
                   <span className="text-gray-400 font-normal italic">Not provided</span>
                 )}
               </div>
 
-              {/* FEATURE 15 â€” QUICK NOTE (always visible, auto-saves) */}
+              {/* G18 — referral network */}
+              {(() => {
+                const referrer = viewingClient.referred_by_client_id ? clients.find(c => c.id === viewingClient.referred_by_client_id) : null;
+                const referrals = clients.filter(c => c.referred_by_client_id === viewingClient.id);
+                if (!referrer && referrals.length === 0) return null;
+                return (
+                  <div className="bg-gray-50/50 p-4 rounded-xl border border-gray-100 space-y-2">
+                    <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Referral Network</span>
+                    {referrer && (
+                      <p className="text-[13px]">
+                        <span className="text-gray-400">Referred by:</span>{' '}
+                        <button onClick={() => setViewingClient(referrer)} className="font-semibold text-indigo-600 hover:underline">{referrer.name}</button>
+                      </p>
+                    )}
+                    {referrals.length > 0 && (
+                      <div className="text-[13px]">
+                        <span className="text-gray-400">Referrals made: {referrals.length}</span>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {referrals.map(r => (
+                            <button key={r.id} onClick={() => setViewingClient(r)} className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-600/10 text-[12px] font-semibold hover:bg-indigo-100">{r.name}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* FEATURE 15 — QUICK NOTE (always visible, auto-saves) */}
               <div className="pt-4 border-t border-gray-100">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400">Quick Note</h4>
                   <span className="text-[11px] font-medium text-gray-400">
-                    {quickNoteSaving ? 'Saving...' : quickNoteSaved ? <span className="text-green-600">Saved âœ“</span> : ''}
+                    {quickNoteSaving ? 'Saving...' : quickNoteSaved ? <span className="text-green-600">Saved ✓</span> : ''}
                   </span>
                 </div>
-                <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this client â€” auto-saves as you type..." disabled={!canEdit} className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-xl bg-yellow-50/50 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
+                <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this relationship — auto-saves as you type..." disabled={!canEdit} className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-xl bg-yellow-50/50 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
               </div>
 
-              {/* FEATURE 7 â€” PROFILE TAB BAR */}
+              {/* FEATURE 7 — PROFILE TAB BAR */}
               <div className="flex gap-1 bg-gray-100 p-1 rounded-lg sticky top-0 z-10">
                 {[['activity', 'Activity'], ['tasks', 'Tasks'], ['files', 'Files'], ['deals', 'Deals']].map(([key, label]) => (
                   <button key={key} onClick={() => setActiveProfileTab(key)} className={`flex-1 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide rounded-md transition-all ${activeProfileTab === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{label}</button>
@@ -4783,16 +6525,16 @@ export default function App() {
                     </div>
                   )}
                   {clientFiles.filter(f => f.client_id === viewingClient.id).length === 0 ? (
-                    <p className="text-[12px] text-gray-400 italic text-center py-4">No files attached yet.</p>
+                    <EmptyState title="No files yet" desc="Drop a file above or click to upload attachments for this relationship." />
                   ) : (
                     clientFiles.filter(f => f.client_id === viewingClient.id).map(f => (
                       <div key={f.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 rounded-xl">
                         <span className="text-lg shrink-0">
-                          {(f.file_type || '').includes('pdf') ? 'ðŸ“„' : (f.file_type || '').startsWith('image') ? 'ðŸ–¼ï¸' : 'ðŸ“Ž'}
+                          {(f.file_type || '').includes('pdf') ? '📄' : (f.file_type || '').startsWith('image') ? '🖼️' : '📎'}
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold text-gray-900 truncate">{f.file_name}</p>
-                          <p className="text-[11px] text-gray-400">{formatFileSize(f.file_size)} Â· {new Date(f.created_at).toLocaleDateString()}</p>
+                          <p className="text-[11px] text-gray-400">{formatFileSize(f.file_size)} · {new Date(f.created_at).toLocaleDateString()}</p>
                         </div>
                         <button onClick={() => handleDownloadFile(f)} className="text-[12px] font-medium text-gray-500 hover:text-gray-900">Download</button>
                         {canDelete && <button onClick={() => handleDeleteFile(f)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>}
@@ -4809,13 +6551,13 @@ export default function App() {
                     <button onClick={() => { resetDealForm(); setDealClientId(String(viewingClient.id)); setShowDealForm(true); }} className="w-full px-3 py-2 text-[12px] font-medium text-gray-700 border border-dashed border-gray-300 rounded-xl hover:border-gray-400 hover:text-gray-900 transition-colors">+ Add Deal for {viewingClient.name}</button>
                   )}
                   {deals.filter(d => d.client_id === viewingClient.id).length === 0 ? (
-                    <p className="text-[12px] text-gray-400 italic text-center py-4">No deals yet. Create your first deal to start tracking your pipeline.</p>
+                    <EmptyState title="No deals yet" desc="Create your first deal to start tracking your pipeline." />
                   ) : (
                     deals.filter(d => d.client_id === viewingClient.id).map(d => (
                       <div key={d.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 rounded-xl">
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold text-gray-900 truncate">{d.title}</p>
-                          <p className="text-[11px] text-gray-400">{d.stage} Â· {d.probability}%{d.close_date ? ` Â· Close ${d.close_date}` : ''}</p>
+                          <p className="text-[11px] text-gray-400">{d.stage} · {d.probability}%{d.close_date ? ` · Close ${d.close_date}` : ''}</p>
                         </div>
                         <span className="text-[13px] font-bold text-gray-900 shrink-0">{fmtMoney(d.value)}</span>
                       </div>
@@ -4827,12 +6569,12 @@ export default function App() {
               {/* TAB: TASKS */}
               {activeProfileTab === 'tasks' && (
               <div>
-                <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-3">Tasks for this Client</h4>
+                <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-3">Tasks for this Relationship</h4>
 
                 <form onSubmit={(e) => handleCreateTask(e, viewingClient.id)} className="flex flex-wrap gap-2 mb-3">
                   <input type="text" placeholder="New task title..." value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className="flex-1 min-w-[140px] px-3 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none" required />
                   <input type="date" value={newTaskDate} onChange={(e) => setNewTaskDate(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600" required />
-                  {/* FEATURE 20 â€” recurrence */}
+                  {/* FEATURE 20 — recurrence */}
                   <select value={newTaskRecurrence} onChange={e => setNewTaskRecurrence(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600">
                     <option value="">No repeat</option>
                     <option value="daily">Daily</option>
@@ -4843,12 +6585,12 @@ export default function App() {
                   {newTaskRecurrence && (
                     <input type="date" title="Repeat end date" value={newTaskRecurrenceEnd} onChange={e => setNewTaskRecurrenceEnd(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600" />
                   )}
-                  <button type="submit" className="px-3 py-1.5 min-h-[44px] md:min-h-0 text-[12px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm">Add</button>
+                  <button type="submit" className="px-3 py-1.5 min-h-[44px] md:min-h-0 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">Add</button>
                 </form>
 
                 <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
                   {tasks.filter(t => t.client_id === viewingClient.id).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).length === 0 && (
-                    <p className="text-[12px] text-gray-400 italic">No tasks created for this client profile yet.</p>
+                    <p className="text-[12px] text-gray-400 italic">No tasks created for this relationship profile yet.</p>
                   )}
                   {tasks.filter(t => t.client_id === viewingClient.id).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).map(task => {
                     const isOverdue = task.status === 'pending' && new Date(task.due_date) < new Date(todayStr);
@@ -4858,10 +6600,10 @@ export default function App() {
                           <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-0 cursor-pointer" />
                           <div>
                             <span className={`text-[13px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
-                              {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>ðŸ” </span>}
+                              {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>🔁 </span>}
                               {task.title}
                             </span>
-                            <span className="text-[11px] text-gray-400 block mt-0.5">Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span>{task.recurrence ? ` Â· ${task.recurrence}` : ''}</span>
+                            <span className="text-[11px] text-gray-400 block mt-0.5">Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span>{task.recurrence ? ` · ${task.recurrence}` : ''}</span>
                           </div>
                         </div>
                       </div>
@@ -4871,7 +6613,7 @@ export default function App() {
               </div>
               )}
 
-              {/* TAB: ACTIVITY â€” ENHANCED ACTIVITY LOGGING */}
+              {/* TAB: ACTIVITY — ENHANCED ACTIVITY LOGGING */}
               {activeProfileTab === 'activity' && (
               <div id="activity-timeline" className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -4894,7 +6636,9 @@ export default function App() {
                 {/* Structured Activity List (Scrollable max-h-96) */}
                 <div className="max-h-96 overflow-y-auto space-y-3 pr-2">
                   {activities.filter(a => a.client_id === viewingClient.id && (activityFilterType === 'All' || a.activity_type === activityFilterType)).length === 0 ? (
-                    <p className="text-[12px] text-gray-400 italic text-center py-4 border border-dashed border-gray-200 rounded-xl">No structured activity entries matching filter.</p>
+                    <div className="border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+                      <EmptyState title="No activity yet" desc="Log a call, email, meeting, or note below to build this timeline." />
+                    </div>
                   ) : (
                     activities.filter(a => a.client_id === viewingClient.id && (activityFilterType === 'All' || a.activity_type === activityFilterType)).map(act => (
                       <div key={act.id} className="p-3 border border-gray-100 bg-gray-50/50 rounded-xl group relative">
@@ -4902,13 +6646,6 @@ export default function App() {
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded uppercase">{act.activity_type}</span>
                             <span className="text-[11px] font-semibold text-gray-400">{act.activity_date}</span>
-                            {act.outcome && act.outcome !== 'Neutral' && (
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                                act.outcome === 'Positive' ? 'bg-green-50 text-green-700 border-green-200' :
-                                act.outcome === 'Negative' ? 'bg-red-50 text-red-700 border-red-200' :
-                                'bg-gray-100 text-gray-600 border-gray-200' // No response
-                              }`}>{act.outcome}</span>
-                            )}
                           </div>
                           
                           {/* Inline Edit/Delete Actions */}
@@ -4936,11 +6673,11 @@ export default function App() {
 
                 {/* Add New Activity Form */}
                 <form onSubmit={handleAddActivityLog} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm flex flex-col gap-3 mt-4">
-                  {/* FEATURE 22 â€” quick-log template pills */}
+                  {/* FEATURE 22 — quick-log template pills */}
                   <div className="flex flex-wrap gap-1.5">
                     {activityTemplates.map((t, i) => (
                       <button key={i} type="button" onClick={() => {
-                        setActivityType(t.type); setActivityDesc(t.desc); setActivityOutcome(t.outcome);
+                        setActivityType(t.type); setActivityDesc(t.desc);
                       }} className="text-[11px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors">
                         {t.type}: {t.desc.slice(0, 25)}...
                       </button>
@@ -4952,7 +6689,7 @@ export default function App() {
                       <button type="button" onClick={() => {
                         if (!savingTemplateName.trim()) return;
                         const lastAct = activities.find(a => a.client_id === viewingClient.id);
-                        const tpl = { name: savingTemplateName.trim(), type: lastAct?.activity_type || activityType, desc: lastAct?.description || activityDesc || '', outcome: lastAct?.outcome || activityOutcome };
+                        const tpl = { name: savingTemplateName.trim(), type: lastAct?.activity_type || activityType, desc: lastAct?.description || activityDesc || '' };
                         setActivityTemplates(prev => {
                           const next = [...prev.filter(t => t.name !== tpl.name), tpl];
                           localStorage.setItem('crm_activity_templates', JSON.stringify(next.filter(t => !DEFAULT_ACTIVITY_TEMPLATES.some(d => d.name === t.name))));
@@ -4961,7 +6698,7 @@ export default function App() {
                         setSavingTemplateName(null);
                         showToast('Template saved.', 'success');
                       }} className="text-[11px] font-medium text-indigo-600 hover:underline">Save as template</button>
-                      <button type="button" onClick={() => setSavingTemplateName(null)} className="text-gray-400 text-[12px]">Ã—</button>
+                      <button type="button" onClick={() => setSavingTemplateName(null)} className="text-gray-400 text-[12px]">×</button>
                     </div>
                   )}
                   <div className="flex flex-wrap gap-2 items-center text-[12px]">
@@ -4971,17 +6708,15 @@ export default function App() {
                       <option value="Email">Email</option>
                       <option value="Meeting">Meeting</option>
                     </select>
-                    <select value={activityOutcome} onChange={e => setActivityOutcome(e.target.value)} className="p-1.5 border border-gray-200 rounded-lg focus:outline-none bg-gray-50/50 text-gray-700">
-                      <option value="Neutral">Neutral</option>
-                      <option value="Positive">Positive</option>
-                      <option value="Negative">Negative</option>
-                      <option value="No response">No response</option>
-                    </select>
                     <input type="date" value={activityDate} onChange={e => setActivityDate(e.target.value)} className="p-1.5 border border-gray-200 rounded-lg focus:outline-none bg-gray-50/50 text-gray-600" />
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <textarea placeholder="Record details, meeting minutes, or email content..." value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className="flex-1 px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                    <button type="submit" className="sm:w-24 font-medium text-[12px] text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors shadow-sm self-end sm:self-stretch">Log Entry</button>
+                    <textarea placeholder={voiceListening ? 'Listening... speak your note' : 'Record details, meeting minutes, or email content...'} value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className={`flex-1 px-3 py-2 text-[13px] border rounded-lg focus:outline-none ${voiceListening ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200 focus:border-gray-400'}`} />
+                    {/* G3 — voice memo mic */}
+                    <button type="button" onClick={toggleVoiceMemo} title={voiceListening ? 'Stop dictation' : 'Dictate with your voice'} className={`self-end sm:self-stretch px-3 min-h-[38px] rounded-xl border text-[16px] transition-all ${voiceListening ? 'bg-red-50 border-red-300 animate-pulse' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                      {voiceListening ? '🔴' : '🎤'}
+                    </button>
+                    <button type="submit" className="sm:w-24 font-medium text-[12px] text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm self-end sm:self-stretch min-h-[38px]">Log Entry</button>
                   </div>
                 </form>
               </div>
@@ -4990,10 +6725,10 @@ export default function App() {
             </div>
 
             <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex flex-wrap justify-end gap-2">
-              {/* FEATURE 4 â€” email composer trigger */}
+              {/* FEATURE 4 — email composer trigger */}
               <button type="button" onClick={() => { setEmailTo(viewingClient.email || ''); setShowEmailComposer(true); }} className="px-4 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">Send Email</button>
-              {/* FEATURE 21 â€” PDF export */}
-              <button type="button" onClick={() => handleExportPDF(viewingClient)} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Export PDF</button>
+              {/* FEATURE 21 — PDF export */}
+              <button type="button" onClick={() => handleExportPDF(viewingClient)} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Export PDF</button>
               <button type="button" onClick={() => { 
                 setEditingClient(viewingClient); 
                 setViewingClient(null);
@@ -5003,8 +6738,8 @@ export default function App() {
                   cfs[def.id] = existing ? existing.value : '';
                 });
                 setFormCustomValues(cfs);
-              }} className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors shadow-sm">Edit Client</button>
-              <button type="button" onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Close</button>
+              }} className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors shadow-sm">Edit Relationship</button>
+              <button type="button" onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Close</button>
             </div>
 
           </div>
@@ -5014,10 +6749,10 @@ export default function App() {
       {/* EDITING MODAL */}
       {editingClient && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden animate-in scale-in-from-95 duration-200 max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden animate-in scale-in-from-95 duration-200 max-h-[90vh] flex flex-col">
             
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Edit Client</h3>
+              <h3 className="text-[15px] font-bold text-gray-900">Edit Relationship</h3>
               <button onClick={() => setEditingClient(null)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
 
@@ -5033,7 +6768,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Country</label>
-                  <input type="text" value={editingClient.country || ''} onChange={e => setEditingClient({...editingClient, country: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                  <input type="text" list="country-list" value={editingClient.country || ''} onChange={e => setEditingClient({...editingClient, country: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Phone</label>
@@ -5046,6 +6781,23 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Birthday</label>
                   <input type="date" value={editingClient.birthday || ''} onChange={e => setEditingClient({...editingClient, birthday: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none" />
+                </div>
+                {/* PART F — company fields */}
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Company Name</label>
+                  <input type="text" value={editingClient.company_name || ''} onChange={e => setEditingClient({...editingClient, company_name: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Company Website</label>
+                  <input type="text" value={editingClient.company_url || ''} onChange={e => setEditingClient({...editingClient, company_url: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                </div>
+                {/* G18 — referral chain */}
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Referred by</label>
+                  <select value={editingClient.referred_by_client_id || ''} onChange={e => setEditingClient({...editingClient, referred_by_client_id: e.target.value ? parseInt(e.target.value, 10) : null})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                    <option value="">— Nobody / unknown —</option>
+                    {[...clients].filter(c => c.id !== editingClient.id).sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Source</label>
@@ -5103,10 +6855,10 @@ export default function App() {
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-2">
-                <button type="button" onClick={() => setEditingClient(null)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                <button type="button" onClick={() => setEditingClient(null)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
                   Cancel
                 </button>
-                <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 border border-transparent rounded-lg hover:bg-gray-800 transition-colors shadow-sm">
+                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 border border-transparent rounded-xl hover:opacity-90 transition-colors shadow-sm">
                   Save Changes
                 </button>
               </div>
@@ -5127,14 +6879,14 @@ export default function App() {
               </div>
               <div>
                 <h3 className="text-xl font-bold text-gray-900">Delete Account Permanently</h3>
-                <p className="text-[13px] text-gray-500 mt-2 leading-relaxed">You are about to permanently delete your account and all associated client data from our servers. This action cannot be undone.</p>
+                <p className="text-[13px] text-gray-500 mt-2 leading-relaxed">You are about to permanently delete your account and all associated relationship data from our servers. This action cannot be undone.</p>
               </div>
               <div className="w-full bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3 mt-4">
                 <p className="text-[12px] font-medium text-gray-700 text-left">Please type your email address <strong className="text-gray-900 select-all">{user?.email}</strong> to confirm:</p>
                 <input type="email" value={deleteAccountEmail} onChange={(e) => setDeleteAccountEmail(e.target.value)} placeholder={user?.email} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400" />
               </div>
               <div className="flex w-full gap-3 pt-2">
-                <button onClick={() => {setShowDeleteModal(false); setDeleteAccountEmail('');}} className="flex-1 py-2.5 text-[13px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Cancel</button>
+                <button onClick={() => {setShowDeleteModal(false); setDeleteAccountEmail('');}} className="flex-1 py-2.5 text-[13px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Cancel</button>
                 <button onClick={handleDeleteAccount} disabled={deleteAccountEmail !== user?.email || authLoading} className="flex-1 py-2.5 text-[13px] font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:hover:bg-red-600 shadow-sm">
                   {authLoading ? 'Deleting...' : 'Delete Permanently'}
                 </button>
@@ -5147,7 +6899,7 @@ export default function App() {
       {/* DEAL FORM MODAL (Feature 1) */}
       {showDealForm && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowDealForm(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">{editingDeal ? 'Edit Deal' : 'New Deal'}</h3>
               <button onClick={() => setShowDealForm(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
@@ -5159,15 +6911,21 @@ export default function App() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Client *</label>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Relationship *</label>
                   <select required value={dealClientId} onChange={e => setDealClientId(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
-                    <option value="">-- Select client --</option>
+                    <option value="">-- Select relationship --</option>
                     {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Value ($)</label>
-                  <input type="number" min="0" step="0.01" value={dealValue} onChange={e => setDealValue(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Value</label>
+                  <div className="flex gap-1.5">
+                    <input type="number" min="0" step="0.01" value={dealValue} onChange={e => setDealValue(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    {/* G20 — currency */}
+                    <select value={dealCurrency} onChange={e => setDealCurrency(e.target.value)} className="px-2 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none shrink-0">
+                      {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Stage</label>
@@ -5184,13 +6942,36 @@ export default function App() {
                   <input type="date" value={dealCloseDate} onChange={e => setDealCloseDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-gray-600 focus:outline-none" />
                 </div>
               </div>
+              {/* G19 — recurring revenue */}
+              <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 space-y-3">
+                <label className="flex items-center gap-2 text-[13px] font-medium text-gray-700 cursor-pointer">
+                  <input type="checkbox" checked={dealIsRecurring} onChange={e => setDealIsRecurring(e.target.checked)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
+                  Recurring revenue (subscription / retainer)
+                </label>
+                {dealIsRecurring && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Billing Cycle</label>
+                      <select value={dealBillingCycle} onChange={e => setDealBillingCycle(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="annual">Annual</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Next Renewal</label>
+                      <input type="date" value={dealRenewalDate} onChange={e => setDealRenewalDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-gray-600 focus:outline-none" />
+                    </div>
+                  </div>
+                )}
+              </div>
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Notes</label>
                 <textarea rows={2} value={dealNotes} onChange={e => setDealNotes(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button type="button" onClick={() => setShowDealForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button type="submit" disabled={dealSaving} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                <button type="button" onClick={() => setShowDealForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+                <button type="submit" disabled={dealSaving} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50 flex items-center gap-2">
                   {dealSaving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                   {editingDeal ? 'Save Changes' : 'Create Deal'}
                 </button>
@@ -5203,7 +6984,7 @@ export default function App() {
       {/* EMAIL COMPOSER MODAL (Feature 4) */}
       {showEmailComposer && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowEmailComposer(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Send Email</h3>
               <button onClick={() => setShowEmailComposer(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
@@ -5213,7 +6994,8 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Template</label>
                   <select onChange={e => {
-                    const t = emailTemplates.find(x => x.id === parseInt(e.target.value, 10));
+                    // email_templates.id is a uuid string — never parseInt it
+                    const t = emailTemplates.find(x => String(x.id) === e.target.value);
                     if (t) { setEmailSubject(t.subject); setEmailBody(t.body); }
                   }} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
                     <option value="">-- Choose a template --</option>
@@ -5234,12 +7016,19 @@ export default function App() {
                 <textarea rows={6} required value={emailBody} onChange={e => setEmailBody(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
                 <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} {'{{phone}}'} {'{{stage}}'}</p>
               </div>
-              <div className="flex flex-wrap justify-end gap-3 pt-4 border-t border-gray-100">
-                <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(emailSubject); setTemplateBody(emailBody); setAppStep('SETTINGS'); setShowEmailComposer(false); showToast('Finish saving the template in Settings â†’ Email Templates.', 'success'); }} className="px-3 py-2 text-[12px] font-medium text-gray-500 hover:text-gray-800 mr-auto">Save as template</button>
-                <button type="button" onClick={() => setShowEmailComposer(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button type="submit" disabled={emailSending} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
-                  {emailSending && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                  {emailSending ? 'Sending...' : 'Send'}
+              {/* PART B — provider toggle (persisted to localStorage) */}
+              <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Open with:</span>
+                <div className="bg-gray-100 p-0.5 rounded-lg flex items-center gap-0.5">
+                  <button type="button" onClick={() => setEmailProviderPersist('gmail')} className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all ${emailProvider === 'gmail' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gmail</button>
+                  <button type="button" onClick={() => setEmailProviderPersist('mailto')} className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all ${emailProvider === 'mailto' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Default Mail App</button>
+                </div>
+              </div>
+              <div className="flex flex-wrap justify-end gap-3 pt-3 border-t border-gray-100">
+                <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(emailSubject); setTemplateBody(emailBody); setAppStep('SETTINGS'); setShowEmailComposer(false); showToast('Finish saving the template in Settings → Email Templates.', 'success'); }} className="px-3 py-2 text-[12px] font-medium text-gray-500 hover:text-gray-800 mr-auto">Save as template</button>
+                <button type="button" onClick={() => setShowEmailComposer(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">
+                  Open Draft in New Tab
                 </button>
               </div>
             </form>
@@ -5250,9 +7039,9 @@ export default function App() {
       {/* BULK EMAIL MODAL (Feature 18) */}
       {showBulkEmailModal && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Email {selectedClientIds.length} clients</h3>
+              <h3 className="text-[15px] font-bold text-gray-900">Email {selectedClientIds.length} relationships</h3>
               <button onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
             <form onSubmit={handleBulkSendEmail} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
@@ -5263,7 +7052,7 @@ export default function App() {
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Body</label>
                 <textarea rows={8} required value={bulkEmailBody} onChange={e => setBulkEmailBody(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} â€” resolved per recipient.</p>
+                <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} — resolved per recipient.</p>
               </div>
               <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">Recipients preview</p>
@@ -5273,14 +7062,14 @@ export default function App() {
                 </p>
               </div>
               <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-[12px] text-yellow-800">
-                âš ï¸ This will send {selectedClientIds.length} individual emails.
+                ⚠️ This will open {selectedClientIds.length} compose tab{selectedClientIds.length === 1 ? '' : 's'} ({emailProvider === 'mailto' ? 'default mail app' : 'Gmail'}) — you send each one yourself. Allow popups for this site.
               </div>
               {bulkEmailProgress && <p className="text-[12px] font-medium text-indigo-600">{bulkEmailProgress}</p>}
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button type="button" disabled={bulkEmailSending} onClick={() => setShowBulkEmailModal(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
-                <button type="submit" disabled={bulkEmailSending} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
+                <button type="button" disabled={bulkEmailSending} onClick={() => setShowBulkEmailModal(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={bulkEmailSending} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50 flex items-center gap-2">
                   {bulkEmailSending && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                  Send to {selectedClientIds.length} Clients
+                  Open {selectedClientIds.length} Draft{selectedClientIds.length === 1 ? '' : 's'}
                 </button>
               </div>
             </form>
@@ -5294,7 +7083,7 @@ export default function App() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50">
               <h3 className="text-[15px] font-bold text-gray-900">
-                Import Preview â€” {importPreviewData.filter(r => !r.error).length} rows ready, {importPreviewData.filter(r => r.error).length} errors
+                Import Preview — {importPreviewData.filter(r => !r.error).length} rows ready, {importPreviewData.filter(r => r.error).length} errors
               </h3>
             </div>
             <div className="overflow-auto flex-1 p-4">
@@ -5314,10 +7103,10 @@ export default function App() {
                   {importPreviewData.map(r => (
                     <tr key={r.key} className={r.error ? 'bg-red-50/60' : r.warning ? 'bg-yellow-50/60' : 'bg-green-50/40'}>
                       <td className="p-2"><input type="checkbox" disabled={!!r.error} checked={r.checked} onChange={() => setImportPreviewData(prev => prev.map(x => x.key === r.key ? { ...x, checked: !x.checked } : x))} className="rounded border-gray-300 focus:ring-0" /></td>
-                      <td className="p-2 font-semibold text-gray-900">{r.name || 'â€”'}</td>
-                      <td className="p-2 text-gray-600">{r.email || 'â€”'}</td>
-                      <td className="p-2 text-gray-500">{r.country || 'â€”'}</td>
-                      <td className="p-2 text-gray-500">{r.phone || 'â€”'}</td>
+                      <td className="p-2 font-semibold text-gray-900">{r.name || '—'}</td>
+                      <td className="p-2 text-gray-600">{r.email || '—'}</td>
+                      <td className="p-2 text-gray-500">{r.country || '—'}</td>
+                      <td className="p-2 text-gray-500">{r.phone || '—'}</td>
                       <td className="p-2 text-gray-500">{r.status}</td>
                       <td className="p-2 font-medium">
                         {r.error ? <span className="text-red-600">{r.error}</span> : r.warning ? <span className="text-yellow-700">{r.warning}</span> : <span className="text-green-600">OK</span>}
@@ -5328,8 +7117,8 @@ export default function App() {
               </table>
             </div>
             <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex justify-end gap-2">
-              <button onClick={() => { setShowImportPreview(false); setImportPreviewData([]); }} disabled={importLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
-              <button onClick={handleConfirmImport} disabled={importLoading || importPreviewData.filter(r => r.checked && !r.error).length === 0} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50 flex items-center gap-2">
+              <button onClick={() => { setShowImportPreview(false); setImportPreviewData([]); }} disabled={importLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              <button onClick={handleConfirmImport} disabled={importLoading || importPreviewData.filter(r => r.checked && !r.error).length === 0} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50 flex items-center gap-2">
                 {importLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                 Import {importPreviewData.filter(r => r.checked && !r.error).length} selected rows
               </button>
@@ -5343,14 +7132,14 @@ export default function App() {
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !mergeLoading && setShowMergeTool(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Merge Client â€” Step {mergeStep} of 2</h3>
+              <h3 className="text-[15px] font-bold text-gray-900">Merge Relationship — Step {mergeStep} of 2</h3>
               <button onClick={() => !mergeLoading && setShowMergeTool(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
             <div className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
               {mergeStep === 1 && (
                 <>
-                  <p className="text-gray-600">Merging <span className="font-bold text-gray-900">{mergeSource.name}</span> into another client. Select the <span className="font-semibold">target</span> client to keep:</p>
-                  <input type="text" autoFocus placeholder="Search clients..." value={mergeSearch} onChange={e => setMergeSearch(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                  <p className="text-gray-600">Merging <span className="font-bold text-gray-900">{mergeSource.name}</span> into another relationship. Select the <span className="font-semibold">target</span> relationship to keep:</p>
+                  <input type="text" autoFocus placeholder="Search relationships..." value={mergeSearch} onChange={e => setMergeSearch(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
                   <div className="max-h-64 overflow-y-auto space-y-1.5">
                     {clients.filter(c => c.id !== mergeSource.id && ((c.name || '').toLowerCase().includes(mergeSearch.toLowerCase()) || (c.email || '').toLowerCase().includes(mergeSearch.toLowerCase()))).slice(0, 10).map(c => (
                       <button key={c.id} onClick={() => setMergeTarget(c)} className={`w-full flex items-center justify-between p-3 rounded-xl border text-left transition-colors ${mergeTarget?.id === c.id ? 'border-gray-900 bg-gray-50' : 'border-gray-100 hover:border-gray-300'}`}>
@@ -5367,7 +7156,7 @@ export default function App() {
               {mergeStep === 2 && mergeTarget && (
                 <>
                   <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-[12px] text-red-800">
-                    âš ï¸ All activities, tasks, deals, and files from <strong>{mergeSource.name}</strong> ({activities.filter(a => a.client_id === mergeSource.id).length} activities) will move to <strong>{mergeTarget.name}</strong> ({activities.filter(a => a.client_id === mergeTarget.id).length} activities). <strong>{mergeSource.name} will be permanently deleted.</strong>
+                    ⚠️ All activities, tasks, deals, and files from <strong>{mergeSource.name}</strong> ({activities.filter(a => a.client_id === mergeSource.id).length} activities) will move to <strong>{mergeTarget.name}</strong> ({activities.filter(a => a.client_id === mergeTarget.id).length} activities). <strong>{mergeSource.name} will be permanently deleted.</strong>
                   </div>
                   <div className="space-y-2">
                     {['name', 'email', 'phone_number', 'country', 'status', 'relationship', 'linkedin_url', 'birthday', 'source'].filter(f => (mergeSource[f] || '') !== (mergeTarget[f] || '') && (mergeSource[f] || mergeTarget[f])).map(field => (
@@ -5375,11 +7164,11 @@ export default function App() {
                         <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">{field.replace(/_/g, ' ')}</span>
                         <label className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-[12px] ${mergeFieldChoices[field] === 'source' ? 'bg-gray-100 font-semibold' : ''}`}>
                           <input type="radio" name={`merge-${field}`} checked={mergeFieldChoices[field] === 'source'} onChange={() => setMergeFieldChoices(prev => ({ ...prev, [field]: 'source' }))} />
-                          <span className="truncate">{String(mergeSource[field] || 'â€”')}</span>
+                          <span className="truncate">{String(mergeSource[field] || '—')}</span>
                         </label>
                         <label className={`flex items-center gap-2 p-1.5 rounded cursor-pointer text-[12px] ${(mergeFieldChoices[field] || 'target') === 'target' ? 'bg-gray-100 font-semibold' : ''}`}>
                           <input type="radio" name={`merge-${field}`} checked={(mergeFieldChoices[field] || 'target') === 'target'} onChange={() => setMergeFieldChoices(prev => ({ ...prev, [field]: 'target' }))} />
-                          <span className="truncate">{String(mergeTarget[field] || 'â€”')}</span>
+                          <span className="truncate">{String(mergeTarget[field] || '—')}</span>
                         </label>
                       </div>
                     ))}
@@ -5388,10 +7177,10 @@ export default function App() {
               )}
             </div>
             <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex justify-end gap-2">
-              {mergeStep === 2 && <button onClick={() => setMergeStep(1)} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 mr-auto disabled:opacity-50">&larr; Back</button>}
-              <button onClick={() => setShowMergeTool(false)} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              {mergeStep === 2 && <button onClick={() => setMergeStep(1)} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 mr-auto disabled:opacity-50">&larr; Back</button>}
+              <button onClick={() => setShowMergeTool(false)} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">Cancel</button>
               {mergeStep === 1 ? (
-                <button onClick={() => setMergeStep(2)} disabled={!mergeTarget} className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm disabled:opacity-50">Next</button>
+                <button onClick={() => setMergeStep(2)} disabled={!mergeTarget} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">Next</button>
               ) : (
                 <button onClick={handleExecuteMerge} disabled={mergeLoading} className="px-4 py-2 text-[13px] font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 shadow-sm disabled:opacity-50 flex items-center gap-2">
                   {mergeLoading && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
@@ -5415,7 +7204,7 @@ export default function App() {
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Goal Type</label>
                 <select value={goalType} onChange={e => setGoalType(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
-                  <option value="new_clients">New Clients</option>
+                  <option value="new_clients">New Relationships</option>
                   <option value="activities_logged">Activities Logged</option>
                   <option value="deals_closed">Deals Closed</option>
                   <option value="tasks_completed">Tasks Completed</option>
@@ -5426,8 +7215,8 @@ export default function App() {
                 <input type="number" min="1" required value={goalTarget} onChange={e => setGoalTarget(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button type="button" onClick={() => setShowGoalForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button type="submit" className="px-4 py-2 text-[13px] font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 shadow-sm">Save Goal</button>
+                <button type="button" onClick={() => setShowGoalForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Save Goal</button>
               </div>
             </form>
           </div>
@@ -5437,7 +7226,7 @@ export default function App() {
       {/* KEYBOARD HELP MODAL (Feature 28) */}
       {showKeyboardHelp && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[140] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowKeyboardHelp(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Keyboard Shortcuts</h3>
               <button onClick={() => setShowKeyboardHelp(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
@@ -5445,7 +7234,7 @@ export default function App() {
             <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6 text-[13px]">
               <div>
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">Navigation</h4>
-                {[['Alt+1', 'Dashboard'], ['Alt+2', 'Clients'], ['Alt+3', 'Tasks'], ['Alt+4', 'Reports'], ['Alt+5', 'Calendar']].map(([k, d]) => (
+                {[['Alt+1', 'Dashboard'], ['Alt+2', 'Relationships'], ['Alt+3', 'Tasks'], ['Alt+4', 'Reports'], ['Alt+5', 'Calendar']].map(([k, d]) => (
                   <div key={k} className="flex justify-between items-center py-1.5">
                     <span className="text-gray-600">{d}</span>
                     <kbd className="text-[11px] font-bold bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 text-gray-600">{k}</kbd>
@@ -5454,7 +7243,7 @@ export default function App() {
               </div>
               <div>
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">Actions</h4>
-                {[['âŒ˜K / Ctrl+K', 'Global search'], ['âŒ˜N / Ctrl+N', 'New client (on Clients page)'], ['?', 'Show shortcuts'], ['Esc', 'Close / dismiss']].map(([k, d]) => (
+                {[['⌘K / Ctrl+K', 'Global search'], ['⌘N / Ctrl+N', 'New relationship (on Relationships page)'], ['?', 'Show shortcuts'], ['Esc', 'Close / dismiss']].map(([k, d]) => (
                   <div key={k} className="flex justify-between items-center py-1.5 gap-3">
                     <span className="text-gray-600">{d}</span>
                     <kbd className="text-[11px] font-bold bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 text-gray-600 whitespace-nowrap">{k}</kbd>
@@ -5468,8 +7257,13 @@ export default function App() {
 
       {/* Fixed "?" shortcut hint button (Feature 28) */}
       {user && (
-        <button onClick={() => setShowKeyboardHelp(true)} className="fixed bottom-6 left-4 md:bottom-8 md:left-8 z-40 w-9 h-9 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-full shadow-md text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 font-bold text-[14px] transition-colors" title="Keyboard shortcuts (?)">?</button>
+        <button onClick={() => setShowKeyboardHelp(true)} className="fixed bottom-6 left-4 md:bottom-8 md:left-[264px] z-40 w-9 h-9 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-full shadow-md text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 font-bold text-[14px] transition-colors" title="Keyboard shortcuts (?)">?</button>
       )}
+
+      {/* Country combobox options (shared by all country fields) */}
+      <datalist id="country-list">
+        {COUNTRY_LIST.map(c => <option key={c} value={c} />)}
+      </datalist>
 
       {/* CONFIRM DIALOG MODAL */}
       <ConfirmDialog
