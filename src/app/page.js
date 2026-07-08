@@ -468,11 +468,6 @@ export default function App() {
   const [dealRenewalDate, setDealRenewalDate] = useState('');
   const [dealSaving, setDealSaving] = useState(false);
 
-  // FEATURE 2 — AI SUMMARY STATES
-  const [aiSummary, setAiSummary] = useState('');
-  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
-  const [aiSummaryClientId, setAiSummaryClientId] = useState(null);
-
   // FEATURE 3 — REPORTS STATE
   const [reportRange, setReportRange] = useState('30');
 
@@ -772,7 +767,6 @@ export default function App() {
       setQuickNoteSaved(false);
       setActiveProfileTab('activity');
       fetchClientFiles(viewingClient.id);
-      setAiSummary(prev => (aiSummaryClientId === viewingClient.id ? prev : ''));
       setFollowUpSuggestion('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1227,31 +1221,6 @@ export default function App() {
   // ==========================================
   // FEATURE 2 — AI SUMMARY / FEATURE 23 — FOLLOW-UP
   // ==========================================
-
-  async function handleGenerateAISummary(client, force = false) {
-    if (!force && aiSummaryClientId === client.id && aiSummary) return; // cache per-client
-    setAiSummaryLoading(true); setAiSummaryClientId(client.id);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/ai-summary`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
-        body: JSON.stringify({
-          clientName: client.name,
-          activities: activities.filter(a => a.client_id === client.id),
-          tasks: tasks.filter(t => t.client_id === client.id),
-          deals: deals.filter(d => d.client_id === client.id),
-          notes: client.note_conversation,
-        }),
-      });
-      const { summary, error } = await res.json();
-      if (error) throw new Error(error);
-      setAiSummary(summary);
-    } catch (err) {
-      showToast(`AI summary failed: ${err.message}`, 'error');
-      setAiSummary('');
-    }
-    setAiSummaryLoading(false);
-  }
 
   async function generateFollowUpSuggestion(client, clientActs) {
     setFollowUpLoading(true);
@@ -5851,7 +5820,7 @@ export default function App() {
             {/* FEATURE 4 — Email Templates */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Email Templates</h2>
-              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer and N8N sequence steps. Merge tags: {{name}} {{email}} {{phone}} {{stage}} {{company}}.</p>
+              <p className="text-[12px] text-gray-500 mb-4">Reusable templates for the email composer and N8N sequence steps. Merge tags: {'{{name}} {{email}} {{phone}} {{stage}} {{company}}'}.</p>
               <div className="space-y-2 mb-5">
                 {emailTemplates.length === 0 ? (
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No templates yet.</p>
@@ -6237,32 +6206,11 @@ export default function App() {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {/* FEATURE 2 — AI summary trigger */}
-                <button onClick={() => handleGenerateAISummary(viewingClient)} className="px-3 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">✨ AI Summary</button>
                 <button onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="w-7 h-7 rounded-full bg-white border border-gray-200 flex items-center justify-center font-bold text-gray-400 hover:text-gray-800 hover:shadow-sm transition-all">&times;</button>
               </div>
             </div>
 
             <div className="p-6 space-y-6 text-[13px] overflow-y-auto flex-1">
-
-              {/* FEATURE 2 — AI SUMMARY BOX */}
-              {aiSummaryLoading && aiSummaryClientId === viewingClient.id && (
-                <div className="space-y-2 animate-pulse">
-                  <div className="h-3 bg-gray-200 rounded-full w-full" />
-                  <div className="h-3 bg-gray-200 rounded-full w-5/6" />
-                  <div className="h-3 bg-gray-200 rounded-full w-4/6" />
-                </div>
-              )}
-              {!aiSummaryLoading && aiSummary && aiSummaryClientId === viewingClient.id && (
-                <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <span>✨</span>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-500">AI Summary</span>
-                  </div>
-                  <p className="text-[13px] text-indigo-900 whitespace-pre-wrap leading-relaxed">{aiSummary}</p>
-                  <button onClick={() => handleGenerateAISummary(viewingClient, true)} className="text-[11px] font-medium text-indigo-600 hover:underline mt-2">Regenerate</button>
-                </div>
-              )}
 
               {/* FEATURE 23 — SMART FOLLOW-UP SUGGESTION */}
               {followUpLoading && <div className="h-10 bg-green-50 border border-green-100 rounded-xl animate-pulse" />}
