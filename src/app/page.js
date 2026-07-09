@@ -1095,9 +1095,21 @@ export default function App() {
   async function handleInviteMember(e) {
     e.preventDefault();
     if (!inviteEmail.trim() || !workspace) return;
+    const email = inviteEmail.trim().toLowerCase();
     setInviteLoading(true);
+    // Pre-check: skip the insert entirely if an invite for this email is already pending
+    const { data: existing } = await supabase.from('workspace_members')
+      .select('id').eq('workspace_id', workspace.id)
+      .eq('invited_email', email).maybeSingle();
+    if (existing) {
+      showToast('An invite for this email is already pending.', 'error');
+      setInviteLoading(false);
+      return;
+    }
+    // user_id stays null until the invited person signs up and accepts —
+    // inserting the inviter's id here collided with UNIQUE(workspace_id, user_id)
     const { data, error } = await supabase.from('workspace_members')
-      .insert([{ workspace_id: workspace.id, user_id: user.id, role: 'member', invited_email: inviteEmail.trim(), accepted: false }]).select();
+      .insert([{ workspace_id: workspace.id, user_id: null, role: 'member', invited_email: email, accepted: false }]).select();
     if (error) {
       showToast(`Invite error: ${error.message}`, 'error');
     } else {
