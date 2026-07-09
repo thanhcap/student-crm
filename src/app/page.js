@@ -178,6 +178,116 @@ const SEQ_CONDITIONS = [
 ];
 const CHANNEL_TASK_LABEL = { linkedin_view: 'LinkedIn: view profile of', linkedin_connect: 'LinkedIn: connect with', call: 'Call', manual_task: 'Task for' };
 
+// ==========================================
+// V2 — EMAIL AUTOMATION CANVAS (node meta, triggers, templates)
+// ==========================================
+// node_type values map 1:1 onto the runner's graph walker:
+// trigger | email | wait | condition | linkedin_view | linkedin_connect | call | manual_task | goal
+const NODE_META = {
+  trigger:          { label: 'Trigger',           emoji: '⚡', border: 'border-l-purple-500',  dot: 'bg-purple-500' },
+  email:            { label: 'Email',             emoji: '✉️', border: 'border-l-blue-500',    dot: 'bg-blue-500' },
+  wait:             { label: 'Wait',              emoji: '⏱', border: 'border-l-gray-400',    dot: 'bg-gray-400' },
+  condition:        { label: 'Condition',         emoji: '🔀', border: 'border-l-amber-500',   dot: 'bg-amber-500' },
+  linkedin_view:    { label: 'LinkedIn: View',    emoji: '🔗', border: 'border-l-indigo-500',  dot: 'bg-indigo-500' },
+  linkedin_connect: { label: 'LinkedIn: Connect', emoji: '🤝', border: 'border-l-indigo-500',  dot: 'bg-indigo-500' },
+  call:             { label: 'Call',              emoji: '📞', border: 'border-l-green-500',   dot: 'bg-green-500' },
+  manual_task:      { label: 'Task',              emoji: '✅', border: 'border-l-teal-500',    dot: 'bg-teal-500' },
+  goal:             { label: 'Goal',              emoji: '🎯', border: 'border-l-emerald-500', dot: 'bg-emerald-500' },
+};
+const NODE_PALETTE = ['email', 'wait', 'condition', 'linkedin_view', 'linkedin_connect', 'call', 'manual_task', 'goal'];
+const CONDITION_TYPES = [
+  { value: 'if_no_reply', label: 'If no reply yet' },
+  { value: 'if_replied', label: 'If replied' },
+  { value: 'if_opened', label: 'If opened' },
+  { value: 'if_no_open', label: 'If not opened' },
+];
+// Part 8 — event triggers a non-technical user can configure (sequence_triggers rows)
+const TRIGGER_TYPES = [
+  { value: 'manual', label: 'Manual', desc: 'Users enroll contacts manually.' },
+  { value: 'deal_won', label: 'Deal Won', desc: 'When any deal is marked Won.' },
+  { value: 'deal_lost', label: 'Deal Lost', desc: 'When any deal is marked Lost.' },
+  { value: 'deal_stage_changed', label: 'Deal Stage', desc: 'When a deal moves to a stage.', config: 'stage' },
+  { value: 'relationship_created', label: 'New Relationship', desc: 'When a new relationship is added.' },
+  { value: 'relationship_stage_changed', label: 'Relationship Stage', desc: 'When a relationship moves to a stage.', config: 'stage' },
+  { value: 'tag_applied', label: 'Tag Applied', desc: 'When a tag is applied to a relationship.', config: 'tag' },
+  { value: 'task_completed', label: 'Task Completed', desc: 'When any task is marked done.' },
+  { value: 'no_activity_days', label: 'No Activity', desc: 'When no activity is logged for N days.', config: 'days' },
+  { value: 'birthday_approaching', label: 'Birthday', desc: 'When a birthday is coming up in N days.', config: 'days' },
+];
+// Part 6 — one-click sequence templates. Node `pos` are canvas coordinates;
+// edges are [fromIdx, toIdx, branch].
+const SEQ_TEMPLATES = [
+  {
+    key: 'linkedin_email', emoji: '🔗', name: 'LinkedIn + Email Outreach',
+    desc: 'View profile → connect → cold email → 2 conditional follow-ups. The classic multichannel cadence.',
+    nodes: [
+      { node_type: 'trigger', pos: [300, 30], config: { type: 'manual' } },
+      { node_type: 'linkedin_view', task_note: 'View {{name}}’s profile — {{linkedin_url}}', wait_days: 0, pos: [300, 160] },
+      { node_type: 'wait', config: { days: 1 }, pos: [300, 290] },
+      { node_type: 'linkedin_connect', task_note: 'Connect with {{name}} — {{linkedin_url}}', wait_days: 0, pos: [300, 420] },
+      { node_type: 'wait', config: { days: 2 }, pos: [300, 550] },
+      { node_type: 'email', subject: 'Loved your work at {{company}}, {{first_name}}', body: 'Hi {{first_name}},\n\nI came across {{company}} and was impressed by what you’re building. I work with teams like yours to [one-line value prop].\n\nWorth a quick chat this week?\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 680] },
+      { node_type: 'wait', config: { days: 3 }, pos: [300, 810] },
+      { node_type: 'condition', config: { type: 'if_no_reply' }, pos: [300, 940] },
+      { node_type: 'email', subject: 'Quick follow-up, {{first_name}}', body: 'Hi {{first_name}},\n\nJust floating this back to the top of your inbox — I know things get busy.\n\nWould it make sense to connect for 15 minutes?\n\nBest,\n[Your name]', wait_days: 0, pos: [120, 1070] },
+      { node_type: 'goal', config: { label: 'Replied — stop sequence' }, pos: [520, 1070] },
+      { node_type: 'wait', config: { days: 4 }, pos: [120, 1200] },
+      { node_type: 'condition', config: { type: 'if_no_reply' }, pos: [120, 1330] },
+      { node_type: 'email', subject: 'Closing the loop, {{first_name}}', body: 'Hi {{first_name}},\n\nI’ll stop here — if improving [pain point] ever becomes a priority at {{company}}, my door is open.\n\nAll the best,\n[Your name]', wait_days: 0, pos: [0, 1460] },
+      { node_type: 'goal', config: { label: 'Replied — stop sequence' }, pos: [340, 1460] },
+      { node_type: 'goal', config: { label: 'Sequence complete' }, pos: [0, 1590] },
+    ],
+    edges: [[0,1,'default'],[1,2,'default'],[2,3,'default'],[3,4,'default'],[4,5,'default'],[5,6,'default'],[6,7,'default'],[7,8,'yes'],[7,9,'no'],[8,10,'default'],[10,11,'default'],[11,12,'yes'],[11,13,'no'],[12,14,'default']],
+  },
+  {
+    key: 'cold_3step', emoji: '✉️', name: '3-Email Cold Outreach',
+    desc: 'Cold intro → follow-up if no reply → breakup email. Simple and effective.',
+    nodes: [
+      { node_type: 'trigger', pos: [300, 30], config: { type: 'manual' } },
+      { node_type: 'email', subject: 'Idea for {{company}}, {{first_name}}', body: 'Hi {{first_name}},\n\n[One-sentence personalized opener about {{company}}.]\n\nWe help teams like yours [value prop]. Open to a quick chat?\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 160] },
+      { node_type: 'wait', config: { days: 3 }, pos: [300, 290] },
+      { node_type: 'condition', config: { type: 'if_no_reply' }, pos: [300, 420] },
+      { node_type: 'email', subject: 'Re: Idea for {{company}}', body: 'Hi {{first_name}},\n\nBumping this in case it got buried. Happy to share a 2-minute overview if useful.\n\nBest,\n[Your name]', wait_days: 0, pos: [120, 550] },
+      { node_type: 'goal', config: { label: 'Replied — stop' }, pos: [520, 550] },
+      { node_type: 'wait', config: { days: 4 }, pos: [120, 680] },
+      { node_type: 'condition', config: { type: 'if_no_reply' }, pos: [120, 810] },
+      { node_type: 'email', subject: 'Should I close your file, {{first_name}}?', body: 'Hi {{first_name}},\n\nI’ll take the hint and stop here. If [pain point] ever moves up your list, just reply to this email.\n\nAll the best,\n[Your name]', wait_days: 0, pos: [0, 940] },
+      { node_type: 'goal', config: { label: 'Replied — stop' }, pos: [340, 940] },
+      { node_type: 'goal', config: { label: 'Sequence complete' }, pos: [0, 1070] },
+    ],
+    edges: [[0,1,'default'],[1,2,'default'],[2,3,'default'],[3,4,'yes'],[3,5,'no'],[4,6,'default'],[6,7,'default'],[7,8,'yes'],[7,9,'no'],[8,10,'default']],
+  },
+  {
+    key: 'post_meeting', emoji: '🤝', name: 'Post-Meeting Nurture',
+    desc: 'Thank-you email, then branch on engagement: LinkedIn connect if opened, follow-up email if not.',
+    nodes: [
+      { node_type: 'trigger', pos: [300, 30], config: { type: 'manual' } },
+      { node_type: 'email', subject: 'Great meeting you, {{first_name}}', body: 'Hi {{first_name}},\n\nThanks for the time today — really enjoyed the conversation about {{company}}.\n\nAs promised, here’s [resource/next step].\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 160] },
+      { node_type: 'wait', config: { days: 7 }, pos: [300, 290] },
+      { node_type: 'condition', config: { type: 'if_opened' }, pos: [300, 420] },
+      { node_type: 'linkedin_connect', task_note: 'Connect with {{name}} on LinkedIn — they engaged with your email', wait_days: 0, pos: [120, 550] },
+      { node_type: 'email', subject: 'Following up on our meeting, {{first_name}}', body: 'Hi {{first_name}},\n\nCircling back on our conversation — any thoughts on the next step we discussed?\n\nBest,\n[Your name]', wait_days: 0, pos: [520, 550] },
+      { node_type: 'goal', config: { label: 'Nurture complete' }, pos: [300, 680] },
+    ],
+    edges: [[0,1,'default'],[1,2,'default'],[2,3,'default'],[3,4,'yes'],[3,5,'no'],[4,6,'default'],[5,6,'default']],
+  },
+  {
+    key: 'deal_won_onboarding', emoji: '🏆', name: 'Deal Won Onboarding',
+    desc: 'Auto-fires when a deal is marked Won: welcome → setup tips → check-in.',
+    trigger: { trigger_event: 'deal_won', trigger_config: {} },
+    nodes: [
+      { node_type: 'trigger', pos: [300, 30], config: { type: 'deal_won' } },
+      { node_type: 'email', subject: 'Welcome aboard, {{first_name}}! 🎉', body: 'Hi {{first_name}},\n\nThrilled to be working with {{company}}! Here’s what happens next:\n\n1. [Step one]\n2. [Step two]\n3. [Step three]\n\nQuestions? Just reply to this email.\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 160] },
+      { node_type: 'wait', config: { days: 3 }, pos: [300, 290] },
+      { node_type: 'email', subject: 'Getting the most out of week one', body: 'Hi {{first_name}},\n\nA few tips to hit the ground running:\n\n• [Tip 1]\n• [Tip 2]\n• [Tip 3]\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 420] },
+      { node_type: 'wait', config: { days: 7 }, pos: [300, 550] },
+      { node_type: 'email', subject: 'How’s everything going, {{first_name}}?', body: 'Hi {{first_name}},\n\nJust checking in — how has the first stretch felt? Anything blocking you?\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 680] },
+      { node_type: 'goal', config: { label: 'Onboarding complete' }, pos: [300, 810] },
+    ],
+    edges: [[0,1,'default'],[1,2,'default'],[2,3,'default'],[3,4,'default'],[4,5,'default'],[5,6,'default']],
+  },
+];
+
 function stepConditionMet(step, enrollment, sends) {
   const cond = step.condition || 'always';
   if (cond === 'always') return true;
@@ -554,6 +664,24 @@ export default function App() {
   // LGM UPGRADES — automation states
   const [sequenceSends, setSequenceSends] = useState([]);
   const [emailSettings, setEmailSettings] = useState(null); // null = no row yet
+  const [sequenceTriggers, setSequenceTriggers] = useState([]); // V2 — event-driven auto-enrollment rules
+  const [sequenceEdges, setSequenceEdges] = useState([]); // V2 — graph edges for branching sequences
+  // V2 — Email Automation hub state
+  const [seqView, setSeqView] = useState('sequences'); // 'sequences' | 'contacts' | 'unsubs'
+  const [editingSeqId, setEditingSeqId] = useState(null); // canvas editor open for this sequence
+  const [selectedNodeId, setSelectedNodeId] = useState(null); // canvas: selected node (config panel)
+  const [connectFrom, setConnectFrom] = useState(null); // canvas: { nodeId, branch } while wiring an edge
+  const [nodeDrag, setNodeDrag] = useState(null); // canvas: { nodeId, offsetX, offsetY } while dragging
+  // V2 — cold contacts
+  const [coldContacts, setColdContacts] = useState([]);
+  const [unsubscribesList, setUnsubscribesList] = useState([]);
+  const [coldSearch, setColdSearch] = useState('');
+  const [coldFilter, setColdFilter] = useState('All');
+  const [coldSelected, setColdSelected] = useState({}); // { [id]: true }
+  const [coldImportPreview, setColdImportPreview] = useState(null); // rows or null
+  const [coldImportLoading, setColdImportLoading] = useState(false);
+  const [coldDraft, setColdDraft] = useState({ email: '', first_name: '', last_name: '', company: '', title: '', linkedin_url: '' });
+  const [coldEnrollSeqId, setColdEnrollSeqId] = useState('');
   const [stepEdit, setStepEdit] = useState(null); // inline editor: full step draft
   const [enrollMulti, setEnrollMulti] = useState({}); // sequenceId -> Set-ish {clientId: true}
   const repliesCheckedRef = useRef(false);
@@ -907,6 +1035,7 @@ export default function App() {
       fetchSavedViews(session.user.id),
       fetchCustomReports(session.user.id),
       fetchSequences(session.user.id),
+      fetchColdData(session.user.id),
       fetchGmailConn(session.user.id),
       fetchIntegration(session.user.id)
     ]);
@@ -1219,6 +1348,10 @@ export default function App() {
       if (newStage === 'Won') dispatchWebhook('deal.won', { ...deal, stage: newStage });
       if (newStage === 'Lost') dispatchWebhook('deal.lost', { ...deal, stage: newStage });
       executeAutomations('deal_stage_change', newStage, deal.client_id);
+      // V2 — event-driven sequence auto-enrollment
+      if (newStage === 'Won') triggerSequenceEnrollment('deal_won', deal.id, 'deal', { ...deal, stage: newStage });
+      if (newStage === 'Lost') triggerSequenceEnrollment('deal_lost', deal.id, 'deal', { ...deal, stage: newStage });
+      triggerSequenceEnrollment('deal_stage_changed', deal.id, 'deal', { ...deal, stage: newStage });
     } else showToast(`Error moving deal: ${error.message}`, 'error');
   }
 
@@ -1537,18 +1670,22 @@ export default function App() {
   // ==========================================
 
   async function fetchSequences(userId) {
-    const [{ data: seqs }, { data: steps }, { data: enr }, { data: sends }, { data: settings }] = await Promise.all([
+    const [{ data: seqs }, { data: steps }, { data: enr }, { data: sends }, { data: settings }, { data: trigs }, { data: edges }] = await Promise.all([
       supabase.from('email_sequences').select('*').eq('user_id', userId).order('created_at'),
       supabase.from('sequence_steps').select('*').eq('user_id', userId).order('step_order'),
       supabase.from('sequence_enrollments').select('*').eq('user_id', userId),
       supabase.from('sequence_sends').select('*').eq('user_id', userId).order('sent_at', { ascending: false }),
       supabase.from('email_settings').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('sequence_triggers').select('*').eq('user_id', userId),
+      supabase.from('sequence_edges').select('*').eq('user_id', userId),
     ]);
     if (seqs) setSequences(seqs);
     if (steps) setSequenceSteps(steps);
     if (enr) setSequenceEnrollments(enr);
     if (sends) setSequenceSends(sends);
     setEmailSettings(settings || null);
+    if (trigs) setSequenceTriggers(trigs);
+    if (edges) setSequenceEdges(edges);
   }
 
   // UPGRADE 1/7 — Email Automation settings
@@ -1687,12 +1824,13 @@ export default function App() {
     if (!error) setSequenceSteps(prev => prev.filter(s => s.id !== step.id));
   }
 
-  async function enrollClientInSequence(seq, clientId) {
+  async function enrollClientInSequence(seq, clientId, { silent = false } = {}) {
     const steps = seqStepsFor(seq.id);
-    if (steps.length === 0) { showToast('This workflow has no steps yet.', 'error'); return; }
+    if (steps.length === 0) { if (!silent) showToast('This workflow has no steps yet.', 'error'); return false; }
     const cid = parseInt(clientId, 10);
     if (sequenceEnrollments.some(en => en.sequence_id === seq.id && en.client_id === cid && en.status === 'active')) {
-      showToast('Already enrolled in this workflow.', 'error'); return;
+      if (!silent) showToast('Already enrolled in this workflow.', 'error');
+      return false;
     }
     const { data, error } = await supabase.from('sequence_enrollments').insert([{
       sequence_id: seq.id, client_id: cid, user_id: user.id,
@@ -1701,8 +1839,344 @@ export default function App() {
     if (!error && data) {
       setSequenceEnrollments(prev => [...prev, data[0]]);
       dispatchWebhook('sequence.enrolled', data[0]);
-      showToast('Enrolled — first email is in the Outbox when due.', 'success');
+      if (!silent) showToast('Enrolled — first email is in the Outbox when due.', 'success');
+      return true;
+    }
+    if (!silent) showToast(`Error: ${error?.message}`, 'error');
+    return false;
+  }
+
+  // V2 — event-driven auto-enrollment: called from CRM handlers when something
+  // happens (deal won, tag applied, ...). Matches enabled sequence_triggers rows,
+  // evaluates their trigger_config, honors the unsubscribe list, then enrolls.
+  async function triggerSequenceEnrollment(triggerEvent, entityId, entityType, context = {}) {
+    try {
+      const matches = sequenceTriggers.filter(t => t.enabled && t.trigger_event === triggerEvent);
+      if (matches.length === 0) return;
+
+      // Resolve the relationship this event is about
+      const clientId = entityType === 'client' ? entityId : context?.client_id;
+      if (!clientId) return;
+      const client = clients.find(c => c.id === parseInt(clientId, 10)) || context?.client || null;
+
+      for (const trig of matches) {
+        const seq = sequences.find(s => s.id === trig.sequence_id);
+        if (!seq || !(seq.is_active || seq.status === 'active')) continue;
+        if (trig.target_audience === 'cold_contacts') continue; // CRM events only touch relationships
+
+        // Evaluate per-event config conditions
+        const cfg = trig.trigger_config || {};
+        if (triggerEvent === 'deal_stage_changed' && cfg.stage && context?.stage !== cfg.stage) continue;
+        if (triggerEvent === 'relationship_stage_changed' && cfg.stage && context?.status !== cfg.stage) continue;
+        if (triggerEvent === 'tag_applied' && cfg.tag_id && String(context?.tagId) !== String(cfg.tag_id)) continue;
+
+        // Honor the unsubscribe list before enrolling
+        if (client?.email) {
+          const { data: unsub } = await supabase.from('unsubscribes')
+            .select('id').eq('user_id', user.id).eq('email', client.email.toLowerCase()).maybeSingle();
+          if (unsub) continue;
+        }
+
+        const ok = await enrollClientInSequence(seq, clientId, { silent: true });
+        if (ok) showToast(`1 relationship auto-enrolled in "${seq.name}".`, 'success');
+      }
+    } catch (err) {
+      console.error('triggerSequenceEnrollment error:', err);
+    }
+  }
+
+  // ==========================================
+  // V2 — COLD CONTACTS (Part 5)
+  // ==========================================
+
+  async function fetchColdData(userId) {
+    const [{ data: cc }, { data: us }] = await Promise.all([
+      supabase.from('cold_contacts').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+      supabase.from('unsubscribes').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+    ]);
+    if (cc) setColdContacts(cc);
+    if (us) setUnsubscribesList(us);
+  }
+
+  // CSV import — same PapaParse + validated-preview pattern as the relationships importer
+  function handleColdCsvFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const parsed = Papa.parse(event.target.result, { header: true, skipEmptyLines: true });
+      if (!parsed.data || parsed.data.length === 0) {
+        showToast('CSV file must contain headers and at least one row of data.', 'error');
+        return;
+      }
+      const pick = (row, keys) => {
+        for (const k of Object.keys(row)) {
+          if (keys.includes(k.trim().toLowerCase())) return (row[k] || '').trim();
+        }
+        return '';
+      };
+      const seen = new Set();
+      const rows = parsed.data.map((row, i) => {
+        const email = pick(row, ['email', 'e-mail', 'email address']).toLowerCase();
+        const first = pick(row, ['first_name', 'first name', 'firstname', 'first']);
+        const last = pick(row, ['last_name', 'last name', 'lastname', 'last']);
+        const company = pick(row, ['company', 'company name', 'organization']);
+        const title = pick(row, ['title', 'job title', 'position', 'role']);
+        const linkedin = pick(row, ['linkedin_url', 'linkedin', 'linkedin url', 'linkedin profile']);
+        const phone = pick(row, ['phone', 'phone number', 'phone_number']);
+        let error = null, warning = null;
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) error = 'Invalid email';
+        else if (seen.has(email)) error = 'Duplicate in file';
+        else if (coldContacts.some(c => c.email === email)) warning = 'Already imported';
+        seen.add(email);
+        return { key: i, email, first_name: first, last_name: last, company, title, linkedin_url: linkedin, phone, error, warning, checked: !error && !warning };
+      });
+      setColdImportPreview(rows);
+    };
+    reader.readAsText(file);
+    e.target.value = null;
+  }
+
+  async function handleConfirmColdImport() {
+    const selected = (coldImportPreview || []).filter(r => r.checked && !r.error);
+    if (selected.length === 0) return;
+    setColdImportLoading(true);
+    const inserts = selected.map(r => ({
+      user_id: user.id, email: r.email, first_name: r.first_name || null, last_name: r.last_name || null,
+      company: r.company || null, title: r.title || null, linkedin_url: r.linkedin_url || null,
+      phone: r.phone || null, source: 'csv',
+    }));
+    const { data, error } = await supabase.from('cold_contacts').insert(inserts).select();
+    if (data && !error) {
+      setColdContacts(prev => [...data, ...prev]);
+      const skipped = (coldImportPreview || []).length - data.length;
+      const invalid = (coldImportPreview || []).filter(r => r.error && r.error !== 'Duplicate in file').length;
+      showToast(`${data.length} added, ${skipped - invalid} duplicates skipped, ${invalid} invalid email${invalid === 1 ? '' : 's'}.`, 'success');
+      setColdImportPreview(null);
+    } else showToast(`Import error: ${error?.message}`, 'error');
+    setColdImportLoading(false);
+  }
+
+  async function handleAddColdContact(e) {
+    e.preventDefault();
+    const email = coldDraft.email.trim().toLowerCase();
+    if (!email) return;
+    if (coldContacts.some(c => c.email === email)) { showToast('This email is already in your cold contacts.', 'error'); return; }
+    const { data, error } = await supabase.from('cold_contacts').insert([{
+      user_id: user.id, email,
+      first_name: coldDraft.first_name.trim() || null, last_name: coldDraft.last_name.trim() || null,
+      company: coldDraft.company.trim() || null, title: coldDraft.title.trim() || null,
+      linkedin_url: coldDraft.linkedin_url.trim() || null, source: 'manual',
+    }]).select();
+    if (data && !error) {
+      setColdContacts(prev => [data[0], ...prev]);
+      setColdDraft({ email: '', first_name: '', last_name: '', company: '', title: '', linkedin_url: '' });
+      showToast('Cold contact added.', 'success');
     } else showToast(`Error: ${error?.message}`, 'error');
+  }
+
+  async function handleUnsubscribeColdContacts(ids) {
+    const targets = coldContacts.filter(c => ids.includes(c.id));
+    if (targets.length === 0) return;
+    const now = new Date().toISOString();
+    await supabase.from('unsubscribes').upsert(
+      targets.map(c => ({ user_id: user.id, email: c.email, reason: 'manual' })),
+      { onConflict: 'user_id,email', ignoreDuplicates: true });
+    await supabase.from('cold_contacts').update({ status: 'unsubscribed', unsubscribed_at: now }).in('id', ids);
+    await supabase.from('sequence_enrollments').update({ status: 'stopped', stopped_reason: 'unsubscribed', next_send_at: null })
+      .eq('user_id', user.id).eq('status', 'active').in('cold_contact_id', ids);
+    setColdContacts(prev => prev.map(c => ids.includes(c.id) ? { ...c, status: 'unsubscribed', unsubscribed_at: now } : c));
+    setSequenceEnrollments(prev => prev.map(en => ids.includes(en.cold_contact_id) && en.status === 'active' ? { ...en, status: 'stopped', stopped_reason: 'unsubscribed', next_send_at: null } : en));
+    setColdSelected({});
+    fetchColdData(user.id);
+    showToast(`${targets.length} contact${targets.length === 1 ? '' : 's'} unsubscribed.`, 'success');
+  }
+
+  function handleDeleteColdContacts(ids) {
+    showConfirm('Delete Contacts', `Delete ${ids.length} cold contact${ids.length === 1 ? '' : 's'}? Their enrollments will also be removed.`, 'Delete', 'danger',
+      async () => {
+        const { error } = await supabase.from('cold_contacts').delete().in('id', ids);
+        if (!error) {
+          setColdContacts(prev => prev.filter(c => !ids.includes(c.id)));
+          setSequenceEnrollments(prev => prev.filter(en => !ids.includes(en.cold_contact_id)));
+          setColdSelected({});
+        } else showToast(`Error: ${error.message}`, 'error');
+      });
+  }
+
+  async function handleRemoveUnsubscribe(row) {
+    const { error } = await supabase.from('unsubscribes').delete().eq('id', row.id);
+    if (!error) {
+      setUnsubscribesList(prev => prev.filter(u => u.id !== row.id));
+      showToast(`${row.email} removed from the unsubscribe list.`, 'success');
+    }
+  }
+
+  async function enrollColdContactsInSequence(seq, ids) {
+    const steps = seqStepsFor(seq.id);
+    if (steps.length === 0) { showToast('This sequence has no steps yet.', 'error'); return; }
+    const unsubEmails = new Set(unsubscribesList.map(u => u.email));
+    let enrolled = 0, skipped = 0;
+    const inserts = [];
+    for (const id of ids) {
+      const c = coldContacts.find(x => x.id === id);
+      if (!c || c.status === 'unsubscribed' || c.status === 'bounced' || unsubEmails.has(c.email)) { skipped++; continue; }
+      if (sequenceEnrollments.some(en => en.sequence_id === seq.id && en.cold_contact_id === id && en.status === 'active')) { skipped++; continue; }
+      inserts.push({
+        sequence_id: seq.id, cold_contact_id: id, client_id: null, user_id: user.id,
+        status: 'active', current_step: 0, next_send_at: addDaysStr(steps[0].wait_days),
+      });
+    }
+    if (inserts.length > 0) {
+      const { data, error } = await supabase.from('sequence_enrollments').insert(inserts).select();
+      if (error) { showToast(`Enroll error: ${error.message}`, 'error'); return; }
+      enrolled = data.length;
+      setSequenceEnrollments(prev => [...prev, ...data]);
+    }
+    setColdSelected({});
+    showToast(`${enrolled} enrolled in "${seq.name}"${skipped ? ` · ${skipped} skipped (unsubscribed or already enrolled)` : ''}.`, enrolled ? 'success' : 'error');
+  }
+
+  // ==========================================
+  // V2 — CANVAS + TEMPLATES (Parts 6-8)
+  // ==========================================
+
+  const seqNodesFor = (seqId) => sequenceSteps.filter(s => s.sequence_id === seqId).sort((a, b) => (a.step_order - b.step_order) || (a.id - b.id));
+  const seqEdgesFor = (seqId) => sequenceEdges.filter(e => e.sequence_id === seqId);
+  // Canvas coordinates: stored pos, or a vertical auto-layout for pre-canvas rows
+  const nodePos = (node, idx) => ({ x: node.pos_x ?? 300, y: node.pos_y ?? (30 + idx * 130) });
+
+  // Part 6 — one-click template instantiation: sequence + steps + edges (+ trigger row)
+  async function handleCreateFromTemplate(tpl) {
+    const { data: seqRows, error: seqErr } = await supabase.from('email_sequences').insert([{
+      user_id: user.id, name: tpl.name, status: 'draft', trigger_type: 'manual', is_active: false,
+    }]).select();
+    if (seqErr || !seqRows) { showToast(`Error: ${seqErr?.message}`, 'error'); return; }
+    const seq = seqRows[0];
+    const stepInserts = tpl.nodes.map((n, i) => ({
+      sequence_id: seq.id, user_id: user.id, step_order: i,
+      node_type: n.node_type, channel: n.node_type === 'email' ? 'email' : n.node_type,
+      wait_days: n.wait_days ?? 0, condition: 'always',
+      subject: n.subject || '', body: n.body || '', subject_b: n.subject_b || null,
+      task_note: n.task_note || null, config: n.config || {},
+      pos_x: n.pos[0], pos_y: n.pos[1],
+    }));
+    const { data: stepRows, error: stepErr } = await supabase.from('sequence_steps').insert(stepInserts).select();
+    if (stepErr || !stepRows) { showToast(`Error creating steps: ${stepErr?.message}`, 'error'); return; }
+    // insert order is preserved — map template indexes onto created ids
+    const sorted = [...stepRows].sort((a, b) => a.step_order - b.step_order);
+    const edgeInserts = tpl.edges.map(([from, to, branch]) => ({
+      user_id: user.id, sequence_id: seq.id,
+      from_step_id: sorted[from].id, to_step_id: sorted[to].id, branch: branch || 'default',
+    }));
+    const { data: edgeRows, error: edgeErr } = await supabase.from('sequence_edges').insert(edgeInserts).select();
+    if (edgeErr) { showToast(`Error creating arrows: ${edgeErr.message}`, 'error'); return; }
+    if (tpl.trigger) {
+      const { data: trigRows } = await supabase.from('sequence_triggers').insert([{
+        user_id: user.id, sequence_id: seq.id, trigger_event: tpl.trigger.trigger_event,
+        trigger_config: tpl.trigger.trigger_config || {}, enabled: true,
+      }]).select();
+      if (trigRows) setSequenceTriggers(prev => [...prev, ...trigRows]);
+    }
+    setSequences(prev => [...prev, seq]);
+    setSequenceSteps(prev => [...prev, ...stepRows]);
+    setSequenceEdges(prev => [...prev, ...(edgeRows || [])]);
+    setEditingSeqId(seq.id);
+    setSelectedNodeId(null);
+    showToast(`"${tpl.name}" created — customize it, then flip it Active.`, 'success');
+  }
+
+  // Part 7 — canvas node CRUD
+  async function handleAddNode(seqId, nodeType) {
+    const nodes = seqNodesFor(seqId);
+    const maxOrder = nodes.reduce((m, n) => Math.max(m, n.step_order), -1);
+    const last = nodes[nodes.length - 1];
+    const base = last ? nodePos(last, nodes.length - 1) : { x: 300, y: -100 };
+    const defaults = {
+      email: { subject: 'New email — click to edit', body: '' },
+      wait: { config: { days: 1 } },
+      condition: { config: { type: 'if_no_reply' } },
+      goal: { config: { label: 'Goal reached' } },
+    }[nodeType] || {};
+    const { data, error } = await supabase.from('sequence_steps').insert([{
+      sequence_id: seqId, user_id: user.id, step_order: maxOrder + 1,
+      node_type: nodeType, channel: nodeType === 'email' ? 'email' : nodeType,
+      wait_days: 0, condition: 'always', subject: defaults.subject || '', body: defaults.body || '',
+      task_note: null, config: defaults.config || {},
+      pos_x: base.x + 40, pos_y: base.y + 150,
+    }]).select();
+    if (error || !data) { showToast(`Error: ${error?.message}`, 'error'); return; }
+    setSequenceSteps(prev => [...prev, data[0]]);
+    setSelectedNodeId(data[0].id);
+  }
+
+  async function handleUpdateNode(nodeId, patch) {
+    setSequenceSteps(prev => prev.map(s => s.id === nodeId ? { ...s, ...patch } : s));
+    const { error } = await supabase.from('sequence_steps').update(patch).eq('id', nodeId);
+    if (error) showToast(`Save error: ${error.message}`, 'error');
+  }
+
+  function handleDeleteNode(node) {
+    showConfirm('Delete Node', `Delete this ${NODE_META[node.node_type || 'email']?.label || 'node'}? Arrows touching it will also be removed.`, 'Delete', 'danger',
+      async () => {
+        await supabase.from('sequence_edges').delete().or(`from_step_id.eq.${node.id},to_step_id.eq.${node.id}`);
+        const { error } = await supabase.from('sequence_steps').delete().eq('id', node.id);
+        if (!error) {
+          setSequenceSteps(prev => prev.filter(s => s.id !== node.id));
+          setSequenceEdges(prev => prev.filter(e => e.from_step_id !== node.id && e.to_step_id !== node.id));
+          if (selectedNodeId === node.id) setSelectedNodeId(null);
+        } else showToast(`Error: ${error.message}`, 'error');
+      });
+  }
+
+  // wiring: one outgoing edge per (node, branch) — re-wiring replaces it
+  async function handleAddEdge(seqId, fromId, branch, toId) {
+    if (fromId === toId) { setConnectFrom(null); return; }
+    const existing = sequenceEdges.find(e => e.from_step_id === fromId && (e.branch || 'default') === branch);
+    if (existing) {
+      await supabase.from('sequence_edges').delete().eq('id', existing.id);
+      setSequenceEdges(prev => prev.filter(e => e.id !== existing.id));
+    }
+    const { data, error } = await supabase.from('sequence_edges').insert([{
+      user_id: user.id, sequence_id: seqId, from_step_id: fromId, to_step_id: toId, branch,
+    }]).select();
+    if (data && !error) setSequenceEdges(prev => [...prev, data[0]]);
+    else showToast(`Error: ${error?.message}`, 'error');
+    setConnectFrom(null);
+  }
+
+  async function handleDeleteEdge(edge) {
+    await supabase.from('sequence_edges').delete().eq('id', edge.id);
+    setSequenceEdges(prev => prev.filter(e => e.id !== edge.id));
+  }
+
+  // Active toggle drives BOTH gates: status (legacy UI) and is_active (runner v4+)
+  async function handleSetSequenceActive(seq, active) {
+    if (active && seqNodesFor(seq.id).filter(n => !['trigger', 'goal', 'wait'].includes(n.node_type || 'email')).length === 0) {
+      showToast('Add at least one action step before activating.', 'error'); return;
+    }
+    const patch = { is_active: active, status: active ? 'active' : 'paused' };
+    const { error } = await supabase.from('email_sequences').update(patch).eq('id', seq.id);
+    if (!error) setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, ...patch } : s));
+    else showToast(`Error: ${error.message}`, 'error');
+  }
+
+  // Part 8 — trigger config: one sequence_triggers row per sequence (manual = no row)
+  async function handleSaveSequenceTrigger(seqId, triggerEvent, triggerConfig) {
+    const existing = sequenceTriggers.filter(t => t.sequence_id === seqId);
+    if (existing.length > 0) {
+      await supabase.from('sequence_triggers').delete().in('id', existing.map(t => t.id));
+      setSequenceTriggers(prev => prev.filter(t => t.sequence_id !== seqId));
+    }
+    if (triggerEvent && triggerEvent !== 'manual') {
+      const { data, error } = await supabase.from('sequence_triggers').insert([{
+        user_id: user.id, sequence_id: seqId, trigger_event: triggerEvent,
+        trigger_config: triggerConfig || {}, enabled: true,
+      }]).select();
+      if (data && !error) setSequenceTriggers(prev => [...prev, data[0]]);
+      else if (error) { showToast(`Error: ${error.message}`, 'error'); return; }
+    }
+    showToast('Trigger saved.', 'success');
   }
 
   async function handleStopEnrollment(enr) {
@@ -1923,6 +2397,8 @@ export default function App() {
         const tagName = tags.find(t => t.id === tagId)?.name;
         if (tagName) sequences.filter(q => q.status === 'active' && q.trigger_type === 'tag_applied' && q.trigger_value === tagName)
           .forEach(q => enrollClientInSequence(q, clientId));
+        // V2 — event-driven sequence auto-enrollment
+        triggerSequenceEnrollment('tag_applied', clientId, 'client', { client_id: clientId, tagId });
       }
     }
   }
@@ -2578,6 +3054,8 @@ export default function App() {
       // N8N — auto-enroll workflows triggered by "new relationship added"
       sequences.filter(q => q.status === 'active' && q.trigger_type === 'new_relationship')
         .forEach(q => enrollClientInSequence(q, newClient.id));
+      // V2 — event-driven sequence auto-enrollment
+      triggerSequenceEnrollment('relationship_created', newClient.id, 'client', { ...newClient, client: newClient });
     } else if (error) {
       setCrmErrorMessage(`Database Sync Error: ${error.message}`);
     }
@@ -2639,6 +3117,8 @@ export default function App() {
       dispatchWebhook('client.updated', data[0]);
       if (prevClient && prevClient.status !== editingClient.status) {
         executeAutomations('stage_change', editingClient.status, editingClient.id);
+        // V2 — event-driven sequence auto-enrollment
+        triggerSequenceEnrollment('relationship_stage_changed', editingClient.id, 'client', { ...data[0], status: editingClient.status });
       }
     } else if (error) {
       setCrmErrorMessage(`Database Update Error: ${error.message}`);
@@ -2831,6 +3311,8 @@ export default function App() {
       setTasks(tasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
       if (newStatus === 'done' && task) {
         dispatchWebhook('task.completed', { ...task, status: 'done' });
+        // V2 — event-driven sequence auto-enrollment
+        triggerSequenceEnrollment('task_completed', taskId, 'task', { ...task, status: 'done' });
         // FEATURE 20 — recurring tasks: auto-create next occurrence
         if (task.recurrence) {
           const nextDue = new Date(task.due_date);
@@ -3463,7 +3945,7 @@ export default function App() {
               ['DASHBOARD', 'Dashboard'],
               ['CLIENTS', 'Relationships'],
               ['DEALS', 'Deals'],
-              ['N8N', 'N8N'],
+              ['N8N', 'Email Automation'],
               ['GLOBAL_TASKS', 'Tasks'],
               ['CALENDAR', 'Calendar'],
               ['REPORTS', 'Reports'],
@@ -3636,7 +4118,7 @@ export default function App() {
                 ['DASHBOARD', 'Dashboard'],
                 ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
-                ['N8N', 'N8N'],
+                ['N8N', 'Email Automation'],
                 ['GLOBAL_TASKS', 'Tasks'],
                 ['CALENDAR', 'Calendar'],
                 ['REPORTS', 'Reports'],
@@ -5343,293 +5825,574 @@ export default function App() {
         )}
 
         {/* VIEW: N8N — EMAIL SEQUENCE WORKFLOWS */}
-        {appStep === 'N8N' && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">N8N</h1>
-              <p className="text-[13px] text-gray-500">Automated email sequences — build a workflow, enroll relationships, and each follow-up lands in your Outbox when due.</p>
-            </div>
+        {appStep === 'N8N' && (() => {
+          const editingSeq = sequences.find(s => s.id === editingSeqId);
+          const updateNodeLocal = (nodeId, patch) => setSequenceSteps(prev => prev.map(s => s.id === nodeId ? { ...s, ...patch } : s));
 
-            {/* OUTBOX — due sends */}
-            {dueSequenceSends.length > 0 && (
-              <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl p-5 space-y-2">
-                <h3 className="text-[14px] font-semibold text-indigo-900 dark:text-indigo-200">Outbox — {dueSequenceSends.length} email{dueSequenceSends.length === 1 ? '' : 's'} due</h3>
-                {dueSequenceSends.map(({ enr, seq, step, client: c }) => (
-                  <div key={enr.id} className="flex flex-wrap items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-3 border border-indigo-100 dark:border-indigo-800">
-                    <div className="flex-1 min-w-[180px]">
-                      <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">{c.name} <span className="text-gray-400 font-normal">· step {enr.current_step + 1} of {seqStepsFor(seq.id).length} · {seq.name}</span></p>
-                      <p className="text-[12px] text-gray-500 truncate">{resolveMergeTags(step.subject, c)}</p>
+          // ================= CANVAS EDITOR (Part 7) =================
+          if (editingSeq) {
+            const nodes = seqNodesFor(editingSeq.id);
+            const edges = seqEdgesFor(editingSeq.id);
+            const sSends = sequenceSends.filter(s => s.sequence_id === editingSeq.id);
+            const enrolled = sequenceEnrollments.filter(en => en.sequence_id === editingSeq.id);
+            const activeEnr = enrolled.filter(en => en.status === 'active');
+            const stats = {
+              Sent: sSends.length,
+              Opened: sSends.filter(s => s.opened_at).length,
+              Clicked: sSends.filter(s => s.clicked_at).length,
+              Replied: sSends.filter(s => s.replied_at).length,
+              Unsubscribed: sSends.filter(s => s.unsubscribed_at).length,
+            };
+            const CARD_W = 256, CARD_H = 96;
+            const posOf = {};
+            nodes.forEach((n, i) => { posOf[n.id] = nodePos(n, i); });
+            const contentW = Math.max(940, ...nodes.map(n => posOf[n.id].x + CARD_W + 100));
+            const contentH = Math.max(560, ...nodes.map(n => posOf[n.id].y + CARD_H + 140));
+            const selNode = nodes.find(n => n.id === selectedNodeId);
+            const seqTrig = sequenceTriggers.find(t => t.sequence_id === editingSeq.id);
+            const trigType = seqTrig?.trigger_event || 'manual';
+            const trigCfg = seqTrig?.trigger_config || {};
+            const outPort = (e) => {
+              const p = posOf[e.from_step_id];
+              if (!p) return null;
+              const from = nodes.find(n => n.id === e.from_step_id);
+              if ((from?.node_type) === 'condition') {
+                return (e.branch === 'yes') ? { x: p.x + CARD_W * 0.25, y: p.y + CARD_H } : (e.branch === 'no') ? { x: p.x + CARD_W * 0.75, y: p.y + CARD_H } : { x: p.x + CARD_W / 2, y: p.y + CARD_H };
+              }
+              return { x: p.x + CARD_W / 2, y: p.y + CARD_H };
+            };
+            const nodeSummary = (n) => {
+              const t = n.node_type || 'email';
+              if (t === 'trigger') return TRIGGER_TYPES.find(x => x.value === trigType)?.label + (trigType === 'manual' ? ' enrollment' : '');
+              if (t === 'email') return n.subject ? `“${n.subject.slice(0, 50)}${n.subject.length > 50 ? '…' : ''}”` : 'No subject yet';
+              if (t === 'wait') return `Wait ${(n.config?.days ?? n.wait_days ?? 1)} day${(n.config?.days ?? n.wait_days ?? 1) === 1 ? '' : 's'}`;
+              if (t === 'condition') return CONDITION_TYPES.find(x => x.value === (n.config?.type || 'if_no_reply'))?.label || 'Condition';
+              if (t === 'goal') return n.config?.label || 'Goal reached';
+              return n.task_note ? n.task_note.slice(0, 55) : NODE_META[t]?.label;
+            };
+            return (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                {/* header bar */}
+                <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm px-4 py-3">
+                  <button onClick={() => { setEditingSeqId(null); setSelectedNodeId(null); setConnectFrom(null); }} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">← Back</button>
+                  <h2 className="text-[15px] font-bold text-gray-900 dark:text-gray-100 truncate max-w-[240px]">{editingSeq.name}</h2>
+                  <button onClick={() => handleSetSequenceActive(editingSeq, !editingSeq.is_active)}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-bold transition-colors ${editingSeq.is_active ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 ring-1 ring-inset ring-green-600/20' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 ring-1 ring-inset ring-gray-500/10'}`}>
+                    <span className={`w-2 h-2 rounded-full ${editingSeq.is_active ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                    {editingSeq.is_active ? 'Active' : 'Paused'}
+                  </button>
+                  <details className="relative">
+                    <summary className="px-3 py-1.5 text-[12px] font-semibold border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 cursor-pointer select-none list-none">Enroll {activeEnr.length > 0 ? `· ${activeEnr.length} active` : ''} ▾</summary>
+                    <div className="absolute z-30 mt-1 w-64 max-h-56 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 space-y-0.5">
+                      {clients.filter(c => c.email).map(c => (
+                        <label key={c.id} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-gray-700 dark:text-gray-200">
+                          <input type="checkbox" checked={!!(enrollMulti[editingSeq.id] || {})[c.id]} onChange={e => setEnrollMulti(prev => ({ ...prev, [editingSeq.id]: { ...(prev[editingSeq.id] || {}), [c.id]: e.target.checked } }))} className="rounded border-gray-300 dark:border-gray-600" />
+                          <span className="truncate">{c.name}</span>
+                        </label>
+                      ))}
+                      <button onClick={async () => {
+                        const ids = Object.entries(enrollMulti[editingSeq.id] || {}).filter(([, v]) => v).map(([k]) => k);
+                        for (const id of ids) await enrollClientInSequence(editingSeq, id);
+                        setEnrollMulti(prev => ({ ...prev, [editingSeq.id]: {} }));
+                      }} className="w-full mt-1 px-2 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:opacity-90">▶ Enroll selected</button>
                     </div>
-                    <button onClick={() => handleStopEnrollment(enr)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Stop</button>
-                    <button onClick={() => handleSendSequenceStep(enr)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Send now →</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* NEW WORKFLOW */}
-            <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-              <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">New Workflow</h3>
-              <form onSubmit={handleCreateSequence} className="flex flex-wrap gap-2 text-[13px]">
-                <input type="text" required placeholder="Workflow name (e.g. Cold outreach — agencies)" value={newSeqName} onChange={e => setNewSeqName(e.target.value)} className="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
-                <select value={newSeqTrigger} onChange={e => setNewSeqTrigger(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
-                  <option value="manual">Trigger: Manual enroll</option>
-                  <option value="new_relationship">Trigger: New relationship added</option>
-                  <option value="tag_applied">Trigger: Tag applied</option>
-                </select>
-                {newSeqTrigger === 'tag_applied' && (
-                  <select required value={newSeqTriggerValue} onChange={e => setNewSeqTriggerValue(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
-                    <option value="">— pick tag —</option>
-                    {tags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                  </select>
-                )}
-                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Workflow</button>
-              </form>
-            </div>
-
-            {/* WORKFLOW LIST */}
-            {sequences.length === 0 ? (
-              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                <EmptyState title="No workflows yet" desc="Create a workflow above, add email steps with wait times, then activate it." />
-              </div>
-            ) : sequences.map(seq => {
-              const steps = seqStepsFor(seq.id);
-              const enrolled = sequenceEnrollments.filter(en => en.sequence_id === seq.id);
-              const activeEnr = enrolled.filter(en => en.status === 'active');
-              const statusCls = { draft: 'bg-gray-100 text-gray-600 ring-gray-500/10', active: 'bg-green-50 text-green-700 ring-green-600/10', paused: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20' }[seq.status];
-              return (
-                <div key={seq.id} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 space-y-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">{seq.name}</h3>
-                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset capitalize ${statusCls}`}>{seq.status}</span>
-                    <span className="text-[11px] text-gray-400">
-                      Trigger: {{ manual: 'Manual', new_relationship: 'New relationship', tag_applied: `Tag "${seq.trigger_value}"` }[seq.trigger_type]}
-                      {' · '}{activeEnr.length} enrolled{enrolled.length !== activeEnr.length ? ` (${enrolled.length} total)` : ''}
-                      {' · '}Last run: {seq.last_run_at ? new Date(seq.last_run_at).toLocaleString() : 'never'}
-                    </span>
-                    <div className="ml-auto flex flex-wrap gap-2 text-[12px] font-medium">
-                      {seq.status !== 'active' && <button onClick={() => handleSetSequenceStatus(seq, 'active')} className="px-3 py-1 rounded-full bg-green-600 text-white hover:opacity-90">{seq.status === 'paused' ? 'Resume' : 'Activate'}</button>}
-                      {seq.status === 'active' && <button onClick={() => handleSetSequenceStatus(seq, 'paused')} className="px-3 py-1 rounded-full bg-yellow-500 text-white hover:opacity-90">Pause</button>}
-                      <button onClick={() => handleDuplicateSequence(seq)} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Duplicate</button>
-                      <button onClick={() => handleDeleteSequence(seq)} className="text-red-500 hover:text-red-700">Delete</button>
-                    </div>
-                  </div>
-
-                  {/* UPGRADE 3 — live funnel + UPGRADE 8 — enrollment list */}
-                  {(() => {
-                    const sSends = sequenceSends.filter(s => s.sequence_id === seq.id);
-                    const f = {
-                      Sent: sSends.length,
-                      Opened: sSends.filter(s => s.opened_at).length,
-                      Clicked: sSends.filter(s => s.clicked_at).length,
-                      Replied: sSends.filter(s => s.replied_at).length,
-                    };
-                    const max = Math.max(f.Sent, 1);
-                    return (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div className="p-3 border border-gray-100 dark:border-gray-800 rounded-xl">
-                          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Funnel {f.Sent > 0 && <span className="normal-case font-normal">· open {Math.round((f.Opened / f.Sent) * 100)}% · click {Math.round((f.Clicked / f.Sent) * 100)}% · reply {Math.round((f.Replied / f.Sent) * 100)}%</span>}</p>
-                          {Object.entries(f).map(([k, v]) => (
-                            <div key={k} className="flex items-center gap-2 py-0.5">
-                              <span className="text-[11px] font-medium text-gray-500 w-14">{k}</span>
-                              <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-3 overflow-hidden">
-                                <div className={`anim-grow-w h-full rounded-full ${{ Sent: 'bg-gray-400', Opened: 'bg-blue-500', Clicked: 'bg-indigo-500', Replied: 'bg-green-500' }[k]}`} style={{ width: `${(v / max) * 100}%` }} />
-                              </div>
-                              <span className="text-[11px] font-bold text-gray-900 dark:text-gray-100 w-6 text-right">{v}</span>
-                            </div>
-                          ))}
-                          <p className="text-[10px] text-gray-400 mt-1.5">Open/click tracking applies to auto-sent (Gmail) emails only — manual tab sends can't be tracked.</p>
-                        </div>
-                        <div className="p-3 border border-gray-100 dark:border-gray-800 rounded-xl max-h-44 overflow-y-auto">
-                          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Enrollments ({enrolled.length})</p>
-                          {enrolled.length === 0 ? <p className="text-[12px] text-gray-400">Nobody enrolled yet.</p> : enrolled.map(en => {
-                            const ec = clients.find(x => x.id === en.client_id);
-                            return (
-                              <div key={en.id} className="flex items-center gap-2 py-1 text-[12px]">
-                                <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-1">{ec?.name || '?'}</span>
-                                <span className="text-gray-400">step {Math.min(en.current_step + 1, steps.length)}/{steps.length}</span>
-                                {en.status === 'replied' ? (
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/10">Replied — auto-stopped</span>
-                                ) : (
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset capitalize ${en.status === 'active' ? 'bg-blue-50 text-blue-700 ring-blue-600/10' : en.status === 'completed' ? 'bg-gray-100 text-gray-600 ring-gray-500/10' : 'bg-red-50 text-red-700 ring-red-600/10'}`}>{en.status}</span>
-                                )}
-                                {en.status === 'active' && (emailSettings?.auto_send_enabled && gmailConn && !gmailConn.needs_reauth
-                                  ? <span className="text-[10px] text-green-600 font-medium shrink-0">Auto-sends {en.next_send_at}</span>
-                                  : <button onClick={() => handleStopEnrollment(en)} className="text-[10px] text-red-400 hover:text-red-600 shrink-0">stop</button>)}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* UPGRADE 8 — TIMELINE (spine, chips, inline edit, add-between, reorder) */}
-                  <div className="relative pl-4 space-y-1 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-px before:bg-gray-200 dark:before:bg-gray-700">
-                    {steps.map((st, i) => {
-                      const stSends = sequenceSends.filter(s => s.step_id === st.id);
-                      const abA = stSends.filter(s => s.subject_variant === 'A');
-                      const abB = stSends.filter(s => s.subject_variant === 'B');
-                      const rate = (arr) => arr.length ? Math.round((arr.filter(s => s.opened_at).length / arr.length) * 100) : 0;
-                      const chLabel = SEQ_CHANNELS.find(c => c.value === (st.channel || 'email'))?.label || '✉️ Email';
-                      const isEditing = stepEdit?.id === st.id;
-                      return (
-                        <div key={st.id}>
-                          {/* add-between */}
-                          <button onClick={() => setSeqStepDraft({ sequenceId: seq.id, insertAt: i, wait_days: 3, channel: 'email', condition: 'always', subject: '', subject_b: '', body: '', task_note: '' })} className="ml-2 text-[10px] font-semibold text-gray-300 hover:text-indigo-600 transition-colors">＋ insert step here</button>
-                          <div className="flex items-center gap-2 py-0.5 text-[11px] font-semibold text-gray-400">
-                            <span className="relative -left-4 w-3.5 h-3.5 rounded-full bg-white dark:bg-gray-900 ring-2 ring-gray-300 dark:ring-gray-600 shrink-0" />
-                            {isEditing ? (
-                              <label className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 -ml-3 flex items-center gap-1">Wait <input type="number" min="0" value={stepEdit.wait_days} onChange={e => setStepEdit({ ...stepEdit, wait_days: e.target.value })} className="w-14 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded focus:outline-none" /> days</label>
-                            ) : (
-                              <button onClick={() => setStepEdit({ ...st })} className="-ml-3 hover:text-gray-700 dark:hover:text-gray-200" title="Click to edit">Wait {st.wait_days} day{st.wait_days === 1 ? '' : 's'}{i === 0 ? ' after enrollment' : ''} ✎</button>
-                            )}
-                          </div>
-                          <div className="flex items-start gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl bg-gray-50/50 dark:bg-gray-800/40 group hover-lift">
-                            <span className="w-6 h-6 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white dark:bg-gray-900 ring-1 ring-inset ring-gray-300/60 dark:ring-gray-600">{chLabel}</span>
-                                {(st.condition || 'always') !== 'always' && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-600/10">{SEQ_CONDITIONS.find(c => c.value === st.condition)?.label}</span>
-                                )}
-                                {st.subject_b && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20">A/B test</span>}
-                              </div>
-                              {isEditing ? (
-                                <div className="space-y-1.5">
-                                  <div className="flex flex-wrap gap-1.5">
-                                    <select value={stepEdit.channel || 'email'} onChange={e => setStepEdit({ ...stepEdit, channel: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white focus:outline-none">
-                                      {SEQ_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                                    </select>
-                                    <select value={stepEdit.condition || 'always'} onChange={e => setStepEdit({ ...stepEdit, condition: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white focus:outline-none">
-                                      {SEQ_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                                    </select>
-                                  </div>
-                                  {(stepEdit.channel || 'email') === 'email' ? (
-                                    <>
-                                      <input type="text" value={stepEdit.subject || ''} onChange={e => setStepEdit({ ...stepEdit, subject: e.target.value })} placeholder="Subject A" className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
-                                      <input type="text" value={stepEdit.subject_b || ''} onChange={e => setStepEdit({ ...stepEdit, subject_b: e.target.value })} placeholder="Subject B (optional — makes this an A/B test)" className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
-                                      <textarea rows={3} value={stepEdit.body || ''} onChange={e => setStepEdit({ ...stepEdit, body: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
-                                    </>
-                                  ) : (
-                                    <textarea rows={2} value={stepEdit.task_note || ''} onChange={e => setStepEdit({ ...stepEdit, task_note: e.target.value })} placeholder="Task instructions, e.g. Mention the webinar — {{name}} attended" className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
-                                  )}
-                                  <div className="flex gap-2 justify-end">
-                                    <button onClick={() => setStepEdit(null)} className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                                    <button onClick={handleSaveStepEdit} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-gray-900 rounded-lg hover:opacity-90">Save</button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
-                                  {(st.channel || 'email') === 'email' ? (
-                                    <>
-                                      <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{st.subject}{st.subject_b ? <span className="text-gray-400 font-normal"> / B: {st.subject_b}</span> : ''}</p>
-                                      <p className="text-[12px] text-gray-500 line-clamp-2 whitespace-pre-wrap">{st.body}</p>
-                                    </>
-                                  ) : (
-                                    <p className="text-[13px] text-gray-700 dark:text-gray-300">{st.task_note || 'Manual task step'}</p>
-                                  )}
-                                  <p className="text-[10px] text-gray-400 mt-1">
-                                    Sent {stSends.length} · Opened {stSends.filter(s => s.opened_at).length} · Clicked {stSends.filter(s => s.clicked_at).length} · Replied {stSends.filter(s => s.replied_at).length}
-                                    {st.subject_b && (abA.length + abB.length) > 0 && (
-                                      <span className={'ml-2 font-semibold ' + (rate(abA) >= rate(abB) ? 'text-green-600' : 'text-amber-600')}>
-                                        A/B: A {rate(abA)}% ({abA.length}) vs B {rate(abB)}% ({abB.length}) — {rate(abA) === rate(abB) ? 'tie' : rate(abA) > rate(abB) ? 'A wins' : 'B wins'}
-                                      </span>
-                                    )}
-                                  </p>
-                                </>
-                              )}
-                            </div>
-                            <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                              <button onClick={() => handleMoveStep(seq.id, i, -1)} disabled={i === 0} className="text-[11px] text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30" title="Move up">▲</button>
-                              <button onClick={() => handleMoveStep(seq.id, i, 1)} disabled={i === steps.length - 1} className="text-[11px] text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30" title="Move down">▼</button>
-                              <button onClick={() => showConfirm('Delete Step', 'Delete this step?', 'Delete', 'danger', async () => handleDeleteSequenceStep(st))} className="text-[11px] font-medium text-red-400 hover:text-red-600">✕</button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {/* Add step */}
-                    {seqStepDraft?.sequenceId === seq.id ? (
-                      <form onSubmit={handleAddSequenceStep} className="border border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-3 space-y-2 text-[13px]">
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <label className="flex items-center gap-1.5 text-[12px] text-gray-500">Wait
-                            <input type="number" min="0" value={seqStepDraft.wait_days} onChange={e => setSeqStepDraft({ ...seqStepDraft, wait_days: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-16 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
-                            days, then send:
-                          </label>
-                          {/* UPGRADE 5 — channel selector */}
-                          <select value={seqStepDraft.channel || 'email'} onChange={e => setSeqStepDraft({ ...seqStepDraft, channel: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
-                            {SEQ_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                          </select>
-                          {/* UPGRADE 4 — condition */}
-                          <select value={seqStepDraft.condition || 'always'} onChange={e => setSeqStepDraft({ ...seqStepDraft, condition: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
-                            {SEQ_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                          </select>
-                          {(seqStepDraft.channel || 'email') === 'email' && emailTemplates.length > 0 && (
-                            <select onChange={e => { const t = emailTemplates.find(x => String(x.id) === e.target.value); if (t) setSeqStepDraft({ ...seqStepDraft, subject: t.subject, body: t.body }); }} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
-                              <option value="">Use template…</option>
-                              {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                            </select>
-                          )}
-                        </div>
-                        {(seqStepDraft.channel || 'email') === 'email' ? (
-                          <>
-                            <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={seqStepDraft.subject} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
-                            {/* UPGRADE 6 — B variant */}
-                            {seqStepDraft.showB ? (
-                              <input type="text" placeholder="Subject B (A/B test — sent to half of enrollments)" value={seqStepDraft.subject_b || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject_b: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-amber-200 rounded-lg focus:outline-none focus:border-amber-400" />
-                            ) : (
-                              <button type="button" onClick={() => setSeqStepDraft({ ...seqStepDraft, showB: true })} className="text-[11px] font-semibold text-amber-600 hover:underline">＋ Add B variant (A/B test)</button>
-                            )}
-                            <textarea rows={3} required placeholder="Body" value={seqStepDraft.body} onChange={e => setSeqStepDraft({ ...seqStepDraft, body: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
-                          </>
-                        ) : (
-                          <textarea rows={2} required placeholder="Task instructions — e.g. Mention their webinar question. Supports {{name}}." value={seqStepDraft.task_note || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, task_note: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
-                        )}
-                        <div className="flex justify-end gap-2">
-                          <button type="button" onClick={() => setSeqStepDraft(null)} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
-                          <button type="submit" className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Step</button>
-                        </div>
-                      </form>
-                    ) : (
-                      <button onClick={() => setSeqStepDraft({ sequenceId: seq.id, insertAt: null, wait_days: steps.length === 0 ? 0 : 3, channel: 'email', condition: 'always', subject: '', subject_b: '', body: '', task_note: '' })} className="w-full px-3 py-2 text-[12px] font-medium text-gray-500 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl hover:border-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">+ Add step {steps.length > 0 ? `(step ${steps.length + 1})` : '(first email)'}</button>
-                    )}
-                  </div>
-
-                  {/* Enroll / Run — UPGRADE 8: multi-select */}
-                  <div className="flex flex-wrap items-start gap-2 pt-3 border-t border-gray-100 dark:border-gray-800">
-                    <details className="relative">
-                      <summary className="px-3 py-1.5 text-[13px] border border-gray-200 rounded-lg bg-white text-gray-700 cursor-pointer select-none list-none">
-                        {Object.values(enrollMulti[seq.id] || {}).filter(Boolean).length || 'Pick'} relationship{Object.values(enrollMulti[seq.id] || {}).filter(Boolean).length === 1 ? '' : 's'} ▾
-                      </summary>
-                      <div className="absolute z-20 mt-1 w-64 max-h-48 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 space-y-0.5">
-                        {clients.filter(c => c.email).map(c => (
-                          <label key={c.id} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
-                            <input type="checkbox" checked={!!(enrollMulti[seq.id] || {})[c.id]} onChange={e => setEnrollMulti(prev => ({ ...prev, [seq.id]: { ...(prev[seq.id] || {}), [c.id]: e.target.checked } }))} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded border-gray-300 dark:border-gray-600 focus:ring-0" />
-                            <span className="truncate">{c.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </details>
-                    <button onClick={async () => {
-                      const ids = Object.entries(enrollMulti[seq.id] || {}).filter(([, v]) => v).map(([k]) => k);
-                      for (const id of ids) await enrollClientInSequence(seq, id);
-                      setEnrollMulti(prev => ({ ...prev, [seq.id]: {} }));
-                    }} disabled={!Object.values(enrollMulti[seq.id] || {}).some(Boolean)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">▶ Enroll / Run</button>
-                    {activeEnr.length > 0 && (
-                      <span className="text-[11px] text-gray-400">Next sends: {activeEnr.slice(0, 3).map(en => `${clients.find(c => c.id === en.client_id)?.name || '?'} → ${en.next_send_at}`).join(' · ')}{activeEnr.length > 3 ? ' …' : ''}</span>
-                    )}
+                  </details>
+                  {/* stats bar */}
+                  <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] font-medium text-gray-500">
+                    <span>Sent <b className="text-gray-900 dark:text-gray-100">{stats.Sent}</b></span>
+                    <span>Opened <b className="text-blue-600 dark:text-blue-400">{stats.Opened}{stats.Sent > 0 ? ` (${Math.round((stats.Opened / stats.Sent) * 100)}%)` : ''}</b></span>
+                    <span>Clicked <b className="text-indigo-600 dark:text-indigo-400">{stats.Clicked}</b></span>
+                    <span>Replied <b className="text-green-600 dark:text-green-400">{stats.Replied}</b></span>
+                    <span>Unsubscribed <b className="text-red-500">{stats.Unsubscribed}</b></span>
                   </div>
                 </div>
-              );
-            })}
 
-            <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-[12px] text-yellow-800 dark:text-yellow-300">
-              ⚠️ Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait here for one-click manual sending via compose tabs. With Auto-send ON + your own Gmail connected (Settings → Gmail Sync), the sequence-runner cron sends them automatically from YOUR Gmail address inside your send window, with open/click tracking.
+                {connectFrom && (
+                  <div className="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-xl text-[12px] font-medium text-indigo-700 dark:text-indigo-300 flex items-center gap-3">
+                    🔌 Click a target node to connect the arrow{connectFrom.branch !== 'default' ? ` (${connectFrom.branch.toUpperCase()} branch)` : ''} — or
+                    <button onClick={() => setConnectFrom(null)} className="underline font-semibold">cancel</button>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-[150px_1fr_290px] gap-4 items-start">
+                  {/* node palette */}
+                  <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-3 space-y-1 lg:sticky lg:top-4">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 px-1 mb-2">Add node</p>
+                    {NODE_PALETTE.map(t => (
+                      <button key={t} onClick={() => handleAddNode(editingSeq.id, t)} className="w-full flex items-center gap-2 px-2 py-1.5 text-[12px] font-medium text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
+                        <span>{NODE_META[t].emoji}</span> {NODE_META[t].label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* canvas */}
+                  <div className="relative bg-gray-50 dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-inner overflow-auto h-[640px]"
+                    style={{ backgroundImage: 'radial-gradient(circle, rgba(148,163,184,0.25) 1px, transparent 1px)', backgroundSize: '22px 22px' }}>
+                    <div className="relative" style={{ width: contentW, height: contentH }}
+                      onMouseMove={e => {
+                        if (!nodeDrag) return;
+                        const nx = Math.max(0, e.clientX - nodeDrag.dx);
+                        const ny = Math.max(0, e.clientY - nodeDrag.dy);
+                        updateNodeLocal(nodeDrag.nodeId, { pos_x: nx, pos_y: ny });
+                      }}
+                      onMouseUp={() => {
+                        if (!nodeDrag) return;
+                        const n = sequenceSteps.find(s => s.id === nodeDrag.nodeId);
+                        if (n) handleUpdateNode(n.id, { pos_x: Math.round(n.pos_x ?? 300), pos_y: Math.round(n.pos_y ?? 30) });
+                        setNodeDrag(null);
+                      }}
+                      onMouseLeave={() => { if (nodeDrag) setNodeDrag(null); }}>
+                      {/* arrows */}
+                      <svg className="absolute inset-0 pointer-events-none" width={contentW} height={contentH}>
+                        <defs>
+                          <marker id="arr-default" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#9ca3af" /></marker>
+                          <marker id="arr-yes" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#22c55e" /></marker>
+                          <marker id="arr-no" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0 0, 8 4, 0 8" fill="#9ca3af" /></marker>
+                        </defs>
+                        {edges.map(e => {
+                          const from = outPort(e);
+                          const toP = posOf[e.to_step_id];
+                          if (!from || !toP) return null;
+                          const to = { x: toP.x + CARD_W / 2, y: toP.y };
+                          const bend = Math.max(36, Math.min(90, (to.y - from.y) / 2));
+                          const d = `M ${from.x},${from.y} C ${from.x},${from.y + bend} ${to.x},${to.y - bend} ${to.x},${to.y - 4}`;
+                          const isYes = e.branch === 'yes', isNo = e.branch === 'no';
+                          const midX = (from.x + to.x) / 2, midY = (from.y + to.y) / 2;
+                          return (
+                            <g key={e.id} className="pointer-events-auto cursor-pointer" onClick={() => showConfirm('Remove Arrow', 'Remove this connection?', 'Remove', 'danger', async () => handleDeleteEdge(e))}>
+                              <path d={d} fill="none" strokeWidth="6" stroke="transparent" />
+                              <path d={d} fill="none" strokeWidth="1.8" stroke={isYes ? '#22c55e' : '#9ca3af'} markerEnd={`url(#arr-${isYes ? 'yes' : isNo ? 'no' : 'default'})`} />
+                              {(isYes || isNo) && (
+                                <g>
+                                  <rect x={midX - 17} y={midY - 9} width="34" height="18" rx="9" fill={isYes ? '#22c55e' : '#9ca3af'} />
+                                  <text x={midX} y={midY + 3.5} textAnchor="middle" fontSize="10" fontWeight="700" fill="#fff">{isYes ? 'Yes' : 'No'}</text>
+                                </g>
+                              )}
+                            </g>
+                          );
+                        })}
+                      </svg>
+                      {/* node cards */}
+                      {nodes.map((n, i) => {
+                        const t = n.node_type || 'email';
+                        const meta = NODE_META[t] || NODE_META.email;
+                        const p = posOf[n.id];
+                        const nSends = sSends.filter(s => s.step_id === n.id).length;
+                        const here = activeEnr.filter(en => en.current_node_id === n.id).length;
+                        const isSel = selectedNodeId === n.id;
+                        const connectTarget = connectFrom && connectFrom.nodeId !== n.id && t !== 'trigger';
+                        return (
+                          <div key={n.id}
+                            className={`absolute w-64 bg-white dark:bg-gray-900 rounded-xl border ${isSel ? 'border-gray-900 dark:border-gray-100 shadow-md' : 'border-gray-200 dark:border-gray-700 shadow-sm'} border-l-4 ${meta.border} select-none ${connectTarget ? 'ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-gray-950 cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
+                            style={{ left: p.x, top: p.y }}
+                            onMouseDown={e => {
+                              if (connectFrom) return;
+                              if (e.target.closest('button')) return;
+                              e.preventDefault();
+                              setNodeDrag({ nodeId: n.id, dx: e.clientX - p.x, dy: e.clientY - p.y });
+                              setSelectedNodeId(n.id);
+                            }}
+                            onClick={() => { if (connectFrom) handleAddEdge(editingSeq.id, connectFrom.nodeId, connectFrom.branch, n.id); else setSelectedNodeId(n.id); }}>
+                            <div className="flex items-center gap-1.5 px-3 pt-2.5">
+                              <span className="text-[13px]">{meta.emoji}</span>
+                              <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100">{meta.label}</span>
+                              {t !== 'trigger' && (
+                                <button onClick={() => handleDeleteNode(n)} className="ml-auto text-gray-300 hover:text-red-500 text-[13px] leading-none px-1" title="Delete node">✕</button>
+                              )}
+                            </div>
+                            <div className="px-3 pb-2 pt-1">
+                              <p className="text-[12px] text-gray-600 dark:text-gray-300 truncate">{nodeSummary(n)}</p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                {t === 'email' && n.subject_b ? 'A/B test · ' : ''}
+                                {['email', 'linkedin_view', 'linkedin_connect', 'call', 'manual_task'].includes(t) ? `${nSends} sent · ` : ''}
+                                {here > 0 ? `${here} here now` : t === 'trigger' ? `${activeEnr.length} enrolled` : '—'}
+                              </p>
+                            </div>
+                            {/* output ports */}
+                            {t !== 'goal' && (t === 'condition' ? (
+                              <div className="absolute -bottom-2 left-0 w-full flex justify-around">
+                                <button title="Connect YES branch" onClick={() => setConnectFrom({ nodeId: n.id, branch: 'yes' })} className="w-4 h-4 rounded-full bg-green-500 border-2 border-white dark:border-gray-900 hover:scale-125 transition-transform" />
+                                <button title="Connect NO branch" onClick={() => setConnectFrom({ nodeId: n.id, branch: 'no' })} className="w-4 h-4 rounded-full bg-gray-400 border-2 border-white dark:border-gray-900 hover:scale-125 transition-transform" />
+                              </div>
+                            ) : (
+                              <button title="Connect to next node" onClick={() => setConnectFrom({ nodeId: n.id, branch: 'default' })}
+                                className={`absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full ${meta.dot} border-2 border-white dark:border-gray-900 hover:scale-125 transition-transform`} />
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* config panel */}
+                  <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-4 lg:sticky lg:top-4 space-y-3">
+                    {!selNode ? (
+                      <p className="text-[12px] text-gray-400 py-6 text-center">Select a node on the canvas to configure it.<br /><br />💡 Drag cards to arrange · click a port dot, then a target node, to draw an arrow.</p>
+                    ) : (() => {
+                      const t = selNode.node_type || 'email';
+                      const meta = NODE_META[t] || NODE_META.email;
+                      return (
+                        <>
+                          <div className="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
+                            <span className="text-lg">{meta.emoji}</span>
+                            <span className="text-[14px] font-bold text-gray-900 dark:text-gray-100">{meta.label}</span>
+                          </div>
+                          {t === 'trigger' && (
+                            <div className="space-y-2.5">
+                              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">When should this sequence start?</label>
+                              <select value={trigType} onChange={e => handleSaveSequenceTrigger(editingSeq.id, e.target.value, {})} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none">
+                                {TRIGGER_TYPES.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+                              </select>
+                              <p className="text-[11px] text-gray-500">{TRIGGER_TYPES.find(x => x.value === trigType)?.desc}</p>
+                              {TRIGGER_TYPES.find(x => x.value === trigType)?.config === 'stage' && (
+                                <select value={trigCfg.stage || ''} onChange={e => handleSaveSequenceTrigger(editingSeq.id, trigType, { ...trigCfg, stage: e.target.value })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none">
+                                  <option value="">Any stage</option>
+                                  {(trigType === 'deal_stage_changed' ? DEAL_STAGES : PIPELINE_STAGES).map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                              )}
+                              {TRIGGER_TYPES.find(x => x.value === trigType)?.config === 'tag' && (
+                                <select value={trigCfg.tag_id || ''} onChange={e => handleSaveSequenceTrigger(editingSeq.id, trigType, { ...trigCfg, tag_id: e.target.value })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none">
+                                  <option value="">— pick tag —</option>
+                                  {tags.map(tg => <option key={tg.id} value={tg.id}>{tg.name}</option>)}
+                                </select>
+                              )}
+                              {TRIGGER_TYPES.find(x => x.value === trigType)?.config === 'days' && (
+                                <label className="flex items-center gap-2 text-[13px] text-gray-600 dark:text-gray-300">
+                                  <input type="number" min="1" defaultValue={trigCfg.days || 30} onBlur={e => handleSaveSequenceTrigger(editingSeq.id, trigType, { ...trigCfg, days: parseInt(e.target.value, 10) || 30 })} className="w-20 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" /> days
+                                </label>
+                              )}
+                              {trigType !== 'manual' && (
+                                <div className="p-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg text-[11px] text-blue-700 dark:text-blue-300">
+                                  ℹ️ This sequence will auto-enroll matching relationships every time this event happens. Make sure your send window is configured in Settings → Email Automation.
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {t === 'email' && (
+                            <div className="space-y-2.5">
+                              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Subject <span className="normal-case font-normal">(supports {'{{name}} {{first_name}} {{company}}'})</span></label>
+                              <input type="text" value={selNode.subject || ''} onChange={e => updateNodeLocal(selNode.id, { subject: e.target.value })} onBlur={e => handleUpdateNode(selNode.id, { subject: e.target.value })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
+                              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Subject B <span className="normal-case font-normal">(optional A/B test)</span></label>
+                              <input type="text" value={selNode.subject_b || ''} onChange={e => updateNodeLocal(selNode.id, { subject_b: e.target.value })} onBlur={e => handleUpdateNode(selNode.id, { subject_b: e.target.value || null })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
+                              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Body</label>
+                              <textarea rows={8} value={selNode.body || ''} onChange={e => updateNodeLocal(selNode.id, { body: e.target.value })} onBlur={e => handleUpdateNode(selNode.id, { body: e.target.value })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none font-mono" />
+                              <label className="flex items-center gap-2 text-[12px] text-gray-600 dark:text-gray-300">Extra delay before this email:
+                                <input type="number" min="0" value={selNode.wait_days ?? 0} onChange={e => updateNodeLocal(selNode.id, { wait_days: parseInt(e.target.value, 10) || 0 })} onBlur={e => handleUpdateNode(selNode.id, { wait_days: parseInt(e.target.value, 10) || 0 })} className="w-16 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" /> days
+                              </label>
+                            </div>
+                          )}
+                          {t === 'wait' && (
+                            <label className="flex items-center gap-2 text-[13px] text-gray-600 dark:text-gray-300">Wait
+                              <input type="number" min="0" value={selNode.config?.days ?? 1} onChange={e => updateNodeLocal(selNode.id, { config: { ...(selNode.config || {}), days: parseInt(e.target.value, 10) || 0 } })} onBlur={e => handleUpdateNode(selNode.id, { config: { ...(selNode.config || {}), days: parseInt(e.target.value, 10) || 0 } })} className="w-20 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" /> days before continuing
+                            </label>
+                          )}
+                          {t === 'condition' && (
+                            <div className="space-y-2.5">
+                              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Branch on</label>
+                              <select value={selNode.config?.type || 'if_no_reply'} onChange={e => handleUpdateNode(selNode.id, { config: { ...(selNode.config || {}), type: e.target.value } })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none">
+                                {CONDITION_TYPES.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}
+                              </select>
+                              <p className="text-[11px] text-gray-500">Use the <span className="text-green-600 font-semibold">green dot</span> for the YES path and the <span className="font-semibold">gray dot</span> for NO.</p>
+                            </div>
+                          )}
+                          {['linkedin_view', 'linkedin_connect', 'call', 'manual_task'].includes(t) && (
+                            <div className="space-y-2.5">
+                              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Task note <span className="normal-case font-normal">(supports {'{{name}} {{linkedin_url}}'})</span></label>
+                              <textarea rows={3} value={selNode.task_note || ''} onChange={e => updateNodeLocal(selNode.id, { task_note: e.target.value })} onBlur={e => handleUpdateNode(selNode.id, { task_note: e.target.value })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
+                              <p className="text-[11px] text-gray-500">When this step is due, a task is created in Tasks — LinkedIn and call steps are always manual.</p>
+                            </div>
+                          )}
+                          {t === 'goal' && (
+                            <div className="space-y-2.5">
+                              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Goal label</label>
+                              <input type="text" value={selNode.config?.label || ''} onChange={e => updateNodeLocal(selNode.id, { config: { ...(selNode.config || {}), label: e.target.value } })} onBlur={e => handleUpdateNode(selNode.id, { config: { ...(selNode.config || {}), label: e.target.value } })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
+                              <p className="text-[11px] text-gray-500">Enrollments that reach a goal stop with “goal reached”.</p>
+                            </div>
+                          )}
+                          {t !== 'trigger' && (
+                            <button onClick={() => handleDeleteNode(selNode)} className="w-full mt-2 px-3 py-2 text-[12px] font-semibold text-red-600 border border-red-200 dark:border-red-900 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">Delete node</button>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          // ================= HUB (Parts 5-6: list, templates, cold contacts) =================
+          const filteredCold = coldContacts.filter(c => {
+            if (coldFilter !== 'All' && c.status !== coldFilter.toLowerCase()) return false;
+            const q = coldSearch.trim().toLowerCase();
+            if (!q) return true;
+            return [c.email, c.first_name, c.last_name, c.company, c.title].some(v => (v || '').toLowerCase().includes(q));
+          });
+          const coldSelectedIds = Object.entries(coldSelected).filter(([, v]) => v).map(([k]) => parseInt(k, 10));
+          return (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="flex flex-wrap items-end gap-4">
+                <div>
+                  <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Email Automation</h1>
+                  <p className="text-[13px] text-gray-500">Build multichannel sequences on a visual canvas — they enroll and send themselves.</p>
+                </div>
+                <div className="ml-auto flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
+                  {[['sequences', 'Sequences'], ['contacts', `Cold Contacts${coldContacts.length ? ` (${coldContacts.length})` : ''}`], ['unsubs', 'Unsubscribes']].map(([k, label]) => (
+                    <button key={k} onClick={() => setSeqView(k)} className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${seqView === k ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'}`}>{label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {seqView === 'sequences' && (
+                <>
+                  {/* OUTBOX — due manual sends */}
+                  {dueSequenceSends.length > 0 && (
+                    <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl p-5 space-y-2">
+                      <h3 className="text-[14px] font-semibold text-indigo-900 dark:text-indigo-200">Outbox — {dueSequenceSends.length} email{dueSequenceSends.length === 1 ? '' : 's'} due</h3>
+                      {dueSequenceSends.map(({ enr, seq, step, client: c }) => (
+                        <div key={enr.id} className="flex flex-wrap items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-3 border border-indigo-100 dark:border-indigo-800">
+                          <div className="flex-1 min-w-[180px]">
+                            <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">{c.name} <span className="text-gray-400 font-normal">· step {enr.current_step + 1} of {seqStepsFor(seq.id).length} · {seq.name}</span></p>
+                            <p className="text-[12px] text-gray-500 truncate">{resolveMergeTags(step.subject, c)}</p>
+                          </div>
+                          <button onClick={() => handleStopEnrollment(enr)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Stop</button>
+                          <button onClick={() => handleSendSequenceStep(enr)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Send now →</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* TEMPLATE GALLERY (Part 6) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    {SEQ_TEMPLATES.map(tpl => (
+                      <button key={tpl.key} onClick={() => handleCreateFromTemplate(tpl)} className="text-left p-4 bg-white dark:bg-gray-900 rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all group">
+                        <span className="text-xl">{tpl.emoji}</span>
+                        <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 mt-1.5 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{tpl.name}</p>
+                        <p className="text-[11px] text-gray-500 mt-1 line-clamp-2">{tpl.desc}</p>
+                        <p className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mt-2">＋ Use template</p>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* NEW BLANK SEQUENCE */}
+                  <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                    <form onSubmit={handleCreateSequence} className="flex flex-wrap gap-2 text-[13px]">
+                      <input type="text" required placeholder="Or start blank — sequence name (e.g. Cold outreach — agencies)" value={newSeqName} onChange={e => setNewSeqName(e.target.value)} className="flex-1 min-w-[220px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
+                      <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Sequence</button>
+                    </form>
+                  </div>
+
+                  {/* SEQUENCE CARD GRID */}
+                  {sequences.length === 0 ? (
+                    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                      <EmptyState title="No sequences yet" desc="Start from a template above — the LinkedIn + Email cadence is one click away." />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {sequences.map(seq => {
+                        const enrolled = sequenceEnrollments.filter(en => en.sequence_id === seq.id);
+                        const activeEnr = enrolled.filter(en => en.status === 'active');
+                        const sSends = sequenceSends.filter(s => s.sequence_id === seq.id);
+                        const trig = sequenceTriggers.find(t => t.sequence_id === seq.id);
+                        return (
+                          <div key={seq.id} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow p-5 flex flex-col gap-3">
+                            <div className="flex items-start gap-2">
+                              <h3 className="text-[14px] font-bold text-gray-900 dark:text-gray-100 flex-1 truncate">{seq.name}</h3>
+                              <button onClick={() => handleSetSequenceActive(seq, !seq.is_active)} title={seq.is_active ? 'Pause' : 'Activate'}
+                                className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ring-1 ring-inset ${seq.is_active ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 ring-green-600/20' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 ring-gray-500/10'}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${seq.is_active ? 'bg-green-500' : 'bg-gray-400'}`} />
+                                {seq.is_active ? 'Active' : 'Paused'}
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-gray-500">
+                              ⚡ {trig ? (TRIGGER_TYPES.find(x => x.value === trig.trigger_event)?.label || trig.trigger_event) : 'Manual'} ·
+                              {' '}{activeEnr.length} enrolled · {sSends.length} sent
+                              <br />Last sent: {seq.last_run_at ? new Date(seq.last_run_at).toLocaleDateString() : 'never'}
+                            </p>
+                            <div className="flex items-center gap-2 mt-auto pt-2 border-t border-gray-100 dark:border-gray-800 text-[12px] font-medium">
+                              <button onClick={() => { setEditingSeqId(seq.id); setSelectedNodeId(null); }} className="px-3 py-1.5 font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:opacity-90 shadow-sm">Open builder →</button>
+                              <button onClick={() => { setEditingSeqId(seq.id); setSelectedNodeId(null); }} title="Enroll contacts now" className="px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">▶ Run</button>
+                              <span className="ml-auto flex gap-2">
+                                <button onClick={() => handleDuplicateSequence(seq)} className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100" title="Duplicate">⧉</button>
+                                <button onClick={() => handleDeleteSequence(seq)} className="text-gray-400 hover:text-red-600" title="Delete">🗑</button>
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-[12px] text-yellow-800 dark:text-yellow-300">
+                    ⚠️ Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait in the Outbox for one-click manual sending. With Auto-send ON + Gmail connected (or a Resend sender configured), the runner sends automatically inside your send window with open/click tracking and unsubscribe handling.
+                  </div>
+                </>
+              )}
+
+              {seqView === 'contacts' && (
+                <>
+                  {/* import + manual add */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                      <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-2">Import prospects (CSV)</h3>
+                      <label className="flex flex-col items-center justify-center gap-1 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl py-6 cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors">
+                        <span className="text-xl">📥</span>
+                        <span className="text-[13px] font-semibold text-gray-700 dark:text-gray-200">Click to upload a CSV</span>
+                        <span className="text-[11px] text-gray-400">Columns auto-mapped: email, first_name, last_name, company, title, linkedin_url</span>
+                        <input type="file" accept=".csv" onChange={handleColdCsvFile} className="hidden" />
+                      </label>
+                    </div>
+                    <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                      <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-2">Add manually</h3>
+                      <form onSubmit={handleAddColdContact} className="grid grid-cols-2 gap-2 text-[13px]">
+                        <input type="email" required placeholder="Email *" value={coldDraft.email} onChange={e => setColdDraft({ ...coldDraft, email: e.target.value })} className="col-span-2 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
+                        <input type="text" placeholder="First name" value={coldDraft.first_name} onChange={e => setColdDraft({ ...coldDraft, first_name: e.target.value })} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
+                        <input type="text" placeholder="Last name" value={coldDraft.last_name} onChange={e => setColdDraft({ ...coldDraft, last_name: e.target.value })} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
+                        <input type="text" placeholder="Company" value={coldDraft.company} onChange={e => setColdDraft({ ...coldDraft, company: e.target.value })} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
+                        <input type="url" placeholder="LinkedIn URL" value={coldDraft.linkedin_url} onChange={e => setColdDraft({ ...coldDraft, linkedin_url: e.target.value })} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
+                        <button type="submit" className="col-span-2 px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Contact</button>
+                      </form>
+                    </div>
+                  </div>
+
+                  {/* toolbar */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input type="text" placeholder="Search cold contacts..." value={coldSearch} onChange={e => setColdSearch(e.target.value)} className="flex-1 min-w-[180px] px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
+                    {['All', 'Prospect', 'Contacted', 'Replied', 'Converted', 'Unsubscribed', 'Bounced'].map(f => (
+                      <button key={f} onClick={() => setColdFilter(f)} className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${coldFilter === f ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'}`}>{f}</button>
+                    ))}
+                  </div>
+
+                  {/* bulk bar */}
+                  {coldSelectedIds.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-gray-900 dark:bg-gray-100 rounded-xl text-[12px] font-medium text-white dark:text-gray-900">
+                      {coldSelectedIds.length} selected
+                      <select value={coldEnrollSeqId} onChange={e => setColdEnrollSeqId(e.target.value)} className="px-2 py-1 rounded-lg bg-white/10 dark:bg-gray-900/10 border border-white/20 dark:border-gray-900/20 text-white dark:text-gray-900 focus:outline-none">
+                        <option value="" className="text-gray-900">Enroll in sequence…</option>
+                        {sequences.map(s => <option key={s.id} value={s.id} className="text-gray-900">{s.name}</option>)}
+                      </select>
+                      <button disabled={!coldEnrollSeqId} onClick={() => { const seq = sequences.find(s => String(s.id) === coldEnrollSeqId); if (seq) enrollColdContactsInSequence(seq, coldSelectedIds); }} className="px-3 py-1 rounded-lg bg-indigo-500 text-white font-semibold hover:opacity-90 disabled:opacity-40">▶ Enroll</button>
+                      <span className="ml-auto flex gap-2">
+                        <button onClick={() => handleUnsubscribeColdContacts(coldSelectedIds)} className="px-3 py-1 rounded-lg bg-white/10 dark:bg-gray-900/10 hover:bg-white/20">Unsubscribe</button>
+                        <button onClick={() => handleDeleteColdContacts(coldSelectedIds)} className="px-3 py-1 rounded-lg bg-red-500/80 text-white hover:opacity-90">Delete</button>
+                      </span>
+                    </div>
+                  )}
+
+                  {/* list */}
+                  <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+                    {filteredCold.length === 0 ? (
+                      <EmptyState title="No cold contacts" desc="Upload a CSV of prospects or add one manually — then enroll them in a sequence." />
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[13px]">
+                          <thead>
+                            <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-100 dark:border-gray-800">
+                              <th className="px-4 py-2.5 w-8"><input type="checkbox" checked={filteredCold.length > 0 && filteredCold.every(c => coldSelected[c.id])} onChange={e => { const next = {}; if (e.target.checked) filteredCold.forEach(c => { next[c.id] = true; }); setColdSelected(next); }} /></th>
+                              <th className="px-2 py-2.5">Contact</th>
+                              <th className="px-2 py-2.5 hidden md:table-cell">Company</th>
+                              <th className="px-2 py-2.5">Status</th>
+                              <th className="px-2 py-2.5 hidden sm:table-cell">Enrolled</th>
+                              <th className="px-4 py-2.5"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredCold.map(c => {
+                              const enr = sequenceEnrollments.filter(en => en.cold_contact_id === c.id);
+                              const activeIn = enr.filter(en => en.status === 'active');
+                              const statusCls = {
+                                prospect: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300',
+                                contacted: 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
+                                replied: 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400',
+                                converted: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400',
+                                unsubscribed: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+                                bounced: 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400',
+                              }[c.status] || 'bg-gray-100 text-gray-600';
+                              return (
+                                <tr key={c.id} className="border-b border-gray-50 dark:border-gray-800/60 hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
+                                  <td className="px-4 py-2.5"><input type="checkbox" checked={!!coldSelected[c.id]} onChange={e => setColdSelected(prev => ({ ...prev, [c.id]: e.target.checked }))} /></td>
+                                  <td className="px-2 py-2.5">
+                                    <p className="font-semibold text-gray-900 dark:text-gray-100">{[c.first_name, c.last_name].filter(Boolean).join(' ') || '—'}</p>
+                                    <p className="text-[11px] text-gray-400">{c.email}{c.title ? ` · ${c.title}` : ''}</p>
+                                  </td>
+                                  <td className="px-2 py-2.5 hidden md:table-cell text-gray-600 dark:text-gray-300">{c.company || '—'}</td>
+                                  <td className="px-2 py-2.5"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${statusCls}`}>{c.status}</span></td>
+                                  <td className="px-2 py-2.5 hidden sm:table-cell text-[11px] text-gray-400">{activeIn.length > 0 ? `${activeIn.length} active sequence${activeIn.length === 1 ? '' : 's'}` : enr.length > 0 ? 'finished' : '—'}</td>
+                                  <td className="px-4 py-2.5 text-right">
+                                    {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-indigo-500 hover:underline">LinkedIn ↗</a>}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {seqView === 'unsubs' && (
+                <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
+                  <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-1">Unsubscribe list</h3>
+                  <p className="text-[12px] text-gray-500 mb-4">Every address here is silently skipped by the auto-send runner — across all sequences.</p>
+                  {unsubscribesList.length === 0 ? (
+                    <p className="text-[13px] text-gray-400 py-4">Nobody has unsubscribed. 🎉</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {unsubscribesList.map(u => (
+                        <div key={u.id} className="flex items-center gap-3 px-3 py-2 border border-gray-100 dark:border-gray-800 rounded-xl text-[13px]">
+                          <span className="font-medium text-gray-900 dark:text-gray-100">{u.email}</span>
+                          <span className="text-[11px] text-gray-400">{u.reason === 'link_click' ? 'via unsubscribe link' : 'manual'} · {new Date(u.created_at).toLocaleDateString()}</span>
+                          <button onClick={() => handleRemoveUnsubscribe(u)} className="ml-auto text-[11px] font-semibold text-gray-400 hover:text-red-600">Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* CSV IMPORT PREVIEW MODAL */}
+              {coldImportPreview && (
+                <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+                  <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-3xl border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col max-h-[85vh]">
+                    <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+                      <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">Import preview</h3>
+                      <span className="text-[12px] text-gray-500">
+                        {coldImportPreview.filter(r => !r.error && !r.warning).length} valid ·
+                        {' '}{coldImportPreview.filter(r => r.warning).length} duplicates ·
+                        {' '}{coldImportPreview.filter(r => r.error).length} invalid
+                      </span>
+                      <button onClick={() => setColdImportPreview(null)} className="ml-auto text-gray-400 hover:text-gray-900 dark:hover:text-gray-100">✕</button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto px-6 py-3">
+                      <table className="w-full text-[12px]">
+                        <thead><tr className="text-left text-[10px] font-bold uppercase tracking-wider text-gray-400"><th className="py-1.5 w-8"></th><th>Email</th><th>Name</th><th className="hidden sm:table-cell">Company</th><th>Status</th></tr></thead>
+                        <tbody>
+                          {coldImportPreview.map(r => (
+                            <tr key={r.key} className={`border-t border-gray-50 dark:border-gray-800/60 ${r.error ? 'bg-red-50/60 dark:bg-red-900/10' : r.warning ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : 'bg-green-50/40 dark:bg-green-900/10'}`}>
+                              <td className="py-1.5"><input type="checkbox" disabled={!!r.error} checked={r.checked} onChange={e => setColdImportPreview(prev => prev.map(x => x.key === r.key ? { ...x, checked: e.target.checked } : x))} /></td>
+                              <td className="py-1.5 font-medium text-gray-900 dark:text-gray-100">{r.email || '—'}</td>
+                              <td className="py-1.5 text-gray-600 dark:text-gray-300">{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
+                              <td className="py-1.5 hidden sm:table-cell text-gray-600 dark:text-gray-300">{r.company || '—'}</td>
+                              <td className="py-1.5">{r.error ? <span className="text-red-600 font-semibold">{r.error}</span> : r.warning ? <span className="text-yellow-600 font-semibold">{r.warning}</span> : <span className="text-green-600 font-semibold">OK</span>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-2">
+                      <button onClick={() => setColdImportPreview(null)} className="px-4 py-2 text-[13px] font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</button>
+                      <button onClick={handleConfirmColdImport} disabled={coldImportLoading || coldImportPreview.filter(r => r.checked && !r.error).length === 0} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">
+                        {coldImportLoading ? 'Importing…' : `Import ${coldImportPreview.filter(r => r.checked && !r.error).length} contacts`}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* VIEW: SETTINGS */}
         {appStep === 'SETTINGS' && (
