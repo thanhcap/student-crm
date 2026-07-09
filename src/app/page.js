@@ -204,6 +204,783 @@ function pickSubjectVariant(step, enrollment) {
   return { subject: step.subject, variant: null };
 }
 
+// ==========================================
+// EMAIL AUTOMATION — node/edge campaign graph (LGM-style canvas).
+// ⚠ Graph-walk functions below must stay BEHAVIORALLY IDENTICAL to
+// supabase/functions/sequence-runner/_shared/sequence-logic.ts (runner v4).
+// ==========================================
+const NODE_TYPE_META = {
+  trigger:          { icon: '⚡', label: 'Trigger',            accent: '#F59E0B' },
+  email:            { icon: '✉️', label: 'Email',              accent: '#6366F1' },
+  wait:             { icon: '⏱️', label: 'Wait',               accent: '#0EA5E9' },
+  condition:        { icon: '🔀', label: 'Condition',          accent: '#8B5CF6' },
+  linkedin_view:    { icon: '🔗', label: 'LinkedIn — View',    accent: '#3B82F6' },
+  linkedin_connect: { icon: '🤝', label: 'LinkedIn — Connect', accent: '#06B6D4' },
+  call:             { icon: '📞', label: 'Call',               accent: '#22C55E' },
+  manual_task:      { icon: '✅', label: 'Manual task',        accent: '#9CA3AF' },
+  goal:             { icon: '🎯', label: 'Goal',               accent: '#10B981' },
+};
+const PALETTE_NODE_TYPES = ['email', 'wait', 'condition', 'linkedin_view', 'linkedin_connect', 'call', 'manual_task', 'goal'];
+const TASK_NODE_TYPES = ['linkedin_view', 'linkedin_connect', 'call', 'manual_task'];
+const NODE_W = 224, NODE_H = 78; // fixed card size — edge/port math relies on these
+const COND_NODE_TYPES = [
+  { value: 'if_opened', label: 'If opened' },
+  { value: 'if_no_open', label: 'If not opened' },
+  { value: 'if_replied', label: 'If replied' },
+  { value: 'if_no_reply', label: 'If no reply' },
+];
+const SEQ_TRIGGER_TYPES = [
+  { value: 'manual', label: 'Manual enroll' },
+  { value: 'new_relationship', label: 'When relationship created' },
+  { value: 'tag_applied', label: 'When tag applied' },
+  { value: 'deal_stage', label: 'When deal stage =' },
+];
+const DEAL_STAGE_OPTIONS = ['Prospect', 'Proposal', 'Negotiation', 'Contract Sent', 'Won', 'Lost'];
+
+// Wait duration of a wait node. next_send_at is a DATE, so hours resolve same-day (0 days).
+function waitDaysOf(node) {
+  const cfg = node?.config || {};
+  if (cfg.unit === 'hours') return 0;
+  const d = parseInt(cfg.days, 10);
+  if (!isNaN(d)) return Math.max(0, d);
+  return Math.max(0, parseInt(node?.wait_days, 10) || 0);
+}
+// Delay applied when an enrollment ARRIVES at a node. Wait nodes use their config;
+// action nodes keep honoring the legacy wait_days column (backfilled linear chains
+// carry their wait on the action step itself — preserves original send timing).
+function arrivalDelayDays(node) {
+  return (node?.node_type === 'wait') ? waitDaysOf(node) : Math.max(0, parseInt(node?.wait_days, 10) || 0);
+}
+function defaultEdgeFrom(edges, fromId) {
+  return edges.find(e => e.from_step_id === fromId && (e.branch || 'default') === 'default')
+    || edges.find(e => e.from_step_id === fromId) || null;
+}
+// A sequence that predates the canvas (no edges rows) is treated as an implicit
+// straight chain in step_order — same graph code runs everywhere.
+function syntheticChainEdges(nodes) {
+  const chain = nodes.filter(n => (n.node_type || 'email') !== 'trigger').sort((a, b) => (a.step_order - b.step_order) || (a.id - b.id));
+  const trig = nodes.find(n => (n.node_type || 'email') === 'trigger');
+  const out = [];
+  let prev = trig || null;
+  for (const n of chain) {
+    if (prev) out.push({ id: `syn-${prev.id}-${n.id}`, from_step_id: prev.id, to_step_id: n.id, branch: 'default' });
+    prev = n;
+  }
+  return out;
+}
+// Condition NODE evaluation (yes/no branch). Unknown data degrades to the "no" branch.
+function evalConditionNode(condType, enrollment, sends) {
+  const prior = (sends || []).filter(s => s.enrollment_id === enrollment.id);
+  const replied = prior.some(s => s.replied_at);
+  const opened = prior.some(s => s.opened_at);
+  if (condType === 'if_replied') return replied;
+  if (condType === 'if_no_reply') return !replied;
+  if (condType === 'if_opened') return opened;
+  if (condType === 'if_no_open') return !opened;
+  return false;
+}
+// THE shared graph walker (used by manual sends, the Outbox, and the server runner).
+// From the enrollment's current node, resolve what happens now:
+//   { action: 'email' | 'task' | 'goal' | 'wait' | 'complete', node?, waitDays? }
+// Entry wait nodes count as elapsed — whoever pointed the enrollment at a wait node
+// already added its delay to next_send_at. Legacy per-step conditions (condition
+// column ≠ 'always' on action nodes) keep their original skip behavior.
+function resolveNextNode(enrollment, nodes, edges, sends) {
+  const byId = {};
+  nodes.forEach(n => { byId[n.id] = n; });
+  let node = enrollment.current_node_id != null ? byId[enrollment.current_node_id] : null;
+  if (!node) { // legacy enrollment — map current_step onto the ordered non-trigger chain
+    const chain = nodes.filter(n => (n.node_type || 'email') !== 'trigger').sort((a, b) => (a.step_order - b.step_order) || (a.id - b.id));
+    node = chain[enrollment.current_step] || null;
+  }
+  let entry = true;
+  const visited = new Set();
+  while (node) {
+    if (visited.has(node.id)) return { action: 'complete', reason: 'cycle' };
+    visited.add(node.id);
+    const t = node.node_type || 'email';
+    if (t === 'trigger') { node = byId[defaultEdgeFrom(edges, node.id)?.to_step_id]; entry = false; continue; }
+    if (t === 'wait') {
+      if (entry) { node = byId[defaultEdgeFrom(edges, node.id)?.to_step_id]; entry = false; continue; }
+      return { action: 'wait', node, waitDays: waitDaysOf(node) };
+    }
+    if (t === 'condition') {
+      const yes = evalConditionNode((node.config && node.config.type) || 'if_no_reply', enrollment, sends);
+      const e = edges.find(x => x.from_step_id === node.id && x.branch === (yes ? 'yes' : 'no'));
+      if (!e) return { action: 'complete', reason: 'no_branch' };
+      node = byId[e.to_step_id]; entry = false; continue;
+    }
+    if (t === 'goal') return { action: 'goal', node };
+    // action node — legacy per-step condition column still skips (backfilled chains)
+    if ((node.condition || 'always') !== 'always' && !stepConditionMet(node, enrollment, sends)) {
+      node = byId[defaultEdgeFrom(edges, node.id)?.to_step_id]; entry = false; continue;
+    }
+    return { action: t === 'email' ? 'email' : 'task', node };
+  }
+  return { action: 'complete', reason: 'end' };
+}
+// After executing `node`, where does the enrollment go next?
+// Returns { done: true } or { done: false, nodeId, waitDays }.
+function advanceAfterNode(node, nodes, edges) {
+  const byId = {};
+  nodes.forEach(n => { byId[n.id] = n; });
+  const next = byId[defaultEdgeFrom(edges, node.id)?.to_step_id];
+  if (!next) return { done: true };
+  return { done: false, nodeId: next.id, waitDays: arrivalDelayDays(next) };
+}
+
+// -- canvas-only helpers (UI, not part of the shared runner logic) --
+function nodeSummary(node, seq) {
+  const t = node.node_type || 'email';
+  const cfg = node.config || {};
+  if (t === 'trigger') {
+    const tt = seq?.trigger_type || 'manual';
+    if (tt === 'tag_applied') return `When tag "${seq?.trigger_value || '…'}" applied`;
+    if (tt === 'new_relationship') return 'When relationship created';
+    if (tt === 'deal_stage') return `When deal stage = ${seq?.trigger_value || '…'}`;
+    return 'Manual enroll';
+  }
+  if (t === 'email') return (cfg.subject ?? node.subject) || 'No subject yet';
+  if (t === 'wait') {
+    if (cfg.unit === 'hours') return `${cfg.hours || 0} hour${(cfg.hours || 0) === 1 ? '' : 's'}`;
+    const d = waitDaysOf(node);
+    return `${d} day${d === 1 ? '' : 's'}`;
+  }
+  if (t === 'condition') return COND_NODE_TYPES.find(c => c.value === (cfg.type || 'if_no_reply'))?.label || 'Condition';
+  if (t === 'goal') return cfg.label || 'Success';
+  return (cfg.note ?? node.task_note) || 'No instructions yet';
+}
+function nodeIsComplete(node) {
+  const t = node.node_type || 'email';
+  const cfg = node.config || {};
+  if (t === 'email') return !!(String(cfg.subject ?? node.subject ?? '').trim() && String(cfg.body ?? node.body ?? '').trim());
+  if (TASK_NODE_TYPES.includes(t)) return !!String(cfg.note ?? node.task_note ?? '').trim();
+  if (t === 'condition') return !!(cfg.type || (node.condition && node.condition !== 'always'));
+  return true; // trigger / wait / goal are always valid
+}
+// Config-panel writes go to config jsonb AND the legacy columns so the existing
+// engine (and any old reader) keeps working off subject/body/wait_days/condition/channel.
+function patchForNodeConfig(node, cfgPatch) {
+  const t = node.node_type || 'email';
+  const config = { ...(node.config || {}), ...cfgPatch };
+  const patch = { config };
+  if (t === 'email') {
+    if ('subject' in cfgPatch) patch.subject = cfgPatch.subject ?? '';
+    if ('body' in cfgPatch) patch.body = cfgPatch.body ?? '';
+    if ('subject_b' in cfgPatch) patch.subject_b = String(cfgPatch.subject_b || '').trim() ? cfgPatch.subject_b : null;
+    patch.channel = 'email';
+  }
+  if (t === 'wait') patch.wait_days = waitDaysOf({ ...node, config });
+  if (t === 'condition' && 'type' in cfgPatch) patch.condition = cfgPatch.type;
+  if (TASK_NODE_TYPES.includes(t)) {
+    if ('note' in cfgPatch) patch.task_note = cfgPatch.note ?? '';
+    patch.channel = t;
+  }
+  return patch;
+}
+function bezierPath(x1, y1, x2, y2) {
+  const dy = Math.max(40, Math.abs(y2 - y1) / 2);
+  return `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
+}
+function nodePortsAt(node, pos) {
+  const input = { x: pos.x + NODE_W / 2, y: pos.y };
+  const t = node.node_type || 'email';
+  if (t === 'condition') return { input, outputs: { yes: { x: pos.x + NODE_W * 0.28, y: pos.y + NODE_H }, no: { x: pos.x + NODE_W * 0.72, y: pos.y + NODE_H } } };
+  if (t === 'goal') return { input, outputs: {} };
+  return { input, outputs: { default: { x: pos.x + NODE_W / 2, y: pos.y + NODE_H } } };
+}
+
+// One-click starter templates — nodes/edges inserted as a ready-to-run canvas.
+const CANVAS_TEMPLATES = [
+  {
+    key: 'cold3', name: '3-step cold outreach', icon: '❄️',
+    desc: 'Email → wait 3d → if no reply, two follow-ups. Replies exit at a Goal.',
+    nodes: [
+      { ref: 'e1', node_type: 'email', x: 280, y: 190, subject: 'Quick intro, {{name}}', body: 'Hi {{name}},\n\nReaching out because …\n\nBest,' },
+      { ref: 'w1', node_type: 'wait', x: 280, y: 340, config: { days: 3, unit: 'days' } },
+      { ref: 'c1', node_type: 'condition', x: 280, y: 490, config: { type: 'if_no_reply' } },
+      { ref: 'e2', node_type: 'email', x: 120, y: 660, subject: 'Following up, {{name}}', body: 'Hi {{name}},\n\nJust bumping this to the top of your inbox.\n\nBest,' },
+      { ref: 'g1', node_type: 'goal', x: 460, y: 660, config: { label: 'Replied' } },
+      { ref: 'w2', node_type: 'wait', x: 120, y: 810, config: { days: 3, unit: 'days' } },
+      { ref: 'e3', node_type: 'email', x: 120, y: 960, subject: 'Last note from me', body: 'Hi {{name}},\n\nClosing the loop — happy to reconnect whenever the timing is right.\n\nBest,' },
+    ],
+    edges: [
+      ['trigger', 'e1', 'default'], ['e1', 'w1', 'default'], ['w1', 'c1', 'default'],
+      ['c1', 'e2', 'yes'], ['c1', 'g1', 'no'],
+      ['e2', 'w2', 'default'], ['w2', 'e3', 'default'],
+    ],
+  },
+  {
+    key: 'nurture', name: 'Post-meeting nurture', icon: '🌱',
+    desc: 'Thank-you email → wait 7d → if opened, LinkedIn connect; else a second email.',
+    nodes: [
+      { ref: 'e1', node_type: 'email', x: 280, y: 190, subject: 'Great meeting you, {{name}}', body: 'Hi {{name}},\n\nThanks for the time today — recapping what we discussed …\n\nBest,' },
+      { ref: 'w1', node_type: 'wait', x: 280, y: 340, config: { days: 7, unit: 'days' } },
+      { ref: 'c1', node_type: 'condition', x: 280, y: 490, config: { type: 'if_opened' } },
+      { ref: 'l1', node_type: 'linkedin_connect', x: 120, y: 660, task_note: 'Send a LinkedIn connect to {{name}} — mention our meeting.' },
+      { ref: 'e2', node_type: 'email', x: 460, y: 660, subject: 'Checking in, {{name}}', body: 'Hi {{name}},\n\nWanted to make sure my last note reached you.\n\nBest,' },
+    ],
+    edges: [
+      ['trigger', 'e1', 'default'], ['e1', 'w1', 'default'], ['w1', 'c1', 'default'],
+      ['c1', 'l1', 'yes'], ['c1', 'e2', 'no'],
+    ],
+  },
+];
+const MERGE_TAG_TOKENS = ['{{name}}', '{{email}}', '{{phone}}', '{{stage}}', '{{company}}'];
+
+// ==========================================
+// EMAIL AUTOMATION — the visual canvas itself. Hand-rolled: SVG bezier edges +
+// absolutely-positioned node cards + pointer events. No new dependency.
+// ==========================================
+function AutomationCanvas({
+  seq, nodes, edges, enrollments, sends, clients, emailTemplates, tags,
+  saveState, dueIds,
+  onBack, onRename, onToggleActive, onUpdateTrigger, onDuplicate, onDelete,
+  onCreateNode, onUpdateNode, onDeleteNode, onAddEdge, onDeleteEdge,
+  onSaveView, onEnroll, onStop, onSendNow,
+}) {
+  const viewportRef = useRef(null);
+  const [view, setView] = useState(() => ({
+    zoom: Math.min(2, Math.max(0.35, parseFloat(seq.canvas_zoom) || 1)),
+    x: (seq.canvas_offset && parseFloat(seq.canvas_offset.x)) || 0,
+    y: (seq.canvas_offset && parseFloat(seq.canvas_offset.y)) || 0,
+  }));
+  const [selectedId, setSelectedId] = useState(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  const [drag, setDrag] = useState(null);       // { id, startX, startY, origX, origY, x, y, moved }
+  const [pan, setPan] = useState(null);         // { startX, startY, origX, origY }
+  const [connect, setConnect] = useState(null); // { fromId, branch, x, y }
+  const [rightPane, setRightPane] = useState(null); // null | 'config' | 'enrollments'
+
+  const selected = nodes.find(n => n.id === selectedId) || null;
+  const effPos = (n) => (drag && drag.id === n.id) ? { x: drag.x, y: drag.y } : { x: parseFloat(n.pos_x) || 0, y: parseFloat(n.pos_y) || 0 };
+
+  // refs so window-level listeners always read fresh state without re-registering per frame
+  const viewRef = useRef(view); viewRef.current = view;
+  const dragRef = useRef(drag); dragRef.current = drag;
+  const panRef = useRef(pan); panRef.current = pan;
+  const connectRef = useRef(connect); connectRef.current = connect;
+  const nodesRef = useRef(nodes); nodesRef.current = nodes;
+  const viewSaveRef = useRef(() => {});
+  viewSaveRef.current = (v) => onSaveView(seq.id, v.zoom, { x: Math.round(v.x), y: Math.round(v.y) });
+
+  const toWorld = (clientX, clientY) => {
+    const r = viewportRef.current.getBoundingClientRect();
+    const v = viewRef.current;
+    return { x: (clientX - r.left - v.x) / v.zoom, y: (clientY - r.top - v.y) / v.zoom };
+  };
+
+  // wheel zoom (native non-passive listener — React's onWheel can't preventDefault)
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      setView(v => {
+        const nz = Math.min(2, Math.max(0.35, v.zoom * Math.exp(-e.deltaY * 0.0015)));
+        const k = nz / v.zoom;
+        const nv = { zoom: nz, x: mx - (mx - v.x) * k, y: my - (my - v.y) * k };
+        viewSaveRef.current(nv);
+        return nv;
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // window pointer handlers while an interaction (drag / pan / edge-draw) is live
+  useEffect(() => {
+    if (!drag && !pan && !connect) return;
+    const move = (e) => {
+      const v = viewRef.current;
+      if (dragRef.current) {
+        setDrag(d => d && ({
+          ...d, moved: true,
+          x: Math.round((d.origX + (e.clientX - d.startX) / v.zoom) / 8) * 8,
+          y: Math.round((d.origY + (e.clientY - d.startY) / v.zoom) / 8) * 8,
+        }));
+      } else if (panRef.current) {
+        const p = panRef.current;
+        setView(vv => ({ ...vv, x: p.origX + (e.clientX - p.startX), y: p.origY + (e.clientY - p.startY) }));
+      } else if (connectRef.current) {
+        const w = toWorld(e.clientX, e.clientY);
+        setConnect(c => c && ({ ...c, x: w.x, y: w.y }));
+      }
+    };
+    const up = (e) => {
+      const d = dragRef.current, p = panRef.current, c = connectRef.current;
+      if (d) { if (d.moved) onUpdateNode(d.id, { pos_x: d.x, pos_y: d.y }); setDrag(null); }
+      if (p) { viewSaveRef.current(viewRef.current); setPan(null); }
+      if (c) {
+        const w = toWorld(e.clientX, e.clientY);
+        const target = nodesRef.current.find(n => {
+          if (n.id === c.fromId || (n.node_type || 'email') === 'trigger') return false;
+          const pos = (dragRef.current && dragRef.current.id === n.id) ? dragRef.current : { x: parseFloat(n.pos_x) || 0, y: parseFloat(n.pos_y) || 0 };
+          return w.x >= pos.x - 14 && w.x <= pos.x + NODE_W + 14 && w.y >= pos.y - 18 && w.y <= pos.y + NODE_H * 0.6;
+        });
+        if (target) onAddEdge(c.fromId, target.id, c.branch);
+        setConnect(null);
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+  }, [!!drag, !!pan, !!connect]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // keyboard: Delete removes selection, Escape clears it
+  useEffect(() => {
+    const onKey = (e) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedEdgeId) { const ed = edges.find(x => x.id === selectedEdgeId); if (ed) onDeleteEdge(ed); setSelectedEdgeId(null); }
+        else if (selected && (selected.node_type || 'email') !== 'trigger') { onDeleteNode(selected); setSelectedId(null); setRightPane(null); }
+      }
+      if (e.key === 'Escape') { setSelectedId(null); setSelectedEdgeId(null); setConnect(null); setRightPane(null); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedEdgeId, selected, edges, onDeleteEdge, onDeleteNode]);
+
+  const setViewSaved = (v) => { setView(v); viewSaveRef.current(v); };
+  const zoomBy = (k) => {
+    const r = viewportRef.current.getBoundingClientRect();
+    const mx = r.width / 2, my = r.height / 2;
+    const v = viewRef.current;
+    const nz = Math.min(2, Math.max(0.35, v.zoom * k));
+    const kk = nz / v.zoom;
+    setViewSaved({ zoom: nz, x: mx - (mx - v.x) * kk, y: my - (my - v.y) * kk });
+  };
+  const fitView = () => {
+    const r = viewportRef.current.getBoundingClientRect();
+    if (!nodes.length) { setViewSaved({ zoom: 1, x: 40, y: 40 }); return; }
+    const xs = nodes.map(n => parseFloat(n.pos_x) || 0), ys = nodes.map(n => parseFloat(n.pos_y) || 0);
+    const minX = Math.min(...xs) - 60, minY = Math.min(...ys) - 70;
+    const maxX = Math.max(...xs) + NODE_W + 60, maxY = Math.max(...ys) + NODE_H + 90;
+    const zoom = Math.min(1.5, Math.max(0.35, Math.min(r.width / (maxX - minX), r.height / (maxY - minY))));
+    setViewSaved({ zoom, x: (r.width - (maxX - minX) * zoom) / 2 - minX * zoom, y: (r.height - (maxY - minY) * zoom) / 2 - minY * zoom });
+  };
+  const centerWorld = () => {
+    const r = viewportRef.current.getBoundingClientRect();
+    const v = viewRef.current;
+    return { x: (r.width / 2 - v.x) / v.zoom, y: (r.height / 2 - v.y) / v.zoom };
+  };
+  const addFromPalette = async (t) => {
+    const c = centerWorld();
+    const jitter = (nodes.length % 5) * 24;
+    const nn = await onCreateNode(t, c.x - NODE_W / 2 + jitter, c.y - NODE_H / 2 + jitter);
+    if (nn) { setSelectedId(nn.id); setSelectedEdgeId(null); setRightPane('config'); }
+  };
+
+  // stats
+  const stats = {
+    enrolled: enrollments.length,
+    active: enrollments.filter(e => e.status === 'active').length,
+    replied: enrollments.filter(e => e.status === 'replied').length,
+    completed: enrollments.filter(e => e.status === 'completed').length,
+    stopped: enrollments.filter(e => e.status === 'stopped').length,
+  };
+  const seqSends = sends.filter(s => s.sequence_id === seq.id);
+  const replyRate = seqSends.length ? Math.round((seqSends.filter(s => s.replied_at).length / seqSends.length) * 100) : null;
+
+  const upd = (cfgPatch) => selected && onUpdateNode(selected.id, patchForNodeConfig(selected, cfgPatch));
+  const selCfg = selected ? (selected.config || {}) : {};
+  const inputCls = 'w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-gray-400 dark:focus:border-gray-500';
+  const labelCls = 'text-[11px] font-bold uppercase tracking-wider text-gray-400 block mb-1';
+  const isActive = !!seq.is_active;
+  const nodeById = {};
+  nodes.forEach(n => { nodeById[n.id] = n; });
+  const enrollable = clients.filter(c => c.email && !enrollments.some(en => en.client_id === c.id && en.status === 'active'));
+
+  return (
+    <div className="space-y-3">
+      {/* HEADER BAR */}
+      <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm px-4 py-2.5">
+        <button onClick={onBack} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 shrink-0">← Campaigns</button>
+        <input
+          value={seq.name}
+          onChange={e => onRename(seq, e.target.value)}
+          className="flex-1 min-w-[140px] max-w-xs px-2 py-1 text-[15px] font-semibold text-gray-900 dark:text-gray-100 bg-transparent border border-transparent hover:border-gray-200 dark:hover:border-gray-700 focus:border-gray-300 dark:focus:border-gray-600 rounded-lg focus:outline-none"
+          aria-label="Campaign name"
+        />
+        <label className="flex items-center gap-2 cursor-pointer select-none shrink-0">
+          <span className={`text-[11px] font-bold uppercase tracking-wider ${isActive ? 'text-green-600' : 'text-gray-400'}`}>{isActive ? 'Active' : 'Paused'}</span>
+          <button onClick={() => onToggleActive(seq, !isActive)} role="switch" aria-checked={isActive}
+            className={`relative w-9 h-5 rounded-full transition-colors ${isActive ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+            <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isActive ? 'translate-x-4' : ''}`} />
+          </button>
+        </label>
+        <span className={`text-[11px] font-semibold shrink-0 ${saveState === 'error' ? 'text-red-500' : saveState === 'saving' ? 'text-amber-500' : 'text-gray-400'}`}>
+          {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed — retry your last change' : 'Saved ✓'}
+        </span>
+        <div className="hidden lg:flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 shrink-0">
+          {[['enrolled', stats.enrolled], ['active', stats.active], ['replied', stats.replied], ['completed', stats.completed], ['stopped', stats.stopped]].map(([k, v]) => (
+            <span key={k} className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 capitalize">{v} {k}</span>
+          ))}
+          {replyRate != null && <span className="px-2 py-0.5 rounded-full bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400">{replyRate}% replied</span>}
+        </div>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <details className="relative">
+            <summary className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm cursor-pointer select-none list-none">＋ Enroll relationships</summary>
+            <EnrollPicker clients={enrollable} onEnroll={(ids, closeEl) => { onEnroll(ids); if (closeEl) closeEl.removeAttribute('open'); }} />
+          </details>
+          <button onClick={() => setRightPane(rightPane === 'enrollments' ? null : 'enrollments')} className={`px-3 py-1.5 text-[12px] font-medium rounded-xl border transition-colors ${rightPane === 'enrollments' ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-gray-100' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'}`}>Enrollments ({stats.enrolled})</button>
+          <button onClick={() => onDuplicate(seq)} className="text-[12px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100" title="Duplicate campaign">Duplicate</button>
+          <button onClick={() => onDelete(seq)} className="text-[12px] font-medium text-red-500 hover:text-red-700" title="Delete campaign">Delete</button>
+        </div>
+      </div>
+
+      {/* PALETTE / CANVAS / RIGHT PANE */}
+      <div className="flex gap-3 items-stretch" style={{ height: 'calc(100vh - 220px)', minHeight: 520 }}>
+        {/* LEFT PALETTE */}
+        <div className="w-44 shrink-0 overflow-y-auto space-y-1.5 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-3">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Add nodes</p>
+          {PALETTE_NODE_TYPES.map(t => {
+            const m = NODE_TYPE_META[t];
+            return (
+              <div key={t} draggable
+                onDragStart={e => e.dataTransfer.setData('text/node-type', t)}
+                onClick={() => addFromPalette(t)}
+                className="flex items-center gap-2 px-2.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-400 dark:hover:border-gray-500 hover:shadow-sm cursor-grab active:cursor-grabbing text-[12px] font-medium text-gray-700 dark:text-gray-200 transition-all"
+                style={{ borderLeftWidth: 3, borderLeftColor: m.accent }}
+                title="Drag onto the canvas, or click to add">
+                <span className="text-[14px]">{m.icon}</span><span className="truncate">{m.label}</span>
+              </div>
+            );
+          })}
+          <p className="text-[10px] text-gray-400 pt-2 leading-relaxed">Drag a node onto the canvas or click to add. Drag from a node&apos;s bottom port to another node&apos;s top to connect.</p>
+        </div>
+
+        {/* CANVAS VIEWPORT */}
+        <div
+          ref={viewportRef}
+          onPointerDown={e => {
+            if (e.button !== 0) return;
+            setSelectedId(null); setSelectedEdgeId(null); setRightPane(rp => rp === 'config' ? null : rp);
+            setPan({ startX: e.clientX, startY: e.clientY, origX: view.x, origY: view.y });
+          }}
+          onDragOver={e => e.preventDefault()}
+          onDrop={async e => {
+            e.preventDefault();
+            const t = e.dataTransfer.getData('text/node-type');
+            if (!t) return;
+            const w = toWorld(e.clientX, e.clientY);
+            const nn = await onCreateNode(t, w.x - NODE_W / 2, w.y - NODE_H / 2);
+            if (nn) { setSelectedId(nn.id); setRightPane('config'); }
+          }}
+          className={`relative flex-1 overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 ${pan ? 'cursor-grabbing' : connect ? 'cursor-crosshair' : 'cursor-grab'}`}
+          style={{
+            backgroundImage: 'radial-gradient(circle, rgba(148,163,184,0.35) 1px, transparent 1px)',
+            backgroundSize: `${24 * view.zoom}px ${24 * view.zoom}px`,
+            backgroundPosition: `${view.x}px ${view.y}px`,
+          }}>
+          <div className="absolute" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: '0 0' }}>
+            {/* EDGES */}
+            <svg className="absolute overflow-visible pointer-events-none" style={{ left: 0, top: 0, width: 1, height: 1 }}>
+              {edges.map(e => {
+                const from = nodeById[e.from_step_id], to = nodeById[e.to_step_id];
+                if (!from || !to) return null;
+                const fp = nodePortsAt(from, effPos(from)), tp = nodePortsAt(to, effPos(to));
+                const start = fp.outputs[e.branch] || fp.outputs.default || Object.values(fp.outputs)[0];
+                if (!start) return null;
+                const d = bezierPath(start.x, start.y, tp.input.x, tp.input.y);
+                const col = e.branch === 'yes' ? '#22C55E' : e.branch === 'no' ? '#9CA3AF' : '#818CF8';
+                const isSel = selectedEdgeId === e.id;
+                const mx = (start.x + tp.input.x) / 2, my = (start.y + tp.input.y) / 2;
+                return (
+                  <g key={e.id}>
+                    <path d={d} fill="none" stroke={col} strokeWidth={isSel ? 2.5 : 1.5} opacity={isSel ? 1 : 0.75} />
+                    <path d={d} fill="none" stroke="transparent" strokeWidth="14" className="pointer-events-auto cursor-pointer"
+                      onPointerDown={ev => ev.stopPropagation()}
+                      onClick={ev => { ev.stopPropagation(); setSelectedEdgeId(e.id); setSelectedId(null); }} />
+                    {(e.branch === 'yes' || e.branch === 'no') && (
+                      <text x={start.x} y={start.y + 16} textAnchor="middle" fontSize="9" fontWeight="bold" fill={col}>{e.branch === 'yes' ? 'Yes' : 'No'}</text>
+                    )}
+                    {isSel && (
+                      <g className="pointer-events-auto cursor-pointer" onPointerDown={ev => ev.stopPropagation()} onClick={ev => { ev.stopPropagation(); onDeleteEdge(e); setSelectedEdgeId(null); }}>
+                        <circle cx={mx} cy={my} r="9" fill="#EF4444" />
+                        <text x={mx} y={my + 3.5} textAnchor="middle" fontSize="11" fill="white" fontWeight="bold">×</text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+              {connect && (() => {
+                const from = nodeById[connect.fromId];
+                if (!from) return null;
+                const fp = nodePortsAt(from, effPos(from));
+                const s = fp.outputs[connect.branch] || fp.outputs.default;
+                return s ? <path d={bezierPath(s.x, s.y, connect.x, connect.y)} fill="none" stroke="#6366F1" strokeWidth="1.5" strokeDasharray="5 4" /> : null;
+              })()}
+            </svg>
+
+            {/* NODES */}
+            {nodes.map(n => {
+              const t = n.node_type || 'email';
+              const meta = NODE_TYPE_META[t] || NODE_TYPE_META.email;
+              const pos = effPos(n);
+              const here = enrollments.filter(en => en.status === 'active' && en.current_node_id === n.id).length;
+              const complete = nodeIsComplete(n);
+              const isSel = selectedId === n.id;
+              const startConnect = (branch) => (e) => {
+                if (e.button !== 0) return;
+                e.stopPropagation();
+                const fp = nodePortsAt(n, pos);
+                const s = fp.outputs[branch];
+                setConnect({ fromId: n.id, branch, x: s.x, y: s.y });
+              };
+              return (
+                <div key={n.id}
+                  onPointerDown={e => {
+                    if (e.button !== 0) return;
+                    e.stopPropagation();
+                    setSelectedEdgeId(null); setSelectedId(n.id); setRightPane('config');
+                    setDrag({ id: n.id, startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y, x: pos.x, y: pos.y, moved: false });
+                  }}
+                  className={`absolute select-none rounded-2xl border bg-white dark:bg-gray-900 transition-shadow ${isSel ? 'ring-2 ring-indigo-500 border-transparent shadow-md' : 'border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md'} ${drag?.id === n.id ? 'cursor-grabbing' : 'cursor-grab'}`}
+                  style={{ left: pos.x, top: pos.y, width: NODE_W, height: NODE_H, borderLeftWidth: 3, borderLeftColor: meta.accent }}>
+                  <div className="px-3 pt-2 flex items-center gap-1.5">
+                    <span className="text-[14px] leading-none">{meta.icon}</span>
+                    <span className="text-[11px] uppercase tracking-wider font-bold text-gray-400 truncate">{meta.label}</span>
+                    <span className="ml-auto shrink-0">
+                      {complete
+                        ? <span className="text-green-500 text-[12px] font-bold" title="Configured">✓</span>
+                        : <span className="inline-block w-2 h-2 rounded-full bg-amber-400" title="Incomplete — click to configure" />}
+                    </span>
+                  </div>
+                  <p className="px-3 mt-1 text-[13px] font-medium text-gray-900 dark:text-gray-100 truncate">{nodeSummary(n, seq)}</p>
+                  {here > 0 && (
+                    <span className="absolute -bottom-2.5 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-600 text-white shadow" title={`${here} active enrollment${here === 1 ? '' : 's'} at this node`}>{here} here</span>
+                  )}
+                  {t !== 'trigger' && (
+                    <span className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-white dark:bg-gray-900 border-2 border-gray-400 dark:border-gray-500 pointer-events-none" />
+                  )}
+                  {t === 'condition' ? (
+                    <>
+                      <span onPointerDown={startConnect('yes')} className="absolute -bottom-[6px] w-3 h-3 rounded-full bg-white dark:bg-gray-900 border-2 border-green-500 hover:scale-125 transition-transform cursor-crosshair" style={{ left: NODE_W * 0.28 - 6 }} title="Yes branch — drag to connect" />
+                      <span className="absolute text-[9px] font-bold text-green-600 pointer-events-none" style={{ left: NODE_W * 0.28 - 9, bottom: -20 }}>Yes</span>
+                      <span onPointerDown={startConnect('no')} className="absolute -bottom-[6px] w-3 h-3 rounded-full bg-white dark:bg-gray-900 border-2 border-gray-400 hover:scale-125 transition-transform cursor-crosshair" style={{ left: NODE_W * 0.72 - 6 }} title="No branch — drag to connect" />
+                      <span className="absolute text-[9px] font-bold text-gray-400 pointer-events-none" style={{ left: NODE_W * 0.72 - 7, bottom: -20 }}>No</span>
+                    </>
+                  ) : t !== 'goal' ? (
+                    <span onPointerDown={startConnect('default')} className="absolute -bottom-[6px] left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white dark:bg-gray-900 border-2 border-indigo-500 hover:scale-125 transition-transform cursor-crosshair" title="Drag to connect to the next node" />
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ZOOM CONTROLS */}
+          <div className="absolute bottom-3 left-3 flex items-center gap-0.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-1" onPointerDown={e => e.stopPropagation()}>
+            <button onClick={() => zoomBy(1 / 1.2)} className="w-7 h-7 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 font-bold text-gray-600 dark:text-gray-300 text-[14px]" title="Zoom out">−</button>
+            <span className="w-11 text-center text-[11px] font-semibold text-gray-500">{Math.round(view.zoom * 100)}%</span>
+            <button onClick={() => zoomBy(1.2)} className="w-7 h-7 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 font-bold text-gray-600 dark:text-gray-300 text-[14px]" title="Zoom in">＋</button>
+            <button onClick={fitView} className="px-2 h-7 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-[11px] font-semibold text-gray-500" title="Fit all nodes">Fit</button>
+          </div>
+          {nodes.length <= 1 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <p className="text-[13px] text-gray-400 bg-white/80 dark:bg-gray-900/80 rounded-xl px-4 py-2">Drag a node from the left palette to start building this campaign.</p>
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT PANE — config or enrollments */}
+        {rightPane === 'config' && selected && (
+          <div className="w-80 shrink-0 overflow-y-auto bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-4 space-y-3 animate-in slide-in-from-right-4 fade-in duration-200">
+            <div className="flex items-center gap-2">
+              <span className="text-[16px]">{(NODE_TYPE_META[selected.node_type || 'email'] || NODE_TYPE_META.email).icon}</span>
+              <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400">{(NODE_TYPE_META[selected.node_type || 'email'] || NODE_TYPE_META.email).label}</h3>
+              <button onClick={() => { setSelectedId(null); setRightPane(null); }} className="ml-auto text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-[14px]" aria-label="Close panel">✕</button>
+            </div>
+
+            {(selected.node_type || 'email') === 'trigger' && (
+              <>
+                <div>
+                  <label className={labelCls}>Enrollment trigger</label>
+                  <select value={seq.trigger_type || 'manual'} onChange={e => onUpdateTrigger(seq, { trigger_type: e.target.value, trigger_value: null })} className={inputCls}>
+                    {SEQ_TRIGGER_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+                {seq.trigger_type === 'tag_applied' && (
+                  <div>
+                    <label className={labelCls}>Tag</label>
+                    <select value={seq.trigger_value || ''} onChange={e => onUpdateTrigger(seq, { trigger_value: e.target.value || null })} className={inputCls}>
+                      <option value="">— pick tag —</option>
+                      {tags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                {seq.trigger_type === 'deal_stage' && (
+                  <div>
+                    <label className={labelCls}>Deal stage</label>
+                    <select value={seq.trigger_value || ''} onChange={e => onUpdateTrigger(seq, { trigger_value: e.target.value || null })} className={inputCls}>
+                      <option value="">— pick stage —</option>
+                      {DEAL_STAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-400 leading-relaxed">New enrollments start at the node connected below the trigger. This node can&apos;t be deleted.</p>
+              </>
+            )}
+
+            {(selected.node_type || 'email') === 'email' && (
+              <>
+                {emailTemplates.length > 0 && (
+                  <select value="" onChange={e => { const t = emailTemplates.find(x => String(x.id) === e.target.value); if (t) upd({ subject: t.subject, body: t.body }); }} className={inputCls}>
+                    <option value="">Use a template…</option>
+                    {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                )}
+                <div>
+                  <label className={labelCls}>Subject</label>
+                  <input type="text" value={selCfg.subject ?? selected.subject ?? ''} onChange={e => upd({ subject: e.target.value })} placeholder="Subject — supports merge tags" className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Subject B <span className="normal-case font-normal">(optional A/B test)</span></label>
+                  <input type="text" value={selCfg.subject_b ?? selected.subject_b ?? ''} onChange={e => upd({ subject_b: e.target.value })} placeholder="Sent to half of enrollments" className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Body</label>
+                  <textarea rows={7} value={selCfg.body ?? selected.body ?? ''} onChange={e => upd({ body: e.target.value })} placeholder="Email body" className={inputCls} />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {MERGE_TAG_TOKENS.map(tok => (
+                    <button key={tok} onClick={() => upd({ body: `${selCfg.body ?? selected.body ?? ''}${tok}` })} className="px-1.5 py-0.5 text-[10px] font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/50" title={`Insert ${tok} into the body`}>{tok}</button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {selected.node_type === 'wait' && (
+              <>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className={labelCls}>Wait for</label>
+                    <input type="number" min="0" value={(selCfg.unit === 'hours' ? selCfg.hours : selCfg.days) ?? selected.wait_days ?? 0}
+                      onChange={e => upd(selCfg.unit === 'hours' ? { hours: Math.max(0, parseInt(e.target.value, 10) || 0) } : { days: Math.max(0, parseInt(e.target.value, 10) || 0) })} className={inputCls} />
+                  </div>
+                  <div className="flex-1">
+                    <label className={labelCls}>Unit</label>
+                    <select value={selCfg.unit || 'days'} onChange={e => upd({ unit: e.target.value })} className={inputCls}>
+                      <option value="days">Days</option>
+                      <option value="hours">Hours</option>
+                    </select>
+                  </div>
+                </div>
+                {selCfg.unit === 'hours' && <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed">Scheduling is date-based — an hours wait resolves the same day (the runner picks it up on its next 15-minute tick).</p>}
+              </>
+            )}
+
+            {selected.node_type === 'condition' && (
+              <>
+                <div>
+                  <label className={labelCls}>Branch on</label>
+                  <select value={selCfg.type || 'if_no_reply'} onChange={e => upd({ type: e.target.value })} className={inputCls}>
+                    {COND_NODE_TYPES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                </div>
+                <p className="text-[11px] text-gray-400 leading-relaxed">Connect the green <b>Yes</b> port and the gray <b>No</b> port to different nodes. Open/reply data comes from tracked (auto-sent) emails — with no tracking data the enrollment follows the <b>No</b> branch.</p>
+              </>
+            )}
+
+            {TASK_NODE_TYPES.includes(selected.node_type) && (
+              <>
+                <div>
+                  <label className={labelCls}>Task instructions</label>
+                  <textarea rows={4} value={selCfg.note ?? selected.task_note ?? ''} onChange={e => upd({ note: e.target.value })} placeholder="e.g. Mention the webinar — {{name}} attended" className={inputCls} />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {MERGE_TAG_TOKENS.map(tok => (
+                    <button key={tok} onClick={() => upd({ note: `${selCfg.note ?? selected.task_note ?? ''}${tok}` })} className="px-1.5 py-0.5 text-[10px] font-mono font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/50">{tok}</button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-400 leading-relaxed">When an enrollment reaches this node, a task is created in Tasks and the campaign advances.</p>
+              </>
+            )}
+
+            {selected.node_type === 'goal' && (
+              <>
+                <div>
+                  <label className={labelCls}>Goal label</label>
+                  <input type="text" value={selCfg.label ?? ''} onChange={e => upd({ label: e.target.value })} placeholder='e.g. "Replied" or "Booked meeting"' className={inputCls} />
+                </div>
+                <p className="text-[11px] text-gray-400 leading-relaxed">Terminal node — enrollments that reach it are marked <b>completed</b> (goal reached).</p>
+              </>
+            )}
+
+            {(selected.node_type || 'email') !== 'trigger' && (
+              <button onClick={() => { onDeleteNode(selected); setSelectedId(null); setRightPane(null); }} className="w-full px-3 py-2 text-[12px] font-semibold text-red-600 border border-red-200 dark:border-red-900 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">Delete node</button>
+            )}
+          </div>
+        )}
+
+        {rightPane === 'enrollments' && (
+          <div className="w-80 shrink-0 overflow-y-auto bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-4 space-y-2 animate-in slide-in-from-right-4 fade-in duration-200">
+            <div className="flex items-center gap-2">
+              <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400">Enrollments ({enrollments.length})</h3>
+              <button onClick={() => setRightPane(null)} className="ml-auto text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-[14px]" aria-label="Close panel">✕</button>
+            </div>
+            {enrollments.length === 0 && <p className="text-[12px] text-gray-400">Nobody enrolled yet — use “Enroll relationships” above.</p>}
+            {enrollments.map(en => {
+              const ec = clients.find(x => x.id === en.client_id);
+              const atNode = en.current_node_id != null ? nodeById[en.current_node_id] : null;
+              const due = dueIds.has(en.id);
+              return (
+                <div key={en.id} className="p-2.5 border border-gray-100 dark:border-gray-800 rounded-xl space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] font-semibold text-gray-900 dark:text-gray-100 truncate flex-1">{ec?.name || '?'}</span>
+                    {en.status === 'replied' ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 ring-1 ring-inset ring-green-600/10">Replied</span>
+                    ) : (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset capitalize ${en.status === 'active' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 ring-blue-600/10' : en.status === 'completed' ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 ring-gray-500/10' : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 ring-red-600/10'}`}>{en.status}</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 truncate">
+                    {atNode ? `At: ${(NODE_TYPE_META[atNode.node_type || 'email'] || NODE_TYPE_META.email).icon} ${nodeSummary(atNode, seq)}` : 'Position: legacy step pointer'}
+                    {en.status === 'active' && en.next_send_at ? ` · next ${en.next_send_at}` : ''}
+                  </p>
+                  {en.status === 'active' && (
+                    <div className="flex gap-2 pt-0.5">
+                      {due && <button onClick={() => onSendNow(en)} className="px-2 py-1 text-[11px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:opacity-90">Send now →</button>}
+                      <button onClick={() => onStop(en)} className="px-2 py-1 text-[11px] font-medium text-red-500 hover:text-red-700">Stop</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Multiselect dropdown body used by the canvas "Enroll relationships" button.
+function EnrollPicker({ clients, onEnroll }) {
+  const [sel, setSel] = useState({});
+  const ids = Object.entries(sel).filter(([, v]) => v).map(([k]) => k);
+  return (
+    <div className="absolute right-0 z-30 mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2">
+      <div className="max-h-48 overflow-y-auto space-y-0.5">
+        {clients.length === 0 && <p className="text-[12px] text-gray-400 px-2 py-1">No enrollable relationships (need an email, not already active).</p>}
+        {clients.map(c => (
+          <label key={c.id} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-gray-800 dark:text-gray-200">
+            <input type="checkbox" checked={!!sel[c.id]} onChange={e => setSel(prev => ({ ...prev, [c.id]: e.target.checked }))} className="rounded border-gray-300 focus:ring-0" />
+            <span className="truncate">{c.name}</span>
+          </label>
+        ))}
+      </div>
+      <button
+        onClick={e => { if (ids.length) { onEnroll(ids, e.currentTarget.closest('details')); setSel({}); } }}
+        disabled={!ids.length}
+        className="mt-2 w-full px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 disabled:opacity-50">
+        ▶ Enroll {ids.length || ''}
+      </button>
+    </div>
+  );
+}
+
 // Country/region combobox source — full country list, rendered as a <datalist>
 // so every country field supports type-to-filter AND click-to-browse.
 const COUNTRY_LIST = ['Afghanistan','Albania','Algeria','Andorra','Angola','Antigua and Barbuda','Argentina','Armenia','Australia','Austria','Azerbaijan','Bahamas','Bahrain','Bangladesh','Barbados','Belarus','Belgium','Belize','Benin','Bhutan','Bolivia','Bosnia and Herzegovina','Botswana','Brazil','Brunei','Bulgaria','Burkina Faso','Burundi','Cabo Verde','Cambodia','Cameroon','Canada','Central African Republic','Chad','Chile','China','Colombia','Comoros','Congo (DRC)','Congo (Republic)','Costa Rica','Croatia','Cuba','Cyprus','Czechia','Denmark','Djibouti','Dominica','Dominican Republic','Ecuador','Egypt','El Salvador','Equatorial Guinea','Eritrea','Estonia','Eswatini','Ethiopia','Fiji','Finland','France','Gabon','Gambia','Georgia','Germany','Ghana','Greece','Grenada','Guatemala','Guinea','Guinea-Bissau','Guyana','Haiti','Honduras','Hong Kong','Hungary','Iceland','India','Indonesia','Iran','Iraq','Ireland','Israel','Italy','Ivory Coast','Jamaica','Japan','Jordan','Kazakhstan','Kenya','Kiribati','Kosovo','Kuwait','Kyrgyzstan','Laos','Latvia','Lebanon','Lesotho','Liberia','Libya','Liechtenstein','Lithuania','Luxembourg','Macau','Madagascar','Malawi','Malaysia','Maldives','Mali','Malta','Marshall Islands','Mauritania','Mauritius','Mexico','Micronesia','Moldova','Monaco','Mongolia','Montenegro','Morocco','Mozambique','Myanmar','Namibia','Nauru','Nepal','Netherlands','New Zealand','Nicaragua','Niger','Nigeria','North Korea','North Macedonia','Norway','Oman','Pakistan','Palau','Palestine','Panama','Papua New Guinea','Paraguay','Peru','Philippines','Poland','Portugal','Qatar','Romania','Russia','Rwanda','Saint Kitts and Nevis','Saint Lucia','Saint Vincent and the Grenadines','Samoa','San Marino','Sao Tome and Principe','Saudi Arabia','Senegal','Serbia','Seychelles','Sierra Leone','Singapore','Slovakia','Slovenia','Solomon Islands','Somalia','South Africa','South Korea','South Sudan','Spain','Sri Lanka','Sudan','Suriname','Sweden','Switzerland','Syria','Taiwan','Tajikistan','Tanzania','Thailand','Timor-Leste','Togo','Tonga','Trinidad and Tobago','Tunisia','Turkey','Turkmenistan','Tuvalu','Uganda','Ukraine','United Arab Emirates','United Kingdom','United States','Uruguay','Uzbekistan','Vanuatu','Vatican City','Venezuela','Vietnam','Yemen','Zambia','Zimbabwe'];
@@ -529,15 +1306,16 @@ export default function App() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
 
-  // N8N — EMAIL SEQUENCE WORKFLOW STATES
+  // EMAIL AUTOMATION — campaign graph states (nodes live in sequence_steps)
   const [sequences, setSequences] = useState([]);
   const [sequenceSteps, setSequenceSteps] = useState([]);
   const [sequenceEnrollments, setSequenceEnrollments] = useState([]);
-  const [newSeqName, setNewSeqName] = useState('');
-  const [newSeqTrigger, setNewSeqTrigger] = useState('manual');
-  const [newSeqTriggerValue, setNewSeqTriggerValue] = useState('');
-  const [seqStepDraft, setSeqStepDraft] = useState(null); // { sequenceId, wait_days, subject, body }
-  const [enrollPick, setEnrollPick] = useState({}); // sequenceId -> clientId
+  const [sequenceEdges, setSequenceEdges] = useState([]);
+  const [canvasSeqId, setCanvasSeqId] = useState(null); // null = campaign gallery
+  const [canvasSaveState, setCanvasSaveState] = useState('saved'); // 'saved' | 'saving' | 'error'
+  const canvasTimersRef = useRef({});       // debounced persist timers, keyed per node/view
+  const pendingNodePatchRef = useRef({});   // accumulated node patches awaiting flush
+  const graphHousekeepRef = useRef(false);  // one-shot: finalize due goal/complete enrollments
 
   // n8n & API INTEGRATION STATES
   const [apiKeys, setApiKeys] = useState([]);
@@ -554,8 +1332,6 @@ export default function App() {
   // LGM UPGRADES — automation states
   const [sequenceSends, setSequenceSends] = useState([]);
   const [emailSettings, setEmailSettings] = useState(null); // null = no row yet
-  const [stepEdit, setStepEdit] = useState(null); // inline editor: full step draft
-  const [enrollMulti, setEnrollMulti] = useState({}); // sequenceId -> Set-ish {clientId: true}
   const repliesCheckedRef = useRef(false);
 
   // FEATURE 11 — WEBHOOKS STATES
@@ -1207,6 +1983,9 @@ export default function App() {
       if (newStage === 'Won') dispatchWebhook('deal.won', { ...deal, stage: newStage });
       if (newStage === 'Lost') dispatchWebhook('deal.lost', { ...deal, stage: newStage });
       executeAutomations('deal_stage_change', newStage, deal.client_id);
+      // Email Automation — auto-enroll campaigns triggered by "deal stage ="
+      sequences.filter(q => (q.is_active ?? q.status === 'active') && q.trigger_type === 'deal_stage' && q.trigger_value === newStage)
+        .forEach(q => enrollClientInSequence(q, deal.client_id));
     } else showToast(`Error moving deal: ${error.message}`, 'error');
   }
 
@@ -1521,21 +2300,23 @@ export default function App() {
   }
 
   // ==========================================
-  // N8N — EMAIL SEQUENCE WORKFLOWS
+  // EMAIL AUTOMATION — campaign workflows (graph model)
   // ==========================================
 
   async function fetchSequences(userId) {
-    const [{ data: seqs }, { data: steps }, { data: enr }, { data: sends }, { data: settings }] = await Promise.all([
+    const [{ data: seqs }, { data: steps }, { data: enr }, { data: sends }, { data: settings }, { data: edgeRows }] = await Promise.all([
       supabase.from('email_sequences').select('*').eq('user_id', userId).order('created_at'),
       supabase.from('sequence_steps').select('*').eq('user_id', userId).order('step_order'),
       supabase.from('sequence_enrollments').select('*').eq('user_id', userId),
       supabase.from('sequence_sends').select('*').eq('user_id', userId).order('sent_at', { ascending: false }),
       supabase.from('email_settings').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('sequence_edges').select('*').eq('user_id', userId).order('id'),
     ]);
     if (seqs) setSequences(seqs);
     if (steps) setSequenceSteps(steps);
     if (enr) setSequenceEnrollments(enr);
     if (sends) setSequenceSends(sends);
+    if (edgeRows) setSequenceEdges(edgeRows);
     setEmailSettings(settings || null);
   }
 
@@ -1583,113 +2364,237 @@ export default function App() {
     }
   }
 
-  const seqStepsFor = (id) => sequenceSteps.filter(s => s.sequence_id === id).sort((a, b) => a.step_order - b.step_order || a.id - b.id);
+  const seqNodesFor = (id) => sequenceSteps.filter(s => s.sequence_id === id);
+  const seqEdgesFor = (id) => sequenceEdges.filter(e => e.sequence_id === id);
+  // Effective edges: real rows, or an implicit straight chain for pre-canvas sequences.
+  const seqEffEdgesFor = (id, nodes) => { const real = seqEdgesFor(id); return real.length ? real : syntheticChainEdges(nodes || seqNodesFor(id)); };
   const addDaysStr = (days, base = new Date()) => { const d = new Date(base); d.setDate(d.getDate() + (parseInt(days, 10) || 0)); return d.toISOString().split('T')[0]; };
 
-  async function handleCreateSequence(e) {
-    e.preventDefault();
-    if (!newSeqName.trim()) return;
-    const { data, error } = await supabase.from('email_sequences').insert([{
-      user_id: user.id, name: newSeqName.trim(), status: 'draft',
-      trigger_type: newSeqTrigger, trigger_value: newSeqTrigger === 'tag_applied' ? (newSeqTriggerValue || null) : null,
-    }]).select();
-    if (!error && data) {
-      setSequences(prev => [...prev, data[0]]);
-      setNewSeqName(''); setNewSeqTrigger('manual'); setNewSeqTriggerValue('');
-      showToast('Workflow created — add steps, then activate it.', 'success');
-    } else showToast(`Error: ${error?.message}`, 'error');
+  // Debounced canvas persistence with a visible Saving…/Saved indicator.
+  function canvasPersist(key, fn, ms = 600) {
+    setCanvasSaveState('saving');
+    clearTimeout(canvasTimersRef.current[key]);
+    canvasTimersRef.current[key] = setTimeout(async () => {
+      try { await fn(); setCanvasSaveState('saved'); }
+      catch { setCanvasSaveState('error'); }
+    }, ms);
   }
 
-  async function handleSetSequenceStatus(seq, status) {
-    if (status === 'active' && seqStepsFor(seq.id).length === 0) { showToast('Add at least one step before activating.', 'error'); return; }
-    const { error } = await supabase.from('email_sequences').update({ status }).eq('id', seq.id);
-    if (!error) setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, status } : s));
+  // New campaign (optionally from a starter template) — always born with a Trigger node.
+  async function handleCreateCampaign(tpl = null) {
+    const { data: seqRows, error } = await supabase.from('email_sequences').insert([{
+      user_id: user.id, name: tpl ? tpl.name : 'Untitled campaign', status: 'draft',
+      trigger_type: 'manual', trigger_value: null, is_active: false,
+    }]).select();
+    if (error || !seqRows?.length) { showToast(`Error: ${error?.message}`, 'error'); return; }
+    const seq = seqRows[0];
+    const specs = [{ ref: 'trigger', node_type: 'trigger', x: 280, y: 40 }, ...(tpl?.nodes || [])];
+    const rows = specs.map((n, i) => ({
+      sequence_id: seq.id, user_id: user.id,
+      step_order: n.node_type === 'trigger' ? -1 : i - 1,
+      node_type: n.node_type, pos_x: n.x, pos_y: n.y,
+      config: n.config || {},
+      wait_days: n.node_type === 'wait' ? (n.config?.days || 0) : 0,
+      subject: n.subject || '', body: n.body || '', subject_b: null,
+      channel: TASK_NODE_TYPES.includes(n.node_type) ? n.node_type : 'email',
+      condition: n.node_type === 'condition' ? (n.config?.type || 'if_no_reply') : 'always',
+      task_note: n.task_note || null,
+    }));
+    const { data: created, error: e2 } = await supabase.from('sequence_steps').insert(rows).select();
+    if (e2 || !created?.length) { showToast(`Error creating nodes: ${e2?.message}`, 'error'); return; }
+    const sorted = [...created].sort((a, b) => a.id - b.id); // insert order == id order
+    const idByRef = {};
+    specs.forEach((n, i) => { idByRef[n.ref] = sorted[i]?.id; });
+    let newEdges = [];
+    const edgeRows = (tpl?.edges || []).filter(([f, t]) => idByRef[f] && idByRef[t]).map(([f, t, branch]) => ({
+      user_id: user.id, sequence_id: seq.id, from_step_id: idByRef[f], to_step_id: idByRef[t], branch: branch || 'default',
+    }));
+    if (edgeRows.length) {
+      const { data: ed } = await supabase.from('sequence_edges').insert(edgeRows).select();
+      newEdges = ed || [];
+    }
+    setSequences(prev => [...prev, seq]);
+    setSequenceSteps(prev => [...prev, ...created]);
+    if (newEdges.length) setSequenceEdges(prev => [...prev, ...newEdges]);
+    setCanvasSeqId(seq.id);
+    showToast(tpl ? `Template "${tpl.name}" ready — tweak the copy, then activate.` : 'Campaign created — drag nodes onto the canvas.', 'success');
+  }
+
+  function handleRenameSequence(seq, name) {
+    setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, name } : s));
+    canvasPersist(`seq-name-${seq.id}`, async () => {
+      const { error } = await supabase.from('email_sequences').update({ name }).eq('id', seq.id);
+      if (error) throw error;
+    });
+  }
+
+  async function handleToggleSequenceActive(seq, on) {
+    if (on && seqNodesFor(seq.id).filter(n => (n.node_type || 'email') !== 'trigger').length === 0) {
+      showToast('Add at least one node before activating.', 'error'); return;
+    }
+    const patch = { is_active: on, status: on ? 'active' : (seq.status === 'draft' ? 'draft' : 'paused') };
+    setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, ...patch } : s));
+    const { error } = await supabase.from('email_sequences').update(patch).eq('id', seq.id);
+    if (error) { showToast(`Error: ${error.message}`, 'error'); setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, is_active: seq.is_active, status: seq.status } : s)); }
+  }
+
+  function handleUpdateSequenceTrigger(seq, patch) {
+    setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, ...patch } : s));
+    canvasPersist(`seq-trigger-${seq.id}`, async () => {
+      const { error } = await supabase.from('email_sequences').update(patch).eq('id', seq.id);
+      if (error) throw error;
+    }, 300);
+  }
+
+  function handleSaveCanvasView(seqId, zoom, offset) {
+    setSequences(prev => prev.map(s => s.id === seqId ? { ...s, canvas_zoom: zoom, canvas_offset: offset } : s));
+    canvasPersist(`seq-view-${seqId}`, async () => {
+      const { error } = await supabase.from('email_sequences').update({ canvas_zoom: zoom, canvas_offset: offset }).eq('id', seqId);
+      if (error) throw error;
+    }, 800);
   }
 
   function handleDeleteSequence(seq) {
-    showConfirm('Delete Workflow', `Delete "${seq.name}" and all its steps/enrollments? This cannot be undone.`, 'Delete', 'danger',
+    showConfirm('Delete Campaign', `Delete "${seq.name}" and all its nodes/enrollments? This cannot be undone.`, 'Delete', 'danger',
       async () => {
         const { error } = await supabase.from('email_sequences').delete().eq('id', seq.id);
         if (!error) {
           setSequences(prev => prev.filter(s => s.id !== seq.id));
           setSequenceSteps(prev => prev.filter(s => s.sequence_id !== seq.id));
           setSequenceEnrollments(prev => prev.filter(s => s.sequence_id !== seq.id));
+          setSequenceEdges(prev => prev.filter(e => e.sequence_id !== seq.id));
+          setCanvasSeqId(cur => cur === seq.id ? null : cur);
         }
       });
   }
 
+  // Duplicate the full graph — nodes with canvas fields + edges remapped to the new ids.
   async function handleDuplicateSequence(seq) {
     const { data, error } = await supabase.from('email_sequences').insert([{
-      user_id: user.id, name: `${seq.name} (copy)`, status: 'draft',
+      user_id: user.id, name: `${seq.name} (copy)`, status: 'draft', is_active: false,
       trigger_type: seq.trigger_type, trigger_value: seq.trigger_value,
+      canvas_zoom: seq.canvas_zoom, canvas_offset: seq.canvas_offset,
     }]).select();
-    if (error || !data) { showToast(`Error: ${error?.message}`, 'error'); return; }
-    const steps = seqStepsFor(seq.id).map(s => ({
-      sequence_id: data[0].id, user_id: user.id, step_order: s.step_order,
-      wait_days: s.wait_days, subject: s.subject, body: s.body,
-    }));
-    if (steps.length > 0) {
-      const { data: sd } = await supabase.from('sequence_steps').insert(steps).select();
-      if (sd) setSequenceSteps(prev => [...prev, ...sd]);
+    if (error || !data?.length) { showToast(`Error: ${error?.message}`, 'error'); return; }
+    const newSeq = data[0];
+    const nodes = seqNodesFor(seq.id).sort((a, b) => a.id - b.id);
+    let newSteps = [];
+    if (nodes.length) {
+      const rows = nodes.map(s => ({
+        sequence_id: newSeq.id, user_id: user.id, step_order: s.step_order,
+        wait_days: s.wait_days, subject: s.subject, body: s.body, subject_b: s.subject_b,
+        channel: s.channel, condition: s.condition, task_note: s.task_note,
+        node_type: s.node_type || 'email', pos_x: s.pos_x, pos_y: s.pos_y, config: s.config || {},
+      }));
+      const { data: sd } = await supabase.from('sequence_steps').insert(rows).select();
+      newSteps = (sd || []).sort((a, b) => a.id - b.id);
     }
-    setSequences(prev => [...prev, data[0]]);
-    showToast('Workflow duplicated as draft.', 'success');
+    const idMap = {};
+    nodes.forEach((n, i) => { if (newSteps[i]) idMap[n.id] = newSteps[i].id; });
+    const edgeRows = seqEdgesFor(seq.id)
+      .filter(e => idMap[e.from_step_id] && idMap[e.to_step_id])
+      .map(e => ({ user_id: user.id, sequence_id: newSeq.id, from_step_id: idMap[e.from_step_id], to_step_id: idMap[e.to_step_id], branch: e.branch || 'default' }));
+    let newEdges = [];
+    if (edgeRows.length) {
+      const { data: ed } = await supabase.from('sequence_edges').insert(edgeRows).select();
+      newEdges = ed || [];
+    }
+    setSequences(prev => [...prev, newSeq]);
+    if (newSteps.length) setSequenceSteps(prev => [...prev, ...newSteps]);
+    if (newEdges.length) setSequenceEdges(prev => [...prev, ...newEdges]);
+    showToast('Campaign duplicated as an inactive draft.', 'success');
   }
 
-  // UPGRADE 5/6/8 — add step with channel/condition/A-B, optionally inserted
-  // between existing steps (insertAt = index or null for end).
-  // DB has subject/body NOT NULL, so non-email steps store '' (documented).
-  async function handleAddSequenceStep(e) {
-    e.preventDefault();
-    const d = seqStepDraft;
-    if (!d) return;
-    const isEmail = !d.channel || d.channel === 'email';
-    if (isEmail && (!d.subject?.trim() || !d.body?.trim())) return;
-    if (!isEmail && !d.task_note?.trim()) { showToast('Add a note describing the task.', 'error'); return; }
-    const steps = seqStepsFor(d.sequenceId);
-    const at = d.insertAt == null ? steps.length : Math.min(d.insertAt, steps.length);
-    // shift later steps down by one (batched)
-    await Promise.all(steps.slice(at).map(s =>
-      supabase.from('sequence_steps').update({ step_order: s.step_order + 1 }).eq('id', s.id)));
+  // ===== canvas node/edge CRUD =====
+  // DB has subject/body NOT NULL, so non-email nodes store '' (long-standing convention).
+  async function handleCreateNode(seqId, nodeType, x, y) {
+    const defaults = { wait: { days: 3, unit: 'days' }, condition: { type: 'if_no_reply' }, goal: { label: 'Replied' } };
+    const cfg = defaults[nodeType] || {};
+    setCanvasSaveState('saving');
     const { data, error } = await supabase.from('sequence_steps').insert([{
-      sequence_id: d.sequenceId, user_id: user.id, step_order: at,
-      wait_days: Math.max(0, parseInt(d.wait_days, 10) || 0),
-      subject: isEmail ? d.subject.trim() : '',
-      body: isEmail ? d.body : '',
-      subject_b: isEmail && d.subject_b?.trim() ? d.subject_b : null,
-      channel: d.channel || 'email',
-      condition: d.condition || 'always',
-      task_note: !isEmail ? d.task_note : null,
+      sequence_id: seqId, user_id: user.id,
+      step_order: seqNodesFor(seqId).length, node_type: nodeType,
+      pos_x: Math.round(x), pos_y: Math.round(y), config: cfg,
+      wait_days: nodeType === 'wait' ? cfg.days : 0,
+      subject: '', body: '', subject_b: null,
+      channel: TASK_NODE_TYPES.includes(nodeType) ? nodeType : 'email',
+      condition: nodeType === 'condition' ? cfg.type : 'always',
+      task_note: null,
     }]).select();
-    if (!error && data) {
-      setSequenceSteps(prev => [
-        ...prev.map(s => (s.sequence_id === d.sequenceId && s.step_order >= at && s.id !== data[0].id) ? { ...s, step_order: s.step_order + 1 } : s),
-        data[0],
-      ]);
-      setSeqStepDraft(null);
-    } else showToast(`Error: ${error?.message}`, 'error');
+    if (error || !data?.length) { setCanvasSaveState('error'); showToast(`Error: ${error?.message}`, 'error'); return null; }
+    setSequenceSteps(prev => [...prev, data[0]]);
+    setCanvasSaveState('saved');
+    return data[0];
   }
 
-  async function handleDeleteSequenceStep(step) {
-    const { error } = await supabase.from('sequence_steps').delete().eq('id', step.id);
-    if (!error) setSequenceSteps(prev => prev.filter(s => s.id !== step.id));
+  // Optimistic node update; accumulated patch flushes to Supabase debounced.
+  function handleUpdateNode(nodeId, patch) {
+    setSequenceSteps(prev => prev.map(s => s.id === nodeId ? { ...s, ...patch } : s));
+    pendingNodePatchRef.current[nodeId] = { ...(pendingNodePatchRef.current[nodeId] || {}), ...patch };
+    canvasPersist(`node-${nodeId}`, async () => {
+      const p = pendingNodePatchRef.current[nodeId];
+      delete pendingNodePatchRef.current[nodeId];
+      if (!p) return;
+      const { error } = await supabase.from('sequence_steps').update(p).eq('id', nodeId);
+      if (error) throw error;
+    });
   }
 
+  function handleDeleteNode(node) {
+    if ((node.node_type || 'email') === 'trigger') { showToast('The Trigger node can’t be deleted.', 'error'); return; }
+    showConfirm('Delete Node', 'Delete this node and its connections?', 'Delete', 'danger', async () => {
+      const { error } = await supabase.from('sequence_steps').delete().eq('id', node.id); // edges cascade in DB
+      if (!error) {
+        setSequenceSteps(prev => prev.filter(s => s.id !== node.id));
+        setSequenceEdges(prev => prev.filter(e => e.from_step_id !== node.id && e.to_step_id !== node.id));
+      } else showToast(`Error: ${error.message}`, 'error');
+    });
+  }
+
+  // One outgoing connection per output port — reconnecting replaces the old edge.
+  async function handleAddEdgeConn(seqId, fromId, toId, branch = 'default') {
+    if (fromId === toId) return;
+    setCanvasSaveState('saving');
+    const stale = sequenceEdges.filter(e => e.from_step_id === fromId && (e.branch || 'default') === branch);
+    for (const e of stale) await supabase.from('sequence_edges').delete().eq('id', e.id);
+    const { data, error } = await supabase.from('sequence_edges').insert([{
+      user_id: user.id, sequence_id: seqId, from_step_id: fromId, to_step_id: toId, branch,
+    }]).select();
+    if (error || !data?.length) { setCanvasSaveState('error'); showToast(`Error: ${error?.message}`, 'error'); return; }
+    setSequenceEdges(prev => [...prev.filter(e => !(e.from_step_id === fromId && (e.branch || 'default') === branch)), data[0]]);
+    setCanvasSaveState('saved');
+  }
+
+  async function handleDeleteEdgeConn(edge) {
+    setCanvasSaveState('saving');
+    const { error } = await supabase.from('sequence_edges').delete().eq('id', edge.id);
+    if (error) { setCanvasSaveState('error'); return; }
+    setSequenceEdges(prev => prev.filter(e => e.id !== edge.id));
+    setCanvasSaveState('saved');
+  }
+
+  // Enrollment starts at the node connected after the Trigger (graph position).
   async function enrollClientInSequence(seq, clientId) {
-    const steps = seqStepsFor(seq.id);
-    if (steps.length === 0) { showToast('This workflow has no steps yet.', 'error'); return; }
+    const nodes = seqNodesFor(seq.id);
+    const edges = seqEffEdgesFor(seq.id, nodes);
+    const trigger = nodes.find(n => (n.node_type || 'email') === 'trigger');
+    let first = trigger ? nodes.find(n => n.id === defaultEdgeFrom(edges, trigger.id)?.to_step_id) || null : null;
+    if (!first) first = nodes.filter(n => (n.node_type || 'email') !== 'trigger').sort((a, b) => (a.step_order - b.step_order) || (a.id - b.id))[0] || null;
+    if (!first) { showToast('This campaign has no steps yet — add nodes on the canvas first.', 'error'); return; }
+    if (trigger && edges.length && !defaultEdgeFrom(edges, trigger.id)) { showToast('Connect the Trigger node to a first step before enrolling.', 'error'); return; }
     const cid = parseInt(clientId, 10);
     if (sequenceEnrollments.some(en => en.sequence_id === seq.id && en.client_id === cid && en.status === 'active')) {
-      showToast('Already enrolled in this workflow.', 'error'); return;
+      showToast('Already enrolled in this campaign.', 'error'); return;
     }
     const { data, error } = await supabase.from('sequence_enrollments').insert([{
       sequence_id: seq.id, client_id: cid, user_id: user.id,
-      status: 'active', current_step: 0, next_send_at: addDaysStr(steps[0].wait_days),
+      status: 'active', current_step: 0, current_node_id: first.id,
+      next_send_at: addDaysStr(arrivalDelayDays(first)),
     }]).select();
     if (!error && data) {
       setSequenceEnrollments(prev => [...prev, data[0]]);
       dispatchWebhook('sequence.enrolled', data[0]);
-      showToast('Enrolled — first email is in the Outbox when due.', 'success');
+      showToast('Enrolled — the first step lands in the Outbox when due.', 'success');
     } else showToast(`Error: ${error?.message}`, 'error');
   }
 
@@ -1698,110 +2603,89 @@ export default function App() {
     if (!error) setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, status: 'stopped', next_send_at: null } : x));
   }
 
-  // MANUAL send path (fallback + default when auto-send is off). Runs the SAME
-  // state machine as the server runner: condition skips (U4), channel tasks (U5),
-  // A/B variant pick (U6), sequence_sends row (U3 funnel counting).
+  // MANUAL send path (fallback + default when auto-send is off). Walks the SAME
+  // graph as the server runner via resolveNextNode: condition branches, channel
+  // tasks, A/B variant pick, goal nodes, sequence_sends row (funnel counting).
   // Note: manual new-tab sends cannot be open/click tracked — only Gmail auto-sends are.
   async function handleSendSequenceStep(enr) {
     const seq = sequences.find(s => s.id === enr.sequence_id);
-    const steps = seqStepsFor(enr.sequence_id);
     const c = clients.find(x => x.id === enr.client_id);
-    if (!seq || !c) { showToast('Missing sequence or relationship.', 'error'); return; }
+    if (!seq || !c) { showToast('Missing campaign or relationship.', 'error'); return; }
+    const nodes = seqNodesFor(enr.sequence_id);
+    const edges = seqEffEdgesFor(enr.sequence_id, nodes);
     const today = new Date().toISOString().split('T')[0];
 
-    // UPGRADE 4 — resolve the next step whose condition is met
-    const resolved = resolveDueStep(enr, steps, sequenceSends);
-    if (!resolved) {
-      const patch = { status: 'completed', stopped_reason: 'completed', current_step: steps.length, next_send_at: null };
+    const res = resolveNextNode(enr, nodes, edges, sequenceSends);
+
+    if (res.action === 'complete' || res.action === 'goal') {
+      const patch = {
+        status: 'completed', stopped_reason: res.action === 'goal' ? 'goal_reached' : 'completed',
+        next_send_at: null, ...(res.node ? { current_node_id: res.node.id } : {}),
+      };
       await supabase.from('sequence_enrollments').update(patch).eq('id', enr.id);
       setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, ...patch } : x));
-      showToast('All remaining steps were skipped by their conditions — sequence completed.', 'success');
+      dispatchWebhook('sequence.completed', { enrollment_id: enr.id, client_id: c.id, sequence_id: seq.id });
+      showToast(res.action === 'goal' ? `🎯 Goal "${nodeSummary(res.node, seq)}" reached — campaign completed.` : 'Campaign completed for this relationship.', 'success');
       return;
     }
-    const { step, index } = resolved;
+    if (res.action === 'wait') {
+      const patch = { current_node_id: res.node.id, next_send_at: addDaysStr(res.waitDays) };
+      await supabase.from('sequence_enrollments').update(patch).eq('id', enr.id);
+      setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, ...patch } : x));
+      showToast(`⏱️ Waiting ${res.waitDays} day${res.waitDays === 1 ? '' : 's'} — next step scheduled.`, 'success');
+      return;
+    }
+
+    const node = res.node;
+    const ch = (node.node_type || 'email') === 'email' ? 'email' : node.node_type;
     const token = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `tk_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     let description = '';
     let variant = null;
 
-    if (step.channel && step.channel !== 'email') {
-      // UPGRADE 5 — non-email step becomes a task
-      const title = `${CHANNEL_TASK_LABEL[step.channel] || 'Task for'} ${c.name}${step.task_note ? ' — ' + resolveMergeTags(step.task_note, c) : ''}`.slice(0, 250);
+    if (res.action === 'task') {
+      const note = node.config?.note ?? node.task_note;
+      const title = `${CHANNEL_TASK_LABEL[ch] || 'Task for'} ${c.name}${note ? ' — ' + resolveMergeTags(note, c) : ''}`.slice(0, 250);
       const { data: t } = await supabase.from('tasks').insert([{
         user_id: user.id, client_id: c.id, title, due_date: today, status: 'pending',
       }]).select();
       if (t) setTasks(prev => [...prev, t[0]]);
-      description = `Sequence "${seq.name}" — ${step.channel} task created: ${title}`;
+      description = `Campaign "${seq.name}" — ${ch} task created: ${title}`;
       showToast('Task created for this step — find it in Tasks.', 'success');
     } else {
       if (!c.email) { showToast('This relationship has no email address.', 'error'); return; }
-      // UPGRADE 6 — A/B variant
-      const pick = pickSubjectVariant(step, enr);
+      const pick = pickSubjectVariant(node, enr);
       variant = pick.variant;
       const subject = resolveMergeTags(pick.subject, c);
-      const body = resolveMergeTags(step.body, c);
+      const body = resolveMergeTags(node.body, c);
       const url = emailProvider === 'mailto' ? buildMailtoUrl(c.email, subject, body) : buildGmailUrl(c.email, subject, body);
       const tab = window.open(url, '_blank', 'noopener,noreferrer');
       if (!tab && emailProvider !== 'mailto') window.location.href = buildMailtoUrl(c.email, subject, body);
-      description = `Sequence "${seq.name}" — step ${index + 1}${variant ? ` (variant ${variant})` : ''}: ${subject}`;
+      description = `Campaign "${seq.name}" — email${variant ? ` (variant ${variant})` : ''}: ${subject}`;
     }
 
-    // UPGRADE 3 — record the send for the funnel (manual sends: no tracking pixel)
+    // record the send for the funnel (manual sends: no tracking pixel)
     const { data: sendRow } = await supabase.from('sequence_sends').insert([{
-      user_id: user.id, enrollment_id: enr.id, sequence_id: seq.id, step_id: step.id,
-      client_id: c.id, track_token: token, channel: step.channel || 'email', subject_variant: variant,
+      user_id: user.id, enrollment_id: enr.id, sequence_id: seq.id, step_id: node.id,
+      client_id: c.id, track_token: token, channel: ch, subject_variant: variant,
     }]).select();
     if (sendRow) setSequenceSends(prev => [sendRow[0], ...prev]);
 
     const { data: act } = await supabase.from('activities').insert([{
       client_id: c.id, user_id: user.id,
-      activity_type: (!step.channel || step.channel === 'email') ? 'Email' : 'Note',
+      activity_type: res.action === 'email' ? 'Email' : 'Note',
       activity_date: today, description,
     }]).select();
     if (act) setActivities(prev => [act[0], ...prev]);
 
-    const nextIdx = index + 1;
-    const nextStep = steps[nextIdx];
-    const patch = nextStep
-      ? { current_step: nextIdx, next_send_at: addDaysStr(nextStep.wait_days), last_channel_sent: step.channel || 'email' }
-      : { current_step: nextIdx, status: 'completed', stopped_reason: 'completed', next_send_at: null, last_channel_sent: step.channel || 'email' };
+    const adv = advanceAfterNode(node, nodes, edges);
+    const patch = adv.done
+      ? { current_step: enr.current_step + 1, current_node_id: node.id, status: 'completed', stopped_reason: 'completed', next_send_at: null, last_channel_sent: ch }
+      : { current_step: enr.current_step + 1, current_node_id: adv.nodeId, next_send_at: addDaysStr(adv.waitDays), last_channel_sent: ch };
     await supabase.from('sequence_enrollments').update(patch).eq('id', enr.id);
     setSequenceEnrollments(prev => prev.map(x => x.id === enr.id ? { ...x, ...patch } : x));
     await supabase.from('email_sequences').update({ last_run_at: new Date().toISOString() }).eq('id', seq.id);
     setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, last_run_at: new Date().toISOString() } : s));
-    if (!nextStep) { dispatchWebhook('sequence.completed', { enrollment_id: enr.id, client_id: c.id, sequence_id: seq.id }); showToast('Sequence completed for this relationship.', 'success'); }
-  }
-
-  // UPGRADE 8 — reorder a step up/down (batched step_order swap)
-  async function handleMoveStep(seqId, index, dir) {
-    const steps = seqStepsFor(seqId);
-    const j = index + dir;
-    if (j < 0 || j >= steps.length) return;
-    const a = steps[index], b = steps[j];
-    await Promise.all([
-      supabase.from('sequence_steps').update({ step_order: j }).eq('id', a.id),
-      supabase.from('sequence_steps').update({ step_order: index }).eq('id', b.id),
-    ]);
-    setSequenceSteps(prev => prev.map(s => s.id === a.id ? { ...s, step_order: j } : s.id === b.id ? { ...s, step_order: index } : s));
-  }
-
-  // UPGRADE 8 — inline edit save
-  async function handleSaveStepEdit() {
-    const d = stepEdit;
-    if (!d) return;
-    const patch = {
-      wait_days: Math.max(0, parseInt(d.wait_days, 10) || 0),
-      subject: d.channel === 'email' ? (d.subject || '') : '',
-      body: d.channel === 'email' ? (d.body || '') : '',
-      subject_b: d.channel === 'email' && d.subject_b?.trim() ? d.subject_b : null,
-      condition: d.condition || 'always',
-      channel: d.channel || 'email',
-      task_note: d.channel !== 'email' ? (d.task_note || '') : null,
-    };
-    const { data, error } = await supabase.from('sequence_steps').update(patch).eq('id', d.id).select();
-    if (!error && data) {
-      setSequenceSteps(prev => prev.map(s => s.id === d.id ? data[0] : s));
-      setStepEdit(null);
-    } else showToast(`Error: ${error?.message}`, 'error');
+    if (adv.done) { dispatchWebhook('sequence.completed', { enrollment_id: enr.id, client_id: c.id, sequence_id: seq.id }); showToast('Campaign completed for this relationship.', 'success'); }
   }
 
   // G11 — one-click insert of a pre-configured recipe rule
@@ -1907,9 +2791,9 @@ export default function App() {
       const { error } = await supabase.from('client_tags').insert([{ client_id: clientId, tag_id: tagId }]);
       if (!error) {
         setClientTagMap(prev => ({ ...prev, [clientId]: [...(prev[clientId] || []), tagId] }));
-        // N8N — auto-enroll workflows triggered by "tag applied"
+        // Email Automation — auto-enroll campaigns triggered by "tag applied"
         const tagName = tags.find(t => t.id === tagId)?.name;
-        if (tagName) sequences.filter(q => q.status === 'active' && q.trigger_type === 'tag_applied' && q.trigger_value === tagName)
+        if (tagName) sequences.filter(q => (q.is_active ?? q.status === 'active') && q.trigger_type === 'tag_applied' && q.trigger_value === tagName)
           .forEach(q => enrollClientInSequence(q, clientId));
       }
     }
@@ -2563,8 +3447,8 @@ export default function App() {
       updateStreak();
       dispatchWebhook('client.created', newClient);
       if (newClient.source) executeAutomations('source_is', newClient.source, newClient.id); // G11
-      // N8N — auto-enroll workflows triggered by "new relationship added"
-      sequences.filter(q => q.status === 'active' && q.trigger_type === 'new_relationship')
+      // Email Automation — auto-enroll campaigns triggered by "new relationship added"
+      sequences.filter(q => (q.is_active ?? q.status === 'active') && q.trigger_type === 'new_relationship')
         .forEach(q => enrollClientInSequence(q, newClient.id));
     } else if (error) {
       setCrmErrorMessage(`Database Sync Error: ${error.message}`);
@@ -3079,19 +3963,55 @@ export default function App() {
   const wonValue = useMemo(() => deals.filter(d => d.stage === 'Won').reduce((s, d) => s + toUSD(d.value, d.currency), 0), [deals]);
   const openDealsCount = useMemo(() => deals.filter(d => !['Won', 'Lost'].includes(d.stage)).length, [deals]);
 
-  // N8N — enrollments whose next step is due (the Outbox)
+  // EMAIL AUTOMATION — enrollments whose next graph node is due (the Outbox).
+  // Walks the node/edge graph via the shared resolveNextNode (same as the runner).
   const dueSequenceSends = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
     return sequenceEnrollments
       .filter(en => en.status === 'active' && en.next_send_at && en.next_send_at <= today)
       .map(en => {
         const seq = sequences.find(s => s.id === en.sequence_id);
-        const step = sequenceSteps.filter(s => s.sequence_id === en.sequence_id).sort((a, b) => a.step_order - b.step_order || a.id - b.id)[en.current_step];
         const c = clients.find(x => x.id === en.client_id);
-        return seq && seq.status === 'active' && step && c ? { enr: en, seq, step, client: c } : null;
+        if (!seq || !c || !(seq.is_active ?? seq.status === 'active')) return null;
+        const nodes = sequenceSteps.filter(s => s.sequence_id === en.sequence_id);
+        const realEdges = sequenceEdges.filter(e => e.sequence_id === en.sequence_id);
+        const res = resolveNextNode(en, nodes, realEdges.length ? realEdges : syntheticChainEdges(nodes), sequenceSends);
+        if (res.action !== 'email' && res.action !== 'task') return null;
+        return { enr: en, seq, node: res.node, action: res.action, client: c };
       })
       .filter(Boolean);
-  }, [sequenceEnrollments, sequences, sequenceSteps, clients]);
+  }, [sequenceEnrollments, sequences, sequenceSteps, sequenceEdges, sequenceSends, clients]);
+
+  // Housekeeping (one-shot per load): due enrollments that resolve to a goal, a
+  // dead end, or a fresh wait don't need a send — finalize/reschedule them here
+  // so they don't sit in limbo when the server runner is off.
+  useEffect(() => {
+    if (graphHousekeepRef.current || !user || !sequences.length) return;
+    const today = new Date().toISOString().split('T')[0];
+    const due = sequenceEnrollments.filter(en => en.status === 'active' && en.next_send_at && en.next_send_at <= today);
+    if (!due.length) { graphHousekeepRef.current = true; return; }
+    graphHousekeepRef.current = true;
+    (async () => {
+      for (const en of due) {
+        const seq = sequences.find(s => s.id === en.sequence_id);
+        if (!seq || !(seq.is_active ?? seq.status === 'active')) continue;
+        const nodes = sequenceSteps.filter(s => s.sequence_id === en.sequence_id);
+        const realEdges = sequenceEdges.filter(e => e.sequence_id === en.sequence_id);
+        const res = resolveNextNode(en, nodes, realEdges.length ? realEdges : syntheticChainEdges(nodes), sequenceSends);
+        let patch = null;
+        if (res.action === 'goal' || res.action === 'complete') {
+          patch = { status: 'completed', stopped_reason: res.action === 'goal' ? 'goal_reached' : 'completed', next_send_at: null, ...(res.node ? { current_node_id: res.node.id } : {}) };
+          dispatchWebhook('sequence.completed', { enrollment_id: en.id, client_id: en.client_id, sequence_id: en.sequence_id });
+        } else if (res.action === 'wait') {
+          patch = { current_node_id: res.node.id, next_send_at: addDaysStr(res.waitDays) };
+        }
+        if (patch) {
+          const { error } = await supabase.from('sequence_enrollments').update(patch).eq('id', en.id);
+          if (!error) setSequenceEnrollments(prev => prev.map(x => x.id === en.id ? { ...x, ...patch } : x));
+        }
+      }
+    })();
+  }, [user, sequences, sequenceEnrollments, sequenceSteps, sequenceEdges, sequenceSends]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // G19 — MRR from Won recurring deals, normalized to monthly USD
   const mrr = useMemo(() => deals
@@ -5333,289 +6253,148 @@ export default function App() {
         {/* VIEW: N8N — EMAIL SEQUENCE WORKFLOWS */}
         {appStep === 'N8N' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {canvasSeqId == null ? (
+            <>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Email Automation</h1>
-              <p className="text-[13px] text-gray-500">Automated email sequences — build a workflow, enroll relationships, and each follow-up lands in your Outbox when due.</p>
+              <p className="text-[13px] text-gray-500">Visual campaign builder — drag nodes onto a canvas, connect them into branching multichannel outreach, and watch enrollments flow through it live.</p>
             </div>
 
-            {/* OUTBOX — due sends */}
+            {/* OUTBOX — due graph steps */}
             {dueSequenceSends.length > 0 && (
               <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl p-5 space-y-2">
-                <h3 className="text-[14px] font-semibold text-indigo-900 dark:text-indigo-200">Outbox — {dueSequenceSends.length} email{dueSequenceSends.length === 1 ? '' : 's'} due</h3>
-                {dueSequenceSends.map(({ enr, seq, step, client: c }) => (
+                <h3 className="text-[14px] font-semibold text-indigo-900 dark:text-indigo-200">Outbox — {dueSequenceSends.length} step{dueSequenceSends.length === 1 ? '' : 's'} due</h3>
+                {dueSequenceSends.map(({ enr, seq, node, action, client: c }) => (
                   <div key={enr.id} className="flex flex-wrap items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-3 border border-indigo-100 dark:border-indigo-800">
                     <div className="flex-1 min-w-[180px]">
-                      <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">{c.name} <span className="text-gray-400 font-normal">· step {enr.current_step + 1} of {seqStepsFor(seq.id).length} · {seq.name}</span></p>
-                      <p className="text-[12px] text-gray-500 truncate">{resolveMergeTags(step.subject, c)}</p>
+                      <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">{c.name} <span className="text-gray-400 font-normal">· {(NODE_TYPE_META[node.node_type || 'email'] || NODE_TYPE_META.email).icon} {(NODE_TYPE_META[node.node_type || 'email'] || NODE_TYPE_META.email).label} · {seq.name}</span></p>
+                      <p className="text-[12px] text-gray-500 truncate">{action === 'email' ? resolveMergeTags(node.config?.subject ?? node.subject, c) : `Creates task: ${nodeSummary(node, seq)}`}</p>
                     </div>
                     <button onClick={() => handleStopEnrollment(enr)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Stop</button>
-                    <button onClick={() => handleSendSequenceStep(enr)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Send now →</button>
+                    <button onClick={() => handleSendSequenceStep(enr)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">{action === 'email' ? 'Send now →' : 'Run step →'}</button>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* NEW WORKFLOW */}
-            <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-              <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">New Workflow</h3>
-              <form onSubmit={handleCreateSequence} className="flex flex-wrap gap-2 text-[13px]">
-                <input type="text" required placeholder="Workflow name (e.g. Cold outreach — agencies)" value={newSeqName} onChange={e => setNewSeqName(e.target.value)} className="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
-                <select value={newSeqTrigger} onChange={e => setNewSeqTrigger(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
-                  <option value="manual">Trigger: Manual enroll</option>
-                  <option value="new_relationship">Trigger: New relationship added</option>
-                  <option value="tag_applied">Trigger: Tag applied</option>
-                </select>
-                {newSeqTrigger === 'tag_applied' && (
-                  <select required value={newSeqTriggerValue} onChange={e => setNewSeqTriggerValue(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
-                    <option value="">— pick tag —</option>
-                    {tags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                  </select>
-                )}
-                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Workflow</button>
-              </form>
-            </div>
-
-            {/* WORKFLOW LIST */}
-            {sequences.length === 0 ? (
-              <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                <EmptyState title="No workflows yet" desc="Create a workflow above, add email steps with wait times, then activate it." />
-              </div>
-            ) : sequences.map(seq => {
-              const steps = seqStepsFor(seq.id);
-              const enrolled = sequenceEnrollments.filter(en => en.sequence_id === seq.id);
-              const activeEnr = enrolled.filter(en => en.status === 'active');
-              const statusCls = { draft: 'bg-gray-100 text-gray-600 ring-gray-500/10', active: 'bg-green-50 text-green-700 ring-green-600/10', paused: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20' }[seq.status];
-              return (
-                <div key={seq.id} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-5 space-y-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">{seq.name}</h3>
-                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset capitalize ${statusCls}`}>{seq.status}</span>
-                    <span className="text-[11px] text-gray-400">
-                      Trigger: {{ manual: 'Manual', new_relationship: 'New relationship', tag_applied: `Tag "${seq.trigger_value}"` }[seq.trigger_type]}
-                      {' · '}{activeEnr.length} enrolled{enrolled.length !== activeEnr.length ? ` (${enrolled.length} total)` : ''}
-                      {' · '}Last run: {seq.last_run_at ? new Date(seq.last_run_at).toLocaleString() : 'never'}
-                    </span>
-                    <div className="ml-auto flex flex-wrap gap-2 text-[12px] font-medium">
-                      {seq.status !== 'active' && <button onClick={() => handleSetSequenceStatus(seq, 'active')} className="px-3 py-1 rounded-full bg-green-600 text-white hover:opacity-90">{seq.status === 'paused' ? 'Resume' : 'Activate'}</button>}
-                      {seq.status === 'active' && <button onClick={() => handleSetSequenceStatus(seq, 'paused')} className="px-3 py-1 rounded-full bg-yellow-500 text-white hover:opacity-90">Pause</button>}
-                      <button onClick={() => handleDuplicateSequence(seq)} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Duplicate</button>
-                      <button onClick={() => handleDeleteSequence(seq)} className="text-red-500 hover:text-red-700">Delete</button>
+            {/* CAMPAIGN GALLERY */}
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {sequences.map(seq => {
+                const nodeCount = seqNodesFor(seq.id).filter(n => (n.node_type || 'email') !== 'trigger').length;
+                const enrolled = sequenceEnrollments.filter(en => en.sequence_id === seq.id);
+                const activeEnr = enrolled.filter(en => en.status === 'active').length;
+                const isActive = !!seq.is_active;
+                return (
+                  <div key={seq.id} onClick={() => setCanvasSeqId(seq.id)}
+                    className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-4 space-y-2 cursor-pointer hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all group">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 truncate flex-1">{seq.name}</h3>
+                      <button onClick={e => { e.stopPropagation(); handleToggleSequenceActive(seq, !isActive); }} role="switch" aria-checked={isActive} title={isActive ? 'Active — click to pause' : 'Paused — click to activate'}
+                        className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${isActive ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isActive ? 'translate-x-4' : ''}`} />
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-gray-400 truncate">⚡ {{ manual: 'Manual enroll', new_relationship: 'New relationship', tag_applied: `Tag "${seq.trigger_value}"`, deal_stage: `Deal stage = ${seq.trigger_value}` }[seq.trigger_type] || 'Manual enroll'}</p>
+                    <div className="flex items-center gap-3 text-[11px] font-semibold text-gray-500">
+                      <span>{nodeCount} node{nodeCount === 1 ? '' : 's'}</span>
+                      <span>{activeEnr} enrolled{enrolled.length !== activeEnr ? ` (${enrolled.length} total)` : ''}</span>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1 border-t border-gray-50 dark:border-gray-800">
+                      <span className="text-[10px] text-gray-400 flex-1 truncate">Last run: {seq.last_run_at ? new Date(seq.last_run_at).toLocaleDateString() : 'never'}</span>
+                      <button onClick={e => { e.stopPropagation(); handleDuplicateSequence(seq); }} className="text-[11px] font-medium text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 opacity-0 group-hover:opacity-100 transition-opacity">Duplicate</button>
+                      <button onClick={e => { e.stopPropagation(); handleDeleteSequence(seq); }} className="text-[11px] font-medium text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">Delete</button>
                     </div>
                   </div>
+                );
+              })}
+              <button onClick={() => handleCreateCampaign(null)}
+                className="min-h-[120px] flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 text-gray-400 hover:border-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                <span className="text-[22px] leading-none">＋</span>
+                <span className="text-[13px] font-semibold">New Campaign</span>
+                <span className="text-[11px]">Opens a fresh canvas with a Trigger node</span>
+              </button>
+            </div>
 
-                  {/* UPGRADE 3 — live funnel + UPGRADE 8 — enrollment list */}
-                  {(() => {
-                    const sSends = sequenceSends.filter(s => s.sequence_id === seq.id);
-                    const f = {
-                      Sent: sSends.length,
-                      Opened: sSends.filter(s => s.opened_at).length,
-                      Clicked: sSends.filter(s => s.clicked_at).length,
-                      Replied: sSends.filter(s => s.replied_at).length,
-                    };
-                    const max = Math.max(f.Sent, 1);
-                    return (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div className="p-3 border border-gray-100 dark:border-gray-800 rounded-xl">
-                          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Funnel {f.Sent > 0 && <span className="normal-case font-normal">· open {Math.round((f.Opened / f.Sent) * 100)}% · click {Math.round((f.Clicked / f.Sent) * 100)}% · reply {Math.round((f.Replied / f.Sent) * 100)}%</span>}</p>
-                          {Object.entries(f).map(([k, v]) => (
-                            <div key={k} className="flex items-center gap-2 py-0.5">
-                              <span className="text-[11px] font-medium text-gray-500 w-14">{k}</span>
-                              <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full h-3 overflow-hidden">
-                                <div className={`anim-grow-w h-full rounded-full ${{ Sent: 'bg-gray-400', Opened: 'bg-blue-500', Clicked: 'bg-indigo-500', Replied: 'bg-green-500' }[k]}`} style={{ width: `${(v / max) * 100}%` }} />
-                              </div>
-                              <span className="text-[11px] font-bold text-gray-900 dark:text-gray-100 w-6 text-right">{v}</span>
-                            </div>
-                          ))}
-                          <p className="text-[10px] text-gray-400 mt-1.5">Open/click tracking applies to auto-sent (Gmail) emails only — manual tab sends can't be tracked.</p>
-                        </div>
-                        <div className="p-3 border border-gray-100 dark:border-gray-800 rounded-xl max-h-44 overflow-y-auto">
-                          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Enrollments ({enrolled.length})</p>
-                          {enrolled.length === 0 ? <p className="text-[12px] text-gray-400">Nobody enrolled yet.</p> : enrolled.map(en => {
-                            const ec = clients.find(x => x.id === en.client_id);
-                            return (
-                              <div key={en.id} className="flex items-center gap-2 py-1 text-[12px]">
-                                <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-1">{ec?.name || '?'}</span>
-                                <span className="text-gray-400">step {Math.min(en.current_step + 1, steps.length)}/{steps.length}</span>
-                                {en.status === 'replied' ? (
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/10">Replied — auto-stopped</span>
-                                ) : (
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset capitalize ${en.status === 'active' ? 'bg-blue-50 text-blue-700 ring-blue-600/10' : en.status === 'completed' ? 'bg-gray-100 text-gray-600 ring-gray-500/10' : 'bg-red-50 text-red-700 ring-red-600/10'}`}>{en.status}</span>
-                                )}
-                                {en.status === 'active' && (emailSettings?.auto_send_enabled && gmailConn && !gmailConn.needs_reauth
-                                  ? <span className="text-[10px] text-green-600 font-medium shrink-0">Auto-sends {en.next_send_at}</span>
-                                  : <button onClick={() => handleStopEnrollment(en)} className="text-[10px] text-red-400 hover:text-red-600 shrink-0">stop</button>)}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })()}
+            {/* STARTER TEMPLATES */}
+            <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+              <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">Start from a template</h3>
+              <div className="grid sm:grid-cols-2 gap-3">
+                {CANVAS_TEMPLATES.map(tpl => (
+                  <button key={tpl.key} onClick={() => handleCreateCampaign(tpl)}
+                    className="text-left p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-sm transition-all">
+                    <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">{tpl.icon} {tpl.name}</p>
+                    <p className="text-[12px] text-gray-500 mt-1 leading-relaxed">{tpl.desc}</p>
+                    <p className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mt-2">Build this canvas →</p>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-                  {/* UPGRADE 8 — TIMELINE (spine, chips, inline edit, add-between, reorder) */}
-                  <div className="relative pl-4 space-y-1 before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-px before:bg-gray-200 dark:before:bg-gray-700">
-                    {steps.map((st, i) => {
-                      const stSends = sequenceSends.filter(s => s.step_id === st.id);
-                      const abA = stSends.filter(s => s.subject_variant === 'A');
-                      const abB = stSends.filter(s => s.subject_variant === 'B');
-                      const rate = (arr) => arr.length ? Math.round((arr.filter(s => s.opened_at).length / arr.length) * 100) : 0;
-                      const chLabel = SEQ_CHANNELS.find(c => c.value === (st.channel || 'email'))?.label || '✉️ Email';
-                      const isEditing = stepEdit?.id === st.id;
+            <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-[12px] text-yellow-800 dark:text-yellow-300">
+              ⚠️ Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait in the Outbox above for one-click manual sending via compose tabs. With Auto-send ON + your own Gmail connected (Settings → Gmail Sync), the sequence-runner cron walks each campaign graph automatically from YOUR Gmail address inside your send window, with open/click tracking. Paused campaigns (Active toggle off) are always skipped.
+            </div>
+            </>
+            ) : (() => {
+              const cseq = sequences.find(s => s.id === canvasSeqId);
+              if (!cseq) return <button onClick={() => setCanvasSeqId(null)} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">← Back to campaigns</button>;
+              const cnodes = seqNodesFor(cseq.id);
+              const cedges = seqEdgesFor(cseq.id);
+              const cenrolled = sequenceEnrollments.filter(en => en.sequence_id === cseq.id);
+              const cdueIds = new Set(dueSequenceSends.filter(d => d.seq.id === cseq.id).map(d => d.enr.id));
+              return (
+                <>
+                  {/* DESKTOP — full canvas */}
+                  <div className="hidden md:block">
+                    <AutomationCanvas
+                      seq={cseq} nodes={cnodes} edges={cedges} enrollments={cenrolled}
+                      sends={sequenceSends} clients={clients} emailTemplates={emailTemplates} tags={tags}
+                      saveState={canvasSaveState} dueIds={cdueIds}
+                      onBack={() => setCanvasSeqId(null)}
+                      onRename={handleRenameSequence}
+                      onToggleActive={handleToggleSequenceActive}
+                      onUpdateTrigger={handleUpdateSequenceTrigger}
+                      onDuplicate={handleDuplicateSequence}
+                      onDelete={handleDeleteSequence}
+                      onCreateNode={(t, x, y) => handleCreateNode(cseq.id, t, x, y)}
+                      onUpdateNode={handleUpdateNode}
+                      onDeleteNode={handleDeleteNode}
+                      onAddEdge={(f, t, b) => handleAddEdgeConn(cseq.id, f, t, b)}
+                      onDeleteEdge={handleDeleteEdgeConn}
+                      onSaveView={handleSaveCanvasView}
+                      onEnroll={(ids) => { ids.forEach(id => enrollClientInSequence(cseq, id)); }}
+                      onStop={handleStopEnrollment}
+                      onSendNow={handleSendSequenceStep}
+                    />
+                  </div>
+                  {/* MOBILE — read-only vertical fallback */}
+                  <div className="md:hidden space-y-3">
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setCanvasSeqId(null)} className="text-[13px] font-medium text-gray-500">← Campaigns</button>
+                      <h1 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 truncate flex-1">{cseq.name}</h1>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ring-1 ring-inset ${cseq.is_active ? 'bg-green-50 text-green-700 ring-green-600/10' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 ring-gray-500/10'}`}>{cseq.is_active ? 'Active' : 'Paused'}</span>
+                    </div>
+                    <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-xl text-[12px] text-indigo-800 dark:text-indigo-300">
+                      📱 The campaign canvas is desktop-first — this is a read-only view. Open on a larger screen to edit nodes and connections.
+                    </div>
+                    {[...cnodes].sort((a, b) => ((parseFloat(a.pos_y) || 0) - (parseFloat(b.pos_y) || 0)) || ((parseFloat(a.pos_x) || 0) - (parseFloat(b.pos_x) || 0)) || (a.id - b.id)).map(n => {
+                      const meta = NODE_TYPE_META[n.node_type || 'email'] || NODE_TYPE_META.email;
+                      const here = cenrolled.filter(en => en.status === 'active' && en.current_node_id === n.id).length;
                       return (
-                        <div key={st.id}>
-                          {/* add-between */}
-                          <button onClick={() => setSeqStepDraft({ sequenceId: seq.id, insertAt: i, wait_days: 3, channel: 'email', condition: 'always', subject: '', subject_b: '', body: '', task_note: '' })} className="ml-2 text-[10px] font-semibold text-gray-300 hover:text-indigo-600 transition-colors">＋ insert step here</button>
-                          <div className="flex items-center gap-2 py-0.5 text-[11px] font-semibold text-gray-400">
-                            <span className="relative -left-4 w-3.5 h-3.5 rounded-full bg-white dark:bg-gray-900 ring-2 ring-gray-300 dark:ring-gray-600 shrink-0" />
-                            {isEditing ? (
-                              <label className="-ml-3 flex items-center gap-1">Wait <input type="number" min="0" value={stepEdit.wait_days} onChange={e => setStepEdit({ ...stepEdit, wait_days: e.target.value })} className="w-14 px-1.5 py-0.5 border border-gray-200 rounded focus:outline-none" /> days</label>
-                            ) : (
-                              <button onClick={() => setStepEdit({ ...st })} className="-ml-3 hover:text-gray-700 dark:hover:text-gray-200" title="Click to edit">Wait {st.wait_days} day{st.wait_days === 1 ? '' : 's'}{i === 0 ? ' after enrollment' : ''} ✎</button>
-                            )}
+                        <div key={n.id} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-3" style={{ borderLeftWidth: 3, borderLeftColor: meta.accent }}>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[14px]">{meta.icon}</span>
+                            <span className="text-[11px] uppercase tracking-wider font-bold text-gray-400">{meta.label}</span>
+                            {here > 0 && <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-600 text-white">{here} here</span>}
                           </div>
-                          <div className="flex items-start gap-3 p-3 border border-gray-100 dark:border-gray-800 rounded-xl bg-gray-50/50 dark:bg-gray-800/40 group hover-lift">
-                            <span className="w-6 h-6 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white dark:bg-gray-900 ring-1 ring-inset ring-gray-300/60 dark:ring-gray-600">{chLabel}</span>
-                                {(st.condition || 'always') !== 'always' && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-600/10">{SEQ_CONDITIONS.find(c => c.value === st.condition)?.label}</span>
-                                )}
-                                {st.subject_b && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20">A/B test</span>}
-                              </div>
-                              {isEditing ? (
-                                <div className="space-y-1.5">
-                                  <div className="flex flex-wrap gap-1.5">
-                                    <select value={stepEdit.channel || 'email'} onChange={e => setStepEdit({ ...stepEdit, channel: e.target.value })} className="px-2 py-1 text-[12px] border border-gray-200 rounded-lg bg-white focus:outline-none">
-                                      {SEQ_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                                    </select>
-                                    <select value={stepEdit.condition || 'always'} onChange={e => setStepEdit({ ...stepEdit, condition: e.target.value })} className="px-2 py-1 text-[12px] border border-gray-200 rounded-lg bg-white focus:outline-none">
-                                      {SEQ_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                                    </select>
-                                  </div>
-                                  {(stepEdit.channel || 'email') === 'email' ? (
-                                    <>
-                                      <input type="text" value={stepEdit.subject || ''} onChange={e => setStepEdit({ ...stepEdit, subject: e.target.value })} placeholder="Subject A" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
-                                      <input type="text" value={stepEdit.subject_b || ''} onChange={e => setStepEdit({ ...stepEdit, subject_b: e.target.value })} placeholder="Subject B (optional — makes this an A/B test)" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
-                                      <textarea rows={3} value={stepEdit.body || ''} onChange={e => setStepEdit({ ...stepEdit, body: e.target.value })} className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
-                                    </>
-                                  ) : (
-                                    <textarea rows={2} value={stepEdit.task_note || ''} onChange={e => setStepEdit({ ...stepEdit, task_note: e.target.value })} placeholder="Task instructions, e.g. Mention the webinar — {{name}} attended" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
-                                  )}
-                                  <div className="flex gap-2 justify-end">
-                                    <button onClick={() => setStepEdit(null)} className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                                    <button onClick={handleSaveStepEdit} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-gray-900 rounded-lg hover:opacity-90">Save</button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
-                                  {(st.channel || 'email') === 'email' ? (
-                                    <>
-                                      <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{st.subject}{st.subject_b ? <span className="text-gray-400 font-normal"> / B: {st.subject_b}</span> : ''}</p>
-                                      <p className="text-[12px] text-gray-500 line-clamp-2 whitespace-pre-wrap">{st.body}</p>
-                                    </>
-                                  ) : (
-                                    <p className="text-[13px] text-gray-700 dark:text-gray-300">{st.task_note || 'Manual task step'}</p>
-                                  )}
-                                  <p className="text-[10px] text-gray-400 mt-1">
-                                    Sent {stSends.length} · Opened {stSends.filter(s => s.opened_at).length} · Clicked {stSends.filter(s => s.clicked_at).length} · Replied {stSends.filter(s => s.replied_at).length}
-                                    {st.subject_b && (abA.length + abB.length) > 0 && (
-                                      <span className={'ml-2 font-semibold ' + (rate(abA) >= rate(abB) ? 'text-green-600' : 'text-amber-600')}>
-                                        A/B: A {rate(abA)}% ({abA.length}) vs B {rate(abB)}% ({abB.length}) — {rate(abA) === rate(abB) ? 'tie' : rate(abA) > rate(abB) ? 'A wins' : 'B wins'}
-                                      </span>
-                                    )}
-                                  </p>
-                                </>
-                              )}
-                            </div>
-                            <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                              <button onClick={() => handleMoveStep(seq.id, i, -1)} disabled={i === 0} className="text-[11px] text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30" title="Move up">▲</button>
-                              <button onClick={() => handleMoveStep(seq.id, i, 1)} disabled={i === steps.length - 1} className="text-[11px] text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30" title="Move down">▼</button>
-                              <button onClick={() => showConfirm('Delete Step', 'Delete this step?', 'Delete', 'danger', async () => handleDeleteSequenceStep(st))} className="text-[11px] font-medium text-red-400 hover:text-red-600">✕</button>
-                            </div>
-                          </div>
+                          <p className="text-[13px] font-medium text-gray-900 dark:text-gray-100 truncate mt-1">{nodeSummary(n, cseq)}</p>
                         </div>
                       );
                     })}
-
-                    {/* Add step */}
-                    {seqStepDraft?.sequenceId === seq.id ? (
-                      <form onSubmit={handleAddSequenceStep} className="border border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-3 space-y-2 text-[13px]">
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <label className="flex items-center gap-1.5 text-[12px] text-gray-500">Wait
-                            <input type="number" min="0" value={seqStepDraft.wait_days} onChange={e => setSeqStepDraft({ ...seqStepDraft, wait_days: e.target.value })} className="w-16 px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none" />
-                            days, then send:
-                          </label>
-                          {/* UPGRADE 5 — channel selector */}
-                          <select value={seqStepDraft.channel || 'email'} onChange={e => setSeqStepDraft({ ...seqStepDraft, channel: e.target.value })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
-                            {SEQ_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                          </select>
-                          {/* UPGRADE 4 — condition */}
-                          <select value={seqStepDraft.condition || 'always'} onChange={e => setSeqStepDraft({ ...seqStepDraft, condition: e.target.value })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
-                            {SEQ_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                          </select>
-                          {(seqStepDraft.channel || 'email') === 'email' && emailTemplates.length > 0 && (
-                            <select onChange={e => { const t = emailTemplates.find(x => String(x.id) === e.target.value); if (t) setSeqStepDraft({ ...seqStepDraft, subject: t.subject, body: t.body }); }} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
-                              <option value="">Use template…</option>
-                              {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                            </select>
-                          )}
-                        </div>
-                        {(seqStepDraft.channel || 'email') === 'email' ? (
-                          <>
-                            <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={seqStepDraft.subject} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                            {/* UPGRADE 6 — B variant */}
-                            {seqStepDraft.showB ? (
-                              <input type="text" placeholder="Subject B (A/B test — sent to half of enrollments)" value={seqStepDraft.subject_b || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject_b: e.target.value })} className="w-full px-3 py-2 border border-amber-200 rounded-lg focus:outline-none focus:border-amber-400" />
-                            ) : (
-                              <button type="button" onClick={() => setSeqStepDraft({ ...seqStepDraft, showB: true })} className="text-[11px] font-semibold text-amber-600 hover:underline">＋ Add B variant (A/B test)</button>
-                            )}
-                            <textarea rows={3} required placeholder="Body" value={seqStepDraft.body} onChange={e => setSeqStepDraft({ ...seqStepDraft, body: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                          </>
-                        ) : (
-                          <textarea rows={2} required placeholder="Task instructions — e.g. Mention their webinar question. Supports {{name}}." value={seqStepDraft.task_note || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, task_note: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
-                        )}
-                        <div className="flex justify-end gap-2">
-                          <button type="button" onClick={() => setSeqStepDraft(null)} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
-                          <button type="submit" className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Step</button>
-                        </div>
-                      </form>
-                    ) : (
-                      <button onClick={() => setSeqStepDraft({ sequenceId: seq.id, insertAt: null, wait_days: steps.length === 0 ? 0 : 3, channel: 'email', condition: 'always', subject: '', subject_b: '', body: '', task_note: '' })} className="w-full px-3 py-2 text-[12px] font-medium text-gray-500 border border-dashed border-gray-300 dark:border-gray-600 rounded-xl hover:border-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">+ Add step {steps.length > 0 ? `(step ${steps.length + 1})` : '(first email)'}</button>
-                    )}
                   </div>
-
-                  {/* Enroll / Run — UPGRADE 8: multi-select */}
-                  <div className="flex flex-wrap items-start gap-2 pt-3 border-t border-gray-100 dark:border-gray-800">
-                    <details className="relative">
-                      <summary className="px-3 py-1.5 text-[13px] border border-gray-200 rounded-lg bg-white text-gray-700 cursor-pointer select-none list-none">
-                        {Object.values(enrollMulti[seq.id] || {}).filter(Boolean).length || 'Pick'} relationship{Object.values(enrollMulti[seq.id] || {}).filter(Boolean).length === 1 ? '' : 's'} ▾
-                      </summary>
-                      <div className="absolute z-20 mt-1 w-64 max-h-48 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 space-y-0.5">
-                        {clients.filter(c => c.email).map(c => (
-                          <label key={c.id} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
-                            <input type="checkbox" checked={!!(enrollMulti[seq.id] || {})[c.id]} onChange={e => setEnrollMulti(prev => ({ ...prev, [seq.id]: { ...(prev[seq.id] || {}), [c.id]: e.target.checked } }))} className="rounded border-gray-300 focus:ring-0" />
-                            <span className="truncate">{c.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </details>
-                    <button onClick={async () => {
-                      const ids = Object.entries(enrollMulti[seq.id] || {}).filter(([, v]) => v).map(([k]) => k);
-                      for (const id of ids) await enrollClientInSequence(seq, id);
-                      setEnrollMulti(prev => ({ ...prev, [seq.id]: {} }));
-                    }} disabled={!Object.values(enrollMulti[seq.id] || {}).some(Boolean)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">▶ Enroll / Run</button>
-                    {activeEnr.length > 0 && (
-                      <span className="text-[11px] text-gray-400">Next sends: {activeEnr.slice(0, 3).map(en => `${clients.find(c => c.id === en.client_id)?.name || '?'} → ${en.next_send_at}`).join(' · ')}{activeEnr.length > 3 ? ' …' : ''}</span>
-                    )}
-                  </div>
-                </div>
+                </>
               );
-            })}
+            })()}
 
-            <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-[12px] text-yellow-800 dark:text-yellow-300">
-              ⚠️ Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait here for one-click manual sending via compose tabs. With Auto-send ON + your own Gmail connected (Settings → Gmail Sync), the sequence-runner cron sends them automatically from YOUR Gmail address inside your send window, with open/click tracking.
-            </div>
           </div>
         )}
 
