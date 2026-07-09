@@ -39,6 +39,22 @@ html.dark body {
   color: var(--color-text-primary);
 }
 
+/* Browser autofill: keep text/background consistent with the active theme
+   (Chrome/Safari force a pale-yellow/white fill that breaks dark mode). */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0px 1000px var(--autofill-bg, #fff) inset;
+  -webkit-text-fill-color: var(--autofill-text, #111827);
+  transition: background-color 5000s ease-in-out 0s;
+}
+.dark input:-webkit-autofill,
+.dark input:-webkit-autofill:hover,
+.dark input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0px 1000px #1f2937 inset;
+  -webkit-text-fill-color: #f9fafb;
+}
+
 /* High-Contrast Interactive Keyboard Focus Rings */
 *:focus-visible {
   outline: 2px solid var(--color-accent-cyan);

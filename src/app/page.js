@@ -3379,9 +3379,9 @@ export default function App() {
       {showGlobalSearch && (
         <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-[100] flex justify-center pt-[10vh] px-4 animate-in fade-in" onClick={() => setShowGlobalSearch(false)}>
           <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] border border-gray-100" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center px-4 py-3 border-b border-gray-100 bg-gray-50/50">
+            <div className="flex items-center px-4 py-3 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40">
               <SearchIcon className="text-gray-400" />
-              <input type="text" autoFocus placeholder='Search... or try "create deal for Sarah", "log call with Sarah"' value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { const a = parseCommandAction(globalSearchTerm); if (a) { e.preventDefault(); a.run(); } } }} className="w-full bg-transparent border-none focus:ring-0 px-3 py-1 text-[15px] outline-none placeholder-gray-400" />
+              <input type="text" autoFocus placeholder='Search... or try "create deal for Sarah", "log call with Sarah"' value={globalSearchTerm} onChange={e => setGlobalSearchTerm(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { const a = parseCommandAction(globalSearchTerm); if (a) { e.preventDefault(); a.run(); } } }} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full bg-transparent border-none focus:ring-0 px-3 py-1 text-[15px] outline-none placeholder-gray-400 dark:placeholder-gray-500" />
               <button onClick={() => setShowGlobalSearch(false)} className="text-[10px] font-bold text-gray-400 bg-gray-200 px-2 py-1 rounded hover:bg-gray-300">ESC</button>
             </div>
             
@@ -3701,7 +3701,7 @@ export default function App() {
               <form onSubmit={handleLoginWithPassword} className="space-y-4">
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Email address</label>
-                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" className="w-full px-3 py-2 text-[13px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm placeholder-gray-400 dark:placeholder-gray-500 dark:text-gray-100 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5 flex justify-between">
@@ -3709,7 +3709,7 @@ export default function App() {
                     <button type="button" onClick={() => {setAppStep('FORGOT_PASSWORD'); setAuthMessage('');}} className="text-gray-500 hover:text-gray-800 focus:outline-none transition-colors">Forgot password?</button>
                   </label>
                   <div className="relative">
-                    <input type={showLoginPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showLoginPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm placeholder-gray-400 dark:placeholder-gray-500 dark:text-gray-100 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowLoginPassword(!showLoginPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showLoginPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -3740,12 +3740,12 @@ export default function App() {
               <form onSubmit={handleSignUp} className="space-y-4">
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Email address</label>
-                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" className="w-full px-3 py-2 text-[13px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm placeholder-gray-400 dark:placeholder-gray-500 dark:text-gray-100 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Password</label>
                   <div className="relative">
-                    <input type={showSignupPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showSignupPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm placeholder-gray-400 dark:placeholder-gray-500 dark:text-gray-100 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowSignupPassword(!showSignupPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showSignupPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -3754,7 +3754,7 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Confirm Password</label>
                   <div className="relative">
-                    <input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="••••••••" className="w-full px-3 py-2 pr-10 text-[13px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm placeholder-gray-400 dark:placeholder-gray-500 dark:text-gray-100 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                     <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showConfirmPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -3787,7 +3787,7 @@ export default function App() {
               <form onSubmit={handleVerifyOtp} className="space-y-4">
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Verification Code</label>
-                  <input type="text" value={otpToken} onChange={(e) => setOtpToken(e.target.value)} required placeholder="123456" className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors tracking-widest text-center" />
+                  <input type="text" value={otpToken} onChange={(e) => setOtpToken(e.target.value)} required placeholder="123456" className="w-full px-3 py-2 text-[13px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm placeholder-gray-400 dark:placeholder-gray-500 dark:text-gray-100 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors tracking-widest text-center" />
                 </div>
                 <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
                   {authLoading ? 'Verifying...' : 'Verify Email'}
@@ -3817,7 +3817,7 @@ export default function App() {
                   )}
                   <div>
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Email address</label>
-                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="name@company.com" className="w-full px-3 py-2 text-[13px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm placeholder-gray-400 dark:placeholder-gray-500 dark:text-gray-100 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors" />
                   </div>
                   <button type="submit" disabled={authLoading} className="w-full py-2.5 px-4 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm transition-all active:scale-[0.98] mt-2 flex justify-center items-center">
                     {authLoading ? 'Sending...' : 'Send Reset Link'}
@@ -4190,7 +4190,7 @@ export default function App() {
                   <button onClick={() => { setViewMode('board'); localStorage.setItem('crm_view_mode', 'board'); }} className={`px-3 py-1.5 text-[12px] font-medium rounded-md transition-all ${viewMode === 'board' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Board</button>
                 </div>
 
-                <input type="file" ref={fileInputRef} accept=".csv" onChange={handleImportCSV} className="hidden" />
+                <input type="file" ref={fileInputRef} accept=".csv" onChange={handleImportCSV} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 hidden" />
                 <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-[12px] font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">Import CSV</button>
                 <button onClick={handleExportCSV} className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-[12px] font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">Export CSV</button>
               </div>
@@ -4203,9 +4203,9 @@ export default function App() {
               {crmErrorMessage && <div className="p-2 bg-red-50 text-red-700 text-[12px] rounded-lg border border-red-100">{crmErrorMessage}</div>}
               
               <form onSubmit={handleAddClient} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[13px]">
-                <input type="text" required placeholder="Name *" value={name} onChange={e => setName(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                <input type="text" required placeholder="Name *" value={name} onChange={e => setName(e.target.value)} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
                 <div className="flex flex-col">
-                  <input type="email" required placeholder="Email *" value={clientEmail} onChange={e => setClientEmail(e.target.value)} className="px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                  <input type="email" required placeholder="Email *" value={clientEmail} onChange={e => setClientEmail(e.target.value)} className="px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
                   {/* FEATURE 14 — duplicate detection */}
                   {duplicateWarning && (
                     <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg mt-1">
@@ -4216,37 +4216,37 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                <input type="text" list="country-list" placeholder="Country" value={clientCountry} onChange={e => setClientCountry(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
-                <input type="text" placeholder="Phone Number" value={clientPhone} onChange={e => setClientPhone(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
-                <input type="url" placeholder="LinkedIn URL" value={clientLinkedin} onChange={e => setClientLinkedin(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                <input type="text" list="country-list" placeholder="Country" value={clientCountry} onChange={e => setClientCountry(e.target.value)} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
+                <input type="text" placeholder="Phone Number" value={clientPhone} onChange={e => setClientPhone(e.target.value)} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
+                <input type="url" placeholder="LinkedIn URL" value={clientLinkedin} onChange={e => setClientLinkedin(e.target.value)} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
 
                 {/* PART F — company fields */}
-                <input type="text" placeholder="Company Name" value={clientCompanyName} onChange={e => setClientCompanyName(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
-                <input type="text" placeholder="Company Website" value={clientCompanyUrl} onChange={e => setClientCompanyUrl(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                <input type="text" placeholder="Company Name" value={clientCompanyName} onChange={e => setClientCompanyName(e.target.value)} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
+                <input type="text" placeholder="Company Website" value={clientCompanyUrl} onChange={e => setClientCompanyUrl(e.target.value)} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
 
                 {/* G18 — referral chain */}
-                <select value={clientReferredBy} onChange={e => setClientReferredBy(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
+                <select value={clientReferredBy} onChange={e => setClientReferredBy(e.target.value)} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 text-gray-700 focus:outline-none">
                   <option value="">Referred by: —</option>
                   {[...clients].sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(c => <option key={c.id} value={c.id}>Referred by: {c.name}</option>)}
                 </select>
                 
                 <div className="flex items-center gap-1">
                   <label className="text-[11px] font-medium text-gray-400 px-1 whitespace-nowrap">Birth:</label>
-                  <input type="date" value={clientBirthday} onChange={e => setClientBirthday(e.target.value)} className="w-full px-2 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-600 focus:outline-none" />
+                  <input type="date" value={clientBirthday} onChange={e => setClientBirthday(e.target.value)} className="w-full px-2 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 text-gray-600 focus:outline-none" />
                 </div>
 
-                <select value={clientRelationship} onChange={e => setClientRelationship(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
+                <select value={clientRelationship} onChange={e => setClientRelationship(e.target.value)} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 text-gray-700 focus:outline-none">
                   <option value="Low">Low Priority</option>
                   <option value="Medium">Medium Priority</option>
                   <option value="High">High Priority</option>
                 </select>
 
-                <select value={status} onChange={e => setStatus(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
+                <select value={status} onChange={e => setStatus(e.target.value)} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 text-gray-700 focus:outline-none">
                   {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
 
                 {/* FEATURE 25 — source tracking */}
-                <select value={clientSource} onChange={e => setClientSource(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
+                <select value={clientSource} onChange={e => setClientSource(e.target.value)} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 text-gray-700 focus:outline-none">
                   <option value="">Source: Unknown</option>
                   {CLIENT_SOURCES.map(s => <option key={s} value={s}>Source: {s}</option>)}
                 </select>
@@ -4258,12 +4258,12 @@ export default function App() {
                       <div key={cf.id} className="flex flex-col gap-1">
                         <label className="text-[11px] font-medium text-gray-500">{cf.field_name}</label>
                         {cf.field_type === 'select' ? (
-                          <select value={formCustomValues[cf.id] || ''} onChange={e => setFormCustomValues({...formCustomValues, [cf.id]: e.target.value})} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white text-gray-700 focus:outline-none">
+                          <select value={formCustomValues[cf.id] || ''} onChange={e => setFormCustomValues({...formCustomValues, [cf.id]: e.target.value})} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 text-gray-700 focus:outline-none">
                             <option value="">-- Select --</option>
                             {(cf.select_options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
                           </select>
                         ) : (
-                          <input type={cf.field_type} value={formCustomValues[cf.id] || ''} onChange={e => setFormCustomValues({...formCustomValues, [cf.id]: e.target.value})} className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
+                          <input type={cf.field_type} value={formCustomValues[cf.id] || ''} onChange={e => setFormCustomValues({...formCustomValues, [cf.id]: e.target.value})} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
                         )}
                       </div>
                     ))}
@@ -4271,7 +4271,7 @@ export default function App() {
                 )}
 
                 <div className="sm:col-span-2 lg:col-span-4 flex items-center gap-2 pt-2 border-t border-gray-100">
-                  <input type="text" placeholder="Legacy Note: Add conversation details log note remarks..." value={clientConversation} onChange={e => setClientConversation(e.target.value)} className="flex-1 px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none" />
+                  <input type="text" placeholder="Legacy Note: Add conversation details log note remarks..." value={clientConversation} onChange={e => setClientConversation(e.target.value)} className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none" />
                   {duplicateWarning && !forceSaveDuplicate && (
                     <button type="button" onClick={() => setForceSaveDuplicate(true)} className="px-3 py-2 text-[12px] font-medium text-yellow-700 bg-white border border-yellow-300 rounded-lg hover:bg-yellow-50 whitespace-nowrap">Save anyway</button>
                   )}
@@ -4284,12 +4284,12 @@ export default function App() {
             {/* FILTER CONTROLS */}
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between text-[13px]">
               <div className="w-full md:w-auto flex-1 max-w-md">
-                <input type="text" placeholder="Search profiles dynamically by name, email, country..." value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="w-full px-3 py-1.5 border border-gray-200 bg-gray-50/30 rounded-lg focus:outline-none focus:bg-white text-gray-900" />
+                <input type="text" placeholder="Search profiles dynamically by name, email, country..." value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="w-full px-3 py-1.5 border border-gray-200 dark:border-gray-700 bg-gray-50/30 dark:bg-gray-800 rounded-lg focus:outline-none focus:bg-white dark:focus:bg-gray-800 text-gray-900 dark:text-gray-100 dark:placeholder-gray-500" />
               </div>
               <div className="w-full md:w-auto flex flex-wrap items-center gap-2.5">
                 <div className="flex items-center gap-1">
                   <span className="text-gray-400 text-[11px] font-semibold uppercase">Priority:</span>
-                  <select value={filterPriority} onChange={e => { setFilterPriority(e.target.value); setCurrentPage(1); }} className="border border-gray-200 rounded-md bg-white p-1 text-gray-700 focus:outline-none">
+                  <select value={filterPriority} onChange={e => { setFilterPriority(e.target.value); setCurrentPage(1); }} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-md bg-white p-1 text-gray-700 focus:outline-none">
                     <option value="All">All Categories</option>
                     <option value="Low">Low</option>
                     <option value="Medium">Medium</option>
@@ -4298,7 +4298,7 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="text-gray-400 text-[11px] font-semibold uppercase">Status:</span>
-                  <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setCurrentPage(1); }} className="border border-gray-200 rounded-md bg-white p-1 text-gray-700 focus:outline-none">
+                  <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setCurrentPage(1); }} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-md bg-white p-1 text-gray-700 focus:outline-none">
                     <option value="All">All Statuses</option>
                     {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                     {/* Fallbacks for unmigrated data */}
@@ -4309,7 +4309,7 @@ export default function App() {
                 {viewMode === 'table' && (
                   <div className="flex items-center gap-1">
                     <span className="text-gray-400 text-[11px] font-semibold uppercase">Sort:</span>
-                    <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="border border-gray-200 rounded-md bg-white p-1 text-gray-700 focus:outline-none">
+                    <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 border border-gray-200 dark:border-gray-700 rounded-md bg-white p-1 text-gray-700 focus:outline-none">
                       <option value="created_at_desc">Newest Added</option>
                       <option value="created_at_asc">Oldest Added</option>
                       <option value="name_asc">Name (A-Z)</option>
@@ -4346,7 +4346,7 @@ export default function App() {
                   <button onClick={() => setSavingViewName('')} className="px-3 py-1 rounded-full border border-dashed border-gray-300 text-gray-500 hover:text-gray-800 font-medium">+ Save this view</button>
                 ) : (
                   <form onSubmit={e => { e.preventDefault(); handleSaveView(savingViewName); }} className="inline-flex items-center gap-1">
-                    <input autoFocus type="text" placeholder="View name..." value={savingViewName} onChange={e => setSavingViewName(e.target.value)} className="px-2 py-1 border border-gray-200 rounded-full text-[12px] focus:outline-none" />
+                    <input autoFocus type="text" placeholder="View name..." value={savingViewName} onChange={e => setSavingViewName(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-full text-[12px] focus:outline-none" />
                     <button type="submit" className="px-2 py-1 bg-gray-900 text-white rounded-full text-[11px] font-medium">Save</button>
                     <button type="button" onClick={() => setSavingViewName(null)} className="text-gray-400 px-1">×</button>
                   </form>
@@ -4359,7 +4359,7 @@ export default function App() {
               <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-[13px] animate-in fade-in">
                 <div>
                   <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Date Added</label>
-                  <select value={filterDateAdded} onChange={e => setFilterDateAdded(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                  <select value={filterDateAdded} onChange={e => setFilterDateAdded(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full border border-gray-200 dark:border-gray-700 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
                     <option value="">Any time</option>
                     <option value="today">Today</option>
                     <option value="this_week">This week</option>
@@ -4369,7 +4369,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Activity</label>
-                  <select value={filterHasActivity} onChange={e => setFilterHasActivity(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                  <select value={filterHasActivity} onChange={e => setFilterHasActivity(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full border border-gray-200 dark:border-gray-700 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
                     <option value="">Any</option>
                     <option value="none">No activity logged</option>
                     <option value="last_7">Active in last 7 days</option>
@@ -4378,7 +4378,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Lead Score</label>
-                  <select value={filterScore} onChange={e => setFilterScore(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                  <select value={filterScore} onChange={e => setFilterScore(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full border border-gray-200 dark:border-gray-700 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
                     <option value="">Any</option>
                     <option value="high">High (75+)</option>
                     <option value="medium">Medium (50–74)</option>
@@ -4387,21 +4387,21 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Health</label>
-                  <select value={filterHealth} onChange={e => setFilterHealth(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                  <select value={filterHealth} onChange={e => setFilterHealth(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full border border-gray-200 dark:border-gray-700 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
                     <option value="">Any</option>
                     {['Excellent', 'Good', 'Fair', 'At Risk', 'Critical'].map(h => <option key={h} value={h}>{h}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold uppercase text-gray-400 mb-1">Source</label>
-                  <select value={filterSource} onChange={e => setFilterSource(e.target.value)} className="w-full border border-gray-200 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
+                  <select value={filterSource} onChange={e => setFilterSource(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full border border-gray-200 dark:border-gray-700 rounded-md bg-white p-1.5 min-h-[44px] md:min-h-0 text-gray-700 focus:outline-none">
                     <option value="">Any</option>
                     <option value="Unknown">Unknown / not set</option>
                     {CLIENT_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div className="flex items-center gap-2">
-                  <input id="filter-has-deals" type="checkbox" checked={filterHasDeals} onChange={e => setFilterHasDeals(e.target.checked)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
+                  <input id="filter-has-deals" type="checkbox" checked={filterHasDeals} onChange={e => setFilterHasDeals(e.target.checked)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
                   <label htmlFor="filter-has-deals" className="text-[12px] font-medium text-gray-700">Has at least one deal</label>
                 </div>
                 {tags.length > 0 && (
@@ -4426,7 +4426,7 @@ export default function App() {
               <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-center justify-between animate-in fade-in">
                 <span className="text-[13px] font-medium text-blue-800">{selectedClientIds.length} relationships selected</span>
                 <div className="flex flex-wrap items-center gap-2">
-                  <select onChange={e => {if(e.target.value) handleBulkStatusUpdate(e.target.value); e.target.value='';}} className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-md text-[12px] font-medium hover:bg-gray-50 outline-none">
+                  <select onChange={e => {if(e.target.value) handleBulkStatusUpdate(e.target.value); e.target.value='';}} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-3 py-1.5 bg-white border border-gray-200 dark:border-gray-700 text-gray-700 rounded-md text-[12px] font-medium hover:bg-gray-50 outline-none">
                     <option value="">Change Status...</option>
                     {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
@@ -4462,7 +4462,7 @@ export default function App() {
                       const isSelected = selectedClientIds.includes(client.id);
                       return (
                         <div key={client.id} className={`relative p-4 rounded-xl border ${isSelected ? 'border-gray-400 bg-gray-50' : 'border-gray-200 bg-white'}`}>
-                          <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(client.id)} className="absolute top-4 left-4 rounded border-gray-300 text-gray-900 focus:ring-0" />
+                          <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(client.id)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 absolute top-4 left-4 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
                           <div className="pl-8">
                             <p className="text-[14px] font-bold text-gray-900">{client.name} {client.quick_note && <span className="text-[12px]">📝</span>}</p>
                             <p className="text-[12px] text-gray-500 break-all">{client.email}</p>
@@ -4494,7 +4494,7 @@ export default function App() {
                       <thead>
                         <tr className="bg-gray-50/70 border-b border-gray-200 text-[11px] font-bold uppercase tracking-wider text-gray-400 select-none">
                           <th className="p-4 w-10 text-center">
-                            <input type="checkbox" checked={paginatedClients.length > 0 && paginatedClients.every(c => selectedClientIds.includes(c.id))} onChange={(e) => handleSelectAll(e, paginatedClients)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
+                            <input type="checkbox" checked={paginatedClients.length > 0 && paginatedClients.every(c => selectedClientIds.includes(c.id))} onChange={(e) => handleSelectAll(e, paginatedClients)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
                           </th>
                           <th className="p-4">Relationship</th>
                           <th className="p-4">Tags</th>
@@ -4511,7 +4511,7 @@ export default function App() {
                           return (
                             <tr key={client.id} className={`hover:bg-gray-50/60 transition-colors ${isSelected ? 'bg-gray-50/80' : ''}`}>
                               <td className="p-4 text-center">
-                                <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(client.id)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
+                                <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(client.id)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
                               </td>
                               <td className="p-4">
                                 <div>
@@ -4594,7 +4594,7 @@ export default function App() {
                     </table>
                   </div>
                   {totalPages > 1 && (
-                    <div className="p-4 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between text-[12px] font-semibold text-gray-500">
+                    <div className="p-4 border-t border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between text-[12px] font-semibold text-gray-500">
                       <span>Displaying page {currentPage} of {totalPages}</span>
                       <div className="flex items-center gap-1.5">
                         <button disabled={currentPage === 1} onClick={() => setCurrentPage(currentPage - 1)} className="px-3 py-1.5 border border-gray-200 rounded-md bg-white hover:bg-gray-50 disabled:opacity-40 transition-colors">Prev</button>
@@ -5320,9 +5320,9 @@ export default function App() {
                 const isOverdue = task.status === 'pending' && new Date(task.due_date) < new Date(todayStr);
                 
                 return (
-                  <div key={task.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-gray-300 transition-colors bg-gray-50/50">
+                  <div key={task.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-gray-300 transition-colors bg-gray-50/50 dark:bg-gray-800/40">
                     <div className="flex items-center gap-4">
-                      <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="w-5 h-5 rounded border-gray-300 text-gray-900 focus:ring-gray-900 cursor-pointer" />
+                      <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-900 cursor-pointer" />
                       <div>
                         <div className={`text-[14px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
                           {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>🔁 </span>}
@@ -5371,14 +5371,14 @@ export default function App() {
             <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
               <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-3">New Workflow</h3>
               <form onSubmit={handleCreateSequence} className="flex flex-wrap gap-2 text-[13px]">
-                <input type="text" required placeholder="Workflow name (e.g. Cold outreach — agencies)" value={newSeqName} onChange={e => setNewSeqName(e.target.value)} className="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 focus:bg-white focus:outline-none focus:border-gray-400" />
-                <select value={newSeqTrigger} onChange={e => setNewSeqTrigger(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                <input type="text" required placeholder="Workflow name (e.g. Cold outreach — agencies)" value={newSeqName} onChange={e => setNewSeqName(e.target.value)} className="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
+                <select value={newSeqTrigger} onChange={e => setNewSeqTrigger(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
                   <option value="manual">Trigger: Manual enroll</option>
                   <option value="new_relationship">Trigger: New relationship added</option>
                   <option value="tag_applied">Trigger: Tag applied</option>
                 </select>
                 {newSeqTrigger === 'tag_applied' && (
-                  <select required value={newSeqTriggerValue} onChange={e => setNewSeqTriggerValue(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                  <select required value={newSeqTriggerValue} onChange={e => setNewSeqTriggerValue(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
                     <option value="">— pick tag —</option>
                     {tags.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                   </select>
@@ -5480,7 +5480,7 @@ export default function App() {
                           <div className="flex items-center gap-2 py-0.5 text-[11px] font-semibold text-gray-400">
                             <span className="relative -left-4 w-3.5 h-3.5 rounded-full bg-white dark:bg-gray-900 ring-2 ring-gray-300 dark:ring-gray-600 shrink-0" />
                             {isEditing ? (
-                              <label className="-ml-3 flex items-center gap-1">Wait <input type="number" min="0" value={stepEdit.wait_days} onChange={e => setStepEdit({ ...stepEdit, wait_days: e.target.value })} className="w-14 px-1.5 py-0.5 border border-gray-200 rounded focus:outline-none" /> days</label>
+                              <label className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 -ml-3 flex items-center gap-1">Wait <input type="number" min="0" value={stepEdit.wait_days} onChange={e => setStepEdit({ ...stepEdit, wait_days: e.target.value })} className="w-14 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded focus:outline-none" /> days</label>
                             ) : (
                               <button onClick={() => setStepEdit({ ...st })} className="-ml-3 hover:text-gray-700 dark:hover:text-gray-200" title="Click to edit">Wait {st.wait_days} day{st.wait_days === 1 ? '' : 's'}{i === 0 ? ' after enrollment' : ''} ✎</button>
                             )}
@@ -5498,21 +5498,21 @@ export default function App() {
                               {isEditing ? (
                                 <div className="space-y-1.5">
                                   <div className="flex flex-wrap gap-1.5">
-                                    <select value={stepEdit.channel || 'email'} onChange={e => setStepEdit({ ...stepEdit, channel: e.target.value })} className="px-2 py-1 text-[12px] border border-gray-200 rounded-lg bg-white focus:outline-none">
+                                    <select value={stepEdit.channel || 'email'} onChange={e => setStepEdit({ ...stepEdit, channel: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white focus:outline-none">
                                       {SEQ_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                                     </select>
-                                    <select value={stepEdit.condition || 'always'} onChange={e => setStepEdit({ ...stepEdit, condition: e.target.value })} className="px-2 py-1 text-[12px] border border-gray-200 rounded-lg bg-white focus:outline-none">
+                                    <select value={stepEdit.condition || 'always'} onChange={e => setStepEdit({ ...stepEdit, condition: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white focus:outline-none">
                                       {SEQ_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                                     </select>
                                   </div>
                                   {(stepEdit.channel || 'email') === 'email' ? (
                                     <>
-                                      <input type="text" value={stepEdit.subject || ''} onChange={e => setStepEdit({ ...stepEdit, subject: e.target.value })} placeholder="Subject A" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
-                                      <input type="text" value={stepEdit.subject_b || ''} onChange={e => setStepEdit({ ...stepEdit, subject_b: e.target.value })} placeholder="Subject B (optional — makes this an A/B test)" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
-                                      <textarea rows={3} value={stepEdit.body || ''} onChange={e => setStepEdit({ ...stepEdit, body: e.target.value })} className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                                      <input type="text" value={stepEdit.subject || ''} onChange={e => setStepEdit({ ...stepEdit, subject: e.target.value })} placeholder="Subject A" className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
+                                      <input type="text" value={stepEdit.subject_b || ''} onChange={e => setStepEdit({ ...stepEdit, subject_b: e.target.value })} placeholder="Subject B (optional — makes this an A/B test)" className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
+                                      <textarea rows={3} value={stepEdit.body || ''} onChange={e => setStepEdit({ ...stepEdit, body: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                                     </>
                                   ) : (
-                                    <textarea rows={2} value={stepEdit.task_note || ''} onChange={e => setStepEdit({ ...stepEdit, task_note: e.target.value })} placeholder="Task instructions, e.g. Mention the webinar — {{name}} attended" className="w-full px-2 py-1.5 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                                    <textarea rows={2} value={stepEdit.task_note || ''} onChange={e => setStepEdit({ ...stepEdit, task_note: e.target.value })} placeholder="Task instructions, e.g. Mention the webinar — {{name}} attended" className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                                   )}
                                   <div className="flex gap-2 justify-end">
                                     <button onClick={() => setStepEdit(null)} className="px-2.5 py-1 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
@@ -5555,19 +5555,19 @@ export default function App() {
                       <form onSubmit={handleAddSequenceStep} className="border border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-3 space-y-2 text-[13px]">
                         <div className="flex flex-wrap gap-2 items-center">
                           <label className="flex items-center gap-1.5 text-[12px] text-gray-500">Wait
-                            <input type="number" min="0" value={seqStepDraft.wait_days} onChange={e => setSeqStepDraft({ ...seqStepDraft, wait_days: e.target.value })} className="w-16 px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none" />
+                            <input type="number" min="0" value={seqStepDraft.wait_days} onChange={e => setSeqStepDraft({ ...seqStepDraft, wait_days: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-16 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                             days, then send:
                           </label>
                           {/* UPGRADE 5 — channel selector */}
-                          <select value={seqStepDraft.channel || 'email'} onChange={e => setSeqStepDraft({ ...seqStepDraft, channel: e.target.value })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
+                          <select value={seqStepDraft.channel || 'email'} onChange={e => setSeqStepDraft({ ...seqStepDraft, channel: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
                             {SEQ_CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                           </select>
                           {/* UPGRADE 4 — condition */}
-                          <select value={seqStepDraft.condition || 'always'} onChange={e => setSeqStepDraft({ ...seqStepDraft, condition: e.target.value })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
+                          <select value={seqStepDraft.condition || 'always'} onChange={e => setSeqStepDraft({ ...seqStepDraft, condition: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
                             {SEQ_CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                           </select>
                           {(seqStepDraft.channel || 'email') === 'email' && emailTemplates.length > 0 && (
-                            <select onChange={e => { const t = emailTemplates.find(x => String(x.id) === e.target.value); if (t) setSeqStepDraft({ ...seqStepDraft, subject: t.subject, body: t.body }); }} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
+                            <select onChange={e => { const t = emailTemplates.find(x => String(x.id) === e.target.value); if (t) setSeqStepDraft({ ...seqStepDraft, subject: t.subject, body: t.body }); }} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none text-[12px]">
                               <option value="">Use template…</option>
                               {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                             </select>
@@ -5575,17 +5575,17 @@ export default function App() {
                         </div>
                         {(seqStepDraft.channel || 'email') === 'email' ? (
                           <>
-                            <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={seqStepDraft.subject} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                            <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={seqStepDraft.subject} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                             {/* UPGRADE 6 — B variant */}
                             {seqStepDraft.showB ? (
-                              <input type="text" placeholder="Subject B (A/B test — sent to half of enrollments)" value={seqStepDraft.subject_b || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject_b: e.target.value })} className="w-full px-3 py-2 border border-amber-200 rounded-lg focus:outline-none focus:border-amber-400" />
+                              <input type="text" placeholder="Subject B (A/B test — sent to half of enrollments)" value={seqStepDraft.subject_b || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, subject_b: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-amber-200 rounded-lg focus:outline-none focus:border-amber-400" />
                             ) : (
                               <button type="button" onClick={() => setSeqStepDraft({ ...seqStepDraft, showB: true })} className="text-[11px] font-semibold text-amber-600 hover:underline">＋ Add B variant (A/B test)</button>
                             )}
-                            <textarea rows={3} required placeholder="Body" value={seqStepDraft.body} onChange={e => setSeqStepDraft({ ...seqStepDraft, body: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                            <textarea rows={3} required placeholder="Body" value={seqStepDraft.body} onChange={e => setSeqStepDraft({ ...seqStepDraft, body: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                           </>
                         ) : (
-                          <textarea rows={2} required placeholder="Task instructions — e.g. Mention their webinar question. Supports {{name}}." value={seqStepDraft.task_note || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, task_note: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                          <textarea rows={2} required placeholder="Task instructions — e.g. Mention their webinar question. Supports {{name}}." value={seqStepDraft.task_note || ''} onChange={e => setSeqStepDraft({ ...seqStepDraft, task_note: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                         )}
                         <div className="flex justify-end gap-2">
                           <button type="button" onClick={() => setSeqStepDraft(null)} className="px-3 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
@@ -5606,7 +5606,7 @@ export default function App() {
                       <div className="absolute z-20 mt-1 w-64 max-h-48 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 space-y-0.5">
                         {clients.filter(c => c.email).map(c => (
                           <label key={c.id} className="flex items-center gap-2 px-2 py-1 text-[12px] rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
-                            <input type="checkbox" checked={!!(enrollMulti[seq.id] || {})[c.id]} onChange={e => setEnrollMulti(prev => ({ ...prev, [seq.id]: { ...(prev[seq.id] || {}), [c.id]: e.target.checked } }))} className="rounded border-gray-300 focus:ring-0" />
+                            <input type="checkbox" checked={!!(enrollMulti[seq.id] || {})[c.id]} onChange={e => setEnrollMulti(prev => ({ ...prev, [seq.id]: { ...(prev[seq.id] || {}), [c.id]: e.target.checked } }))} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded border-gray-300 dark:border-gray-600 focus:ring-0" />
                             <span className="truncate">{c.name}</span>
                           </label>
                         ))}
@@ -5652,7 +5652,7 @@ export default function App() {
                 <>
                   <p className="text-[13px] text-gray-500 mb-4">You're in solo mode. Create a workspace to invite teammates and share your CRM.</p>
                   <form onSubmit={handleCreateWorkspace} className="flex flex-wrap gap-2 max-w-md">
-                    <input type="text" placeholder="Workspace name..." value={newWorkspaceName} onChange={e => setNewWorkspaceName(e.target.value)} className="flex-1 min-w-[160px] px-3 py-2 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" required />
+                    <input type="text" placeholder="Workspace name..." value={newWorkspaceName} onChange={e => setNewWorkspaceName(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 flex-1 min-w-[160px] px-3 py-2 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" required />
                     <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Workspace</button>
                   </form>
                 </>
@@ -5661,7 +5661,7 @@ export default function App() {
                   <p className="text-[13px] text-gray-500 mb-4">Workspace: <span className="font-bold text-gray-900">{workspace.name}</span> · Your role: <span className="font-semibold capitalize">{myRole}</span></p>
                   <div className="space-y-2 mb-5">
                     {workspaceMembers.map(m => (
-                      <div key={m.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                      <div key={m.id} className="flex items-center gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/40">
                         <span className="w-8 h-8 rounded-full bg-gray-900 text-white text-[12px] font-bold flex items-center justify-center shrink-0">
                           {(m.invited_email || '?').slice(0, 2).toUpperCase()}
                         </span>
@@ -5671,7 +5671,7 @@ export default function App() {
                         </div>
                         {['owner', 'admin'].includes(myRole) && m.user_id !== user.id ? (
                           <>
-                            <select value={m.role} onChange={e => handleUpdateMemberRole(m.id, e.target.value)} className="text-[12px] border border-gray-200 rounded-md bg-white p-1 text-gray-700 focus:outline-none">
+                            <select value={m.role} onChange={e => handleUpdateMemberRole(m.id, e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 text-[12px] border border-gray-200 dark:border-gray-700 rounded-md bg-white p-1 text-gray-700 focus:outline-none">
                               {['admin', 'member', 'viewer'].map(r => <option key={r} value={r}>{r}</option>)}
                             </select>
                             <button onClick={() => handleRemoveMember(m.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Remove</button>
@@ -5684,7 +5684,7 @@ export default function App() {
                   </div>
                   {['owner', 'admin'].includes(myRole) && (
                     <form onSubmit={handleInviteMember} className="flex flex-wrap gap-2 max-w-md mb-4">
-                      <input type="email" placeholder="teammate@company.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} className="flex-1 min-w-[160px] px-3 py-2 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" required />
+                      <input type="email" placeholder="teammate@company.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 flex-1 min-w-[160px] px-3 py-2 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" required />
                       <button type="submit" disabled={inviteLoading} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-50">{inviteLoading ? 'Inviting...' : 'Invite'}</button>
                     </form>
                   )}
@@ -5729,7 +5729,7 @@ export default function App() {
                   ))}
                 </div>
                 <form onSubmit={handleGenerateApiKey} className="flex gap-2">
-                  <input type="text" required placeholder='Key name (e.g. "n8n production")' value={newKeyName} onChange={e => setNewKeyName(e.target.value)} className="flex-1 px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none" />
+                  <input type="text" required placeholder='Key name (e.g. "n8n production")' value={newKeyName} onChange={e => setNewKeyName(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 flex-1 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                   <button type="submit" className="px-3 py-2 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90">Generate API Key</button>
                 </form>
               </div>
@@ -5738,7 +5738,7 @@ export default function App() {
               <div>
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-2">Connect to n8n (outbound webhooks)</h4>
                 <form onSubmit={handleConnectN8n} className="space-y-2">
-                  <input type="url" required placeholder="https://your-n8n-host/webhook/xxxx (Webhook Trigger URL)" value={n8nHook.url} onChange={e => setN8nHook({ ...n8nHook, url: e.target.value })} className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-lg focus:outline-none" />
+                  <input type="url" required placeholder="https://your-n8n-host/webhook/xxxx (Webhook Trigger URL)" value={n8nHook.url} onChange={e => setN8nHook({ ...n8nHook, url: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                   <div className="flex flex-wrap gap-1.5">
                     {WEBHOOK_EVENTS.map(ev => (
                       <button key={ev.value} type="button" onClick={() => setN8nHook(prev => ({ ...prev, events: prev.events.includes(ev.value) ? prev.events.filter(x => x !== ev.value) : [...prev.events, ev.value] }))}
@@ -5781,7 +5781,7 @@ export default function App() {
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Integration Activity Log</h4>
-                  <select value={logDirFilter} onChange={e => setLogDirFilter(e.target.value)} className="text-[11px] border border-gray-200 rounded p-0.5 ml-auto">
+                  <select value={logDirFilter} onChange={e => setLogDirFilter(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 text-[11px] border border-gray-200 dark:border-gray-700 rounded p-0.5 ml-auto">
                     <option value="all">All</option><option value="inbound">Inbound</option><option value="outbound">Outbound</option><option value="failed">Failed only</option>
                   </select>
                   <button onClick={() => fetchIntegration(user.id)} className="text-[11px] text-indigo-600 font-medium">Refresh</button>
@@ -5839,23 +5839,23 @@ export default function App() {
                 </div>
                 <div className="flex flex-wrap gap-4">
                   <label className="text-[12px] text-gray-500 flex items-center gap-2">Window
-                    <select value={emailSettings?.send_window_start ?? 9} onChange={e => handleSaveEmailSettings({ send_window_start: parseInt(e.target.value, 10) })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none">
+                    <select value={emailSettings?.send_window_start ?? 9} onChange={e => handleSaveEmailSettings({ send_window_start: parseInt(e.target.value, 10) })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white focus:outline-none">
                       {[...Array(24)].map((_, h) => <option key={h} value={h}>{h}:00</option>)}
                     </select>
                     to
-                    <select value={emailSettings?.send_window_end ?? 17} onChange={e => handleSaveEmailSettings({ send_window_end: parseInt(e.target.value, 10) })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none">
+                    <select value={emailSettings?.send_window_end ?? 17} onChange={e => handleSaveEmailSettings({ send_window_end: parseInt(e.target.value, 10) })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white focus:outline-none">
                       {[...Array(24)].map((_, h) => <option key={h} value={h + 1}>{h + 1}:00</option>)}
                     </select>
                   </label>
                   <label className="text-[12px] text-gray-500 flex items-center gap-2">Timezone
-                    <select value={emailSettings?.send_tz_offset ?? -new Date().getTimezoneOffset()} onChange={e => handleSaveEmailSettings({ send_tz_offset: parseInt(e.target.value, 10) })} className="px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none">
+                    <select value={emailSettings?.send_tz_offset ?? -new Date().getTimezoneOffset()} onChange={e => handleSaveEmailSettings({ send_tz_offset: parseInt(e.target.value, 10) })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white focus:outline-none">
                       {[-12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(h => (
                         <option key={h} value={Math.round(h * 60)}>UTC{h >= 0 ? '+' : ''}{h}</option>
                       ))}
                     </select>
                   </label>
                   <label className="text-[12px] text-gray-500 flex items-center gap-2">Daily cap
-                    <input type="number" min="1" defaultValue={emailSettings?.daily_send_cap ?? 50} onBlur={e => handleSaveEmailSettings({ daily_send_cap: Math.max(1, parseInt(e.target.value, 10) || 50) })} className="w-20 px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none" />
+                    <input type="number" min="1" defaultValue={emailSettings?.daily_send_cap ?? 50} onBlur={e => handleSaveEmailSettings({ daily_send_cap: Math.max(1, parseInt(e.target.value, 10) || 50) })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-20 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                   </label>
                 </div>
               </div>
@@ -5897,19 +5897,19 @@ export default function App() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Full Name</label>
-                    <input type="text" value={profile.username} onChange={e => setProfile({...profile, username: e.target.value})} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    <input type="text" value={profile.username} onChange={e => setProfile({...profile, username: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                   </div>
                   <div>
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Phone Number</label>
-                    <input type="text" value={profile.phone_number} onChange={e => setProfile({...profile, phone_number: e.target.value})} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    <input type="text" value={profile.phone_number} onChange={e => setProfile({...profile, phone_number: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                   </div>
                   <div>
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Country / Region</label>
-                    <input type="text" list="country-list" value={profile.country} onChange={e => setProfile({...profile, country: e.target.value})} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    <input type="text" list="country-list" value={profile.country} onChange={e => setProfile({...profile, country: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                   </div>
                   <div>
                     <label className="block text-[12px] font-medium text-gray-700 mb-1.5">LinkedIn Profile</label>
-                    <input type="url" value={profile.linkedin_profile} onChange={e => setProfile({...profile, linkedin_profile: e.target.value})} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    <input type="url" value={profile.linkedin_profile} onChange={e => setProfile({...profile, linkedin_profile: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                   </div>
                 </div>
                 <div className="flex justify-end pt-2">
@@ -5933,7 +5933,7 @@ export default function App() {
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No custom fields defined yet.</p>
                 ) : (
                   customFieldDefs.map((cf, idx) => (
-                    <div key={cf.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg bg-gray-50/50 group">
+                    <div key={cf.id} className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/40 group">
                       <div className="flex items-center gap-3">
                         <span className="text-[12px] font-bold text-gray-400 w-5 text-center">{idx + 1}</span>
                         <div>
@@ -5953,11 +5953,11 @@ export default function App() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-[11px] font-medium text-gray-700 mb-1">Field Name (e.g. "Major")</label>
-                    <input type="text" required value={newCfName} onChange={e => setNewCfName(e.target.value)} className="w-full px-3 py-1.5 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                    <input type="text" required value={newCfName} onChange={e => setNewCfName(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-1.5 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                   </div>
                   <div>
                     <label className="block text-[11px] font-medium text-gray-700 mb-1">Input Type</label>
-                    <select value={newCfType} onChange={e => setNewCfType(e.target.value)} className="w-full px-3 py-1.5 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none">
+                    <select value={newCfType} onChange={e => setNewCfType(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-1.5 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none">
                       <option value="text">Short Text</option>
                       <option value="number">Number</option>
                       <option value="date">Date</option>
@@ -5967,7 +5967,7 @@ export default function App() {
                   {newCfType === 'select' ? (
                     <div>
                       <label className="block text-[11px] font-medium text-gray-700 mb-1">Options (Comma separated)</label>
-                      <input type="text" required placeholder="CS, Bio, Art" value={newCfOptions} onChange={e => setNewCfOptions(e.target.value)} className="w-full px-3 py-1.5 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                      <input type="text" required placeholder="CS, Bio, Art" value={newCfOptions} onChange={e => setNewCfOptions(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-1.5 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                     </div>
                   ) : (
                     <div className="flex items-end justify-end">
@@ -6000,7 +6000,7 @@ export default function App() {
                 {emailTemplates.length === 0 ? (
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No templates yet.</p>
                 ) : emailTemplates.map(t => (
-                  <div key={t.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                  <div key={t.id} className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/40">
                     <div className="min-w-0">
                       <p className="text-[13px] font-semibold text-gray-900">{t.name}</p>
                       <p className="text-[11px] text-gray-500 truncate">{t.subject}</p>
@@ -6014,9 +6014,9 @@ export default function App() {
               </div>
               <form onSubmit={handleSaveEmailTemplate} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
                 <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-500">{editingTemplate ? 'Edit Template' : 'New Template'}</h4>
-                <input type="text" required placeholder="Template name" value={templateName} onChange={e => setTemplateName(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
-                <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={templateSubject} onChange={e => setTemplateSubject(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
-                <textarea rows={4} required placeholder="Body" value={templateBody} onChange={e => setTemplateBody(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                <input type="text" required placeholder="Template name" value={templateName} onChange={e => setTemplateName(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
+                <input type="text" required placeholder="Subject — supports {{name}} {{email}} {{phone}} {{stage}}" value={templateSubject} onChange={e => setTemplateSubject(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
+                <textarea rows={4} required placeholder="Body" value={templateBody} onChange={e => setTemplateBody(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                 <div className="flex justify-end gap-2">
                   {editingTemplate && <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(''); setTemplateBody(''); }} className="px-4 py-1.5 text-[12px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>}
                   <button type="submit" className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">{editingTemplate ? 'Save Changes' : 'Add Template'}</button>
@@ -6050,7 +6050,7 @@ export default function App() {
                     send_email: 'Send an email',
                   }[r.action_type] || r.action_type;
                   return (
-                    <div key={r.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                    <div key={r.id} className="flex items-center gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/40">
                       <div className="flex-1 min-w-0">
                         <p className="text-[13px] font-semibold text-gray-900">{r.name}</p>
                         <p className="text-[11px] text-gray-500 truncate">When: {triggerLabel} → Then: {actionLabel}</p>
@@ -6069,7 +6069,7 @@ export default function App() {
                   {AUTOMATION_RECIPES.map(r => {
                     const enabled = automationRules.some(x => x.name === r.name);
                     return (
-                      <div key={r.name} className="p-3 border border-gray-100 rounded-xl bg-gray-50/50 flex flex-col gap-1.5">
+                      <div key={r.name} className="p-3 border border-gray-100 rounded-xl bg-gray-50/50 dark:bg-gray-800/40 flex flex-col gap-1.5">
                         <p className="text-[13px] font-semibold text-gray-900">{r.name}</p>
                         <p className="text-[11px] text-gray-500 flex-1">{r.desc}</p>
                         <div className="flex items-center justify-between">
@@ -6086,30 +6086,30 @@ export default function App() {
 
               {showRuleForm && (
                 <form onSubmit={handleCreateRule} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-[13px]">
-                  <input type="text" required placeholder="Rule name (e.g. Follow up new engaged clients)" value={newRule.name} onChange={e => setNewRule({ ...newRule, name: e.target.value })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                  <input type="text" required placeholder="Rule name (e.g. Follow up new engaged clients)" value={newRule.name} onChange={e => setNewRule({ ...newRule, name: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] font-medium text-gray-700 mb-1">When (trigger)</label>
-                      <select value={newRule.triggerType} onChange={e => setNewRule({ ...newRule, triggerType: e.target.value, triggerValue: '' })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700">
+                      <select value={newRule.triggerType} onChange={e => setNewRule({ ...newRule, triggerType: e.target.value, triggerValue: '' })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none text-gray-700">
                         <option value="stage_change">Relationship stage changes to...</option>
                         <option value="deal_stage_change">Deal stage changes to...</option>
                         <option value="no_activity_days">No activity for N days (daily check)</option>
                         <option value="task_overdue">Task becomes overdue (daily check)</option>
                       </select>
                       {newRule.triggerType === 'stage_change' && (
-                        <select value={newRule.triggerValue} onChange={e => setNewRule({ ...newRule, triggerValue: e.target.value })} className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700" required>
+                        <select value={newRule.triggerValue} onChange={e => setNewRule({ ...newRule, triggerValue: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full mt-2 px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none text-gray-700" required>
                           <option value="">-- Stage --</option>
                           {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       )}
                       {newRule.triggerType === 'deal_stage_change' && (
-                        <select value={newRule.triggerValue} onChange={e => setNewRule({ ...newRule, triggerValue: e.target.value })} className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700" required>
+                        <select value={newRule.triggerValue} onChange={e => setNewRule({ ...newRule, triggerValue: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full mt-2 px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none text-gray-700" required>
                           <option value="">-- Stage --</option>
                           {DEAL_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       )}
                       {newRule.triggerType === 'no_activity_days' && (
-                        <input type="number" min="1" placeholder="Days (e.g. 30)" value={newRule.triggerValue} onChange={e => setNewRule({ ...newRule, triggerValue: e.target.value })} className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
+                        <input type="number" min="1" placeholder="Days (e.g. 30)" value={newRule.triggerValue} onChange={e => setNewRule({ ...newRule, triggerValue: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full mt-2 px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" required />
                       )}
                       <p className="text-[11px] text-gray-400 mt-1.5">
                         {{
@@ -6122,7 +6122,7 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-gray-700 mb-1">Then (action)</label>
-                      <select value={newRule.actionType} onChange={e => setNewRule({ ...newRule, actionType: e.target.value, actionValue: {} })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700">
+                      <select value={newRule.actionType} onChange={e => setNewRule({ ...newRule, actionType: e.target.value, actionValue: {} })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none text-gray-700">
                         <option value="create_task">Create a task</option>
                         <option value="send_notification">Send a notification</option>
                         <option value="change_stage">Change relationship stage</option>
@@ -6130,23 +6130,23 @@ export default function App() {
                       </select>
                       {newRule.actionType === 'create_task' && (
                         <div className="mt-2 space-y-2">
-                          <input type="text" placeholder="Task title" value={newRule.actionValue.title || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, title: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
-                          <input type="number" min="0" placeholder="Due in N days (default 1)" value={newRule.actionValue.days_offset || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, days_offset: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                          <input type="text" placeholder="Task title" value={newRule.actionValue.title || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, title: e.target.value } })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" required />
+                          <input type="number" min="0" placeholder="Due in N days (default 1)" value={newRule.actionValue.days_offset || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, days_offset: e.target.value } })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                         </div>
                       )}
                       {newRule.actionType === 'send_notification' && (
-                        <input type="text" placeholder="Notification message" value={newRule.actionValue.message || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, message: e.target.value } })} className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
+                        <input type="text" placeholder="Notification message" value={newRule.actionValue.message || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, message: e.target.value } })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full mt-2 px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" required />
                       )}
                       {newRule.actionType === 'change_stage' && (
-                        <select value={newRule.actionValue.stage || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, stage: e.target.value } })} className="w-full mt-2 px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none text-gray-700" required>
+                        <select value={newRule.actionValue.stage || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, stage: e.target.value } })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full mt-2 px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none text-gray-700" required>
                           <option value="">-- Stage --</option>
                           {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       )}
                       {newRule.actionType === 'send_email' && (
                         <div className="mt-2 space-y-2">
-                          <input type="text" placeholder="Subject" value={newRule.actionValue.subject || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, subject: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
-                          <textarea rows={2} placeholder="Body — supports {{name}} etc." value={newRule.actionValue.body || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, body: e.target.value } })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" required />
+                          <input type="text" placeholder="Subject" value={newRule.actionValue.subject || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, subject: e.target.value } })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" required />
+                          <textarea rows={2} placeholder="Body — supports {{name}} etc." value={newRule.actionValue.body || ''} onChange={e => setNewRule({ ...newRule, actionValue: { ...newRule.actionValue, body: e.target.value } })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" required />
                         </div>
                       )}
                     </div>
@@ -6167,7 +6167,7 @@ export default function App() {
                 ) : tags.map(t => {
                   const count = Object.values(clientTagMap).filter(ids => ids.includes(t.id)).length;
                   return (
-                    <div key={t.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                    <div key={t.id} className="flex items-center gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/40">
                       <span className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
                       <span className="text-[13px] font-semibold text-gray-900 flex-1">{t.name}</span>
                       <span className="text-[11px] text-gray-400">{count} relationship{count === 1 ? '' : 's'}</span>
@@ -6179,7 +6179,7 @@ export default function App() {
               <form onSubmit={handleCreateTag} className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[160px]">
                   <label className="block text-[11px] font-medium text-gray-700 mb-1">Tag name</label>
-                  <input type="text" required value={newTagName} onChange={e => setNewTagName(e.target.value)} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                  <input type="text" required value={newTagName} onChange={e => setNewTagName(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-gray-700 mb-1">Color</label>
@@ -6209,7 +6209,7 @@ export default function App() {
                 {webhooks.length === 0 ? (
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No webhooks configured.</p>
                 ) : webhooks.map(w => (
-                  <div key={w.id} className="p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                  <div key={w.id} className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/40">
                     <div className="flex items-center gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-[13px] font-semibold text-gray-900">{w.name}</p>
@@ -6229,14 +6229,14 @@ export default function App() {
               {showWebhookForm && (
                 <form onSubmit={handleCreateWebhook} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3 text-[13px]">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <input type="text" required placeholder="Name (e.g. Zapier — new clients)" value={newWebhook.name} onChange={e => setNewWebhook({ ...newWebhook, name: e.target.value })} className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
-                    <input type="url" required placeholder="https://hooks.zapier.com/..." value={newWebhook.url} onChange={e => setNewWebhook({ ...newWebhook, url: e.target.value })} className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                    <input type="text" required placeholder="Name (e.g. Zapier — new clients)" value={newWebhook.name} onChange={e => setNewWebhook({ ...newWebhook, name: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
+                    <input type="url" required placeholder="https://hooks.zapier.com/..." value={newWebhook.url} onChange={e => setNewWebhook({ ...newWebhook, url: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                   </div>
-                  <input type="text" placeholder="Signing secret (optional)" value={newWebhook.secret} onChange={e => setNewWebhook({ ...newWebhook, secret: e.target.value })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none" />
+                  <input type="text" placeholder="Signing secret (optional)" value={newWebhook.secret} onChange={e => setNewWebhook({ ...newWebhook, secret: e.target.value })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                   <div className="flex flex-wrap gap-2">
                     {WEBHOOK_EVENTS.map(ev => (
                       <label key={ev.value} className={`text-[11px] font-semibold px-2 py-1 rounded-full border cursor-pointer transition-colors ${newWebhook.events.includes(ev.value) ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}`}>
-                        <input type="checkbox" className="hidden" checked={newWebhook.events.includes(ev.value)} onChange={() => setNewWebhook(prev => ({ ...prev, events: prev.events.includes(ev.value) ? prev.events.filter(x => x !== ev.value) : [...prev.events, ev.value] }))} />
+                        <input type="checkbox" className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 hidden" checked={newWebhook.events.includes(ev.value)} onChange={() => setNewWebhook(prev => ({ ...prev, events: prev.events.includes(ev.value) ? prev.events.filter(x => x !== ev.value) : [...prev.events, ev.value] }))} />
                         {ev.label}
                       </label>
                     ))}
@@ -6259,7 +6259,7 @@ export default function App() {
               ) : (
                 <div className="space-y-2">
                   {[...goals].sort((a, b) => (b.month || '').localeCompare(a.month || '')).map(g => (
-                    <div key={g.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50">
+                    <div key={g.id} className="flex items-center gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/40">
                       <div className="flex-1">
                         <p className="text-[13px] font-semibold text-gray-900">{{ new_clients: 'New Relationships', activities_logged: 'Activities Logged', deals_closed: 'Deals Closed', tasks_completed: 'Tasks Completed' }[g.goal_type]}</p>
                         <p className="text-[11px] text-gray-400">{new Date(g.month + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} · Target: {g.target_value}</p>
@@ -6278,7 +6278,7 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Current Password</label>
                   <div className="relative">
-                    <input type={showCurrentPassword ? 'text' : 'password'} required value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    <input type={showCurrentPassword ? 'text' : 'password'} required value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                     <button type="button" onClick={() => setShowCurrentPassword(!showCurrentPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showCurrentPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -6287,7 +6287,7 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">New Password</label>
                   <div className="relative">
-                    <input type={showNewPassword ? 'text' : 'password'} required value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    <input type={showNewPassword ? 'text' : 'password'} required value={newPassword} onChange={e => setNewPassword(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                     <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showNewPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -6296,7 +6296,7 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Confirm New Password</label>
                   <div className="relative">
-                    <input type={showConfirmNewPassword ? 'text' : 'password'} required value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} className="w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    <input type={showConfirmNewPassword ? 'text' : 'password'} required value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 pr-10 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                     <button type="button" onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-1 rounded">
                       {showConfirmNewPassword ? <EyeSlashIcon /> : <EyeIcon />}
                     </button>
@@ -6350,7 +6350,7 @@ export default function App() {
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 animate-in fade-in duration-200 md:p-4 md:flex md:items-center md:justify-center" onClick={() => { setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null); }}>
           <div className="bg-white w-full h-full overflow-y-auto md:h-auto md:rounded-2xl shadow-xl md:max-w-2xl border border-gray-100 md:overflow-hidden md:max-h-[90vh] flex flex-col animate-in slide-in-from-bottom-4 duration-300" onClick={e => e.stopPropagation()}>
 
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between gap-3">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-lg font-bold text-gray-900 truncate">{viewingClient.name}</h3>
@@ -6371,7 +6371,7 @@ export default function App() {
                       <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 hidden group-hover:block group-focus-within:block min-w-[140px]">
                         {tags.map(t => (
                           <label key={t.id} className="flex items-center gap-2 py-1 px-1 text-[12px] cursor-pointer hover:bg-gray-50 rounded">
-                            <input type="checkbox" checked={(clientTagMap[viewingClient.id] || []).includes(t.id)} onChange={() => handleToggleClientTag(viewingClient.id, t.id)} className="rounded border-gray-300 focus:ring-0" />
+                            <input type="checkbox" checked={(clientTagMap[viewingClient.id] || []).includes(t.id)} onChange={() => handleToggleClientTag(viewingClient.id, t.id)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded border-gray-300 dark:border-gray-600 focus:ring-0" />
                             <span style={{ color: t.color }} className="font-semibold">{t.name}</span>
                           </label>
                         ))}
@@ -6448,7 +6448,7 @@ export default function App() {
 
               {/* DYNAMIC CUSTOM FIELDS RENDER IN PROFILE */}
               {customFieldDefs.length > 0 && (
-                <div className="bg-gray-50/50 p-4 rounded-xl border border-gray-100">
+                <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-3">Custom Data Points</span>
                   <div className="grid grid-cols-2 gap-4">
                     {customFieldDefs.map(cf => {
@@ -6481,7 +6481,7 @@ export default function App() {
                 const referrals = clients.filter(c => c.referred_by_client_id === viewingClient.id);
                 if (!referrer && referrals.length === 0) return null;
                 return (
-                  <div className="bg-gray-50/50 p-4 rounded-xl border border-gray-100 space-y-2">
+                  <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 space-y-2">
                     <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Referral Network</span>
                     {referrer && (
                       <p className="text-[13px]">
@@ -6511,7 +6511,7 @@ export default function App() {
                     {quickNoteSaving ? 'Saving...' : quickNoteSaved ? <span className="text-green-600">Saved ✓</span> : ''}
                   </span>
                 </div>
-                <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this relationship — auto-saves as you type..." disabled={!canEdit} className="w-full px-3 py-2 text-[13px] border border-gray-200 rounded-xl bg-yellow-50/50 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
+                <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this relationship — auto-saves as you type..." disabled={!canEdit} className="dark:text-gray-100 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-xl bg-yellow-50/50 dark:bg-yellow-900/10 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
               </div>
 
               {/* FEATURE 7 — PROFILE TAB BAR */}
@@ -6531,7 +6531,7 @@ export default function App() {
                       onClick={() => fileUploadRef.current?.click()}
                       className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center cursor-pointer hover:border-gray-400 transition-colors"
                     >
-                      <input ref={fileUploadRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); e.target.value = null; }} />
+                      <input ref={fileUploadRef} type="file" className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); e.target.value = null; }} />
                       <p className="text-[13px] font-medium text-gray-600">{uploadingFile ? 'Uploading...' : 'Drop file or click to upload'}</p>
                       <p className="text-[11px] text-gray-400 mt-1">Max 10MB</p>
                     </div>
@@ -6540,7 +6540,7 @@ export default function App() {
                     <EmptyState title="No files yet" desc="Drop a file above or click to upload attachments for this relationship." />
                   ) : (
                     clientFiles.filter(f => f.client_id === viewingClient.id).map(f => (
-                      <div key={f.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 rounded-xl">
+                      <div key={f.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl">
                         <span className="text-lg shrink-0">
                           {(f.file_type || '').includes('pdf') ? '📄' : (f.file_type || '').startsWith('image') ? '🖼️' : '📎'}
                         </span>
@@ -6566,7 +6566,7 @@ export default function App() {
                     <EmptyState title="No deals yet" desc="Create your first deal to start tracking your pipeline." />
                   ) : (
                     deals.filter(d => d.client_id === viewingClient.id).map(d => (
-                      <div key={d.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 rounded-xl">
+                      <div key={d.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl">
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold text-gray-900 truncate">{d.title}</p>
                           <p className="text-[11px] text-gray-400">{d.stage} · {d.probability}%{d.close_date ? ` · Close ${d.close_date}` : ''}</p>
@@ -6584,10 +6584,10 @@ export default function App() {
                 <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-3">Tasks for this Relationship</h4>
 
                 <form onSubmit={(e) => handleCreateTask(e, viewingClient.id)} className="flex flex-wrap gap-2 mb-3">
-                  <input type="text" placeholder="New task title..." value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className="flex-1 min-w-[140px] px-3 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none" required />
-                  <input type="date" value={newTaskDate} onChange={(e) => setNewTaskDate(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600" required />
+                  <input type="text" placeholder="New task title..." value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 flex-1 min-w-[140px] px-3 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" required />
+                  <input type="date" value={newTaskDate} onChange={(e) => setNewTaskDate(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none text-gray-600" required />
                   {/* FEATURE 20 — recurrence */}
-                  <select value={newTaskRecurrence} onChange={e => setNewTaskRecurrence(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600">
+                  <select value={newTaskRecurrence} onChange={e => setNewTaskRecurrence(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none text-gray-600">
                     <option value="">No repeat</option>
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
@@ -6595,7 +6595,7 @@ export default function App() {
                     <option value="quarterly">Quarterly</option>
                   </select>
                   {newTaskRecurrence && (
-                    <input type="date" title="Repeat end date" value={newTaskRecurrenceEnd} onChange={e => setNewTaskRecurrenceEnd(e.target.value)} className="px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 rounded-lg focus:outline-none text-gray-600" />
+                    <input type="date" title="Repeat end date" value={newTaskRecurrenceEnd} onChange={e => setNewTaskRecurrenceEnd(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none text-gray-600" />
                   )}
                   <button type="submit" className="px-3 py-1.5 min-h-[44px] md:min-h-0 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm">Add</button>
                 </form>
@@ -6607,9 +6607,9 @@ export default function App() {
                   {tasks.filter(t => t.client_id === viewingClient.id).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).map(task => {
                     const isOverdue = task.status === 'pending' && new Date(task.due_date) < new Date(todayStr);
                     return (
-                      <div key={task.id} className="flex items-center justify-between p-2.5 bg-gray-50/50 border border-gray-100 rounded-xl">
+                      <div key={task.id} className="flex items-center justify-between p-2.5 bg-gray-50/50 dark:bg-gray-800/40 border border-gray-100 rounded-xl">
                         <div className="flex items-center gap-3">
-                          <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-0 cursor-pointer" />
+                          <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0 cursor-pointer" />
                           <div>
                             <span className={`text-[13px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
                               {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>🔁 </span>}
@@ -6653,7 +6653,7 @@ export default function App() {
                     </div>
                   ) : (
                     activities.filter(a => a.client_id === viewingClient.id && (activityFilterType === 'All' || a.activity_type === activityFilterType)).map(act => (
-                      <div key={act.id} className="p-3 border border-gray-100 bg-gray-50/50 rounded-xl group relative">
+                      <div key={act.id} className="p-3 border border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl group relative">
                         <div className="flex justify-between items-start mb-2">
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded uppercase">{act.activity_type}</span>
@@ -6669,7 +6669,7 @@ export default function App() {
 
                         {editingActivityId === act.id ? (
                           <form onSubmit={handleUpdateActivity} className="flex gap-2 mt-2">
-                            <textarea value={editingActivityDesc} onChange={e => setEditingActivityDesc(e.target.value)} className="w-full text-[12px] p-2 border border-gray-200 rounded focus:outline-none" rows={2} required />
+                            <textarea value={editingActivityDesc} onChange={e => setEditingActivityDesc(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full text-[12px] p-2 border border-gray-200 dark:border-gray-700 rounded focus:outline-none" rows={2} required />
                             <div className="flex flex-col gap-1 shrink-0">
                               <button type="submit" className="bg-gray-900 text-white text-[10px] px-2 py-1 rounded">Save</button>
                               <button type="button" onClick={() => setEditingActivityId(null)} className="bg-gray-200 text-gray-600 text-[10px] px-2 py-1 rounded">Cancel</button>
@@ -6697,7 +6697,7 @@ export default function App() {
                   </div>
                   {savingTemplateName !== null && (
                     <div className="flex items-center gap-2">
-                      <input type="text" placeholder="Template name to save last entry..." value={savingTemplateName} onChange={e => setSavingTemplateName(e.target.value)} className="flex-1 px-2 py-1 text-[12px] border border-gray-200 rounded-lg focus:outline-none" />
+                      <input type="text" placeholder="Template name to save last entry..." value={savingTemplateName} onChange={e => setSavingTemplateName(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 flex-1 px-2 py-1 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                       <button type="button" onClick={() => {
                         if (!savingTemplateName.trim()) return;
                         const lastAct = activities.find(a => a.client_id === viewingClient.id);
@@ -6714,16 +6714,16 @@ export default function App() {
                     </div>
                   )}
                   <div className="flex flex-wrap gap-2 items-center text-[12px]">
-                    <select value={activityType} onChange={e => setActivityType(e.target.value)} className="p-1.5 border border-gray-200 rounded-lg focus:outline-none bg-gray-50/50 text-gray-700">
+                    <select value={activityType} onChange={e => setActivityType(e.target.value)} className="dark:text-gray-100 p-1.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none bg-gray-50/50 dark:bg-gray-800/40 text-gray-700">
                       <option value="Note">Note</option>
                       <option value="Call">Call</option>
                       <option value="Email">Email</option>
                       <option value="Meeting">Meeting</option>
                     </select>
-                    <input type="date" value={activityDate} onChange={e => setActivityDate(e.target.value)} className="p-1.5 border border-gray-200 rounded-lg focus:outline-none bg-gray-50/50 text-gray-600" />
+                    <input type="date" value={activityDate} onChange={e => setActivityDate(e.target.value)} className="dark:text-gray-100 p-1.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none bg-gray-50/50 dark:bg-gray-800/40 text-gray-600" />
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <textarea placeholder={voiceListening ? 'Listening... speak your note' : 'Record details, meeting minutes, or email content...'} value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className={`flex-1 px-3 py-2 text-[13px] border rounded-lg focus:outline-none ${voiceListening ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200 focus:border-gray-400'}`} />
+                    <textarea placeholder={voiceListening ? 'Listening... speak your note' : 'Record details, meeting minutes, or email content...'} value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className={`flex-1 px-3 py-2 text-[13px] border rounded-lg focus:outline-none dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 ${voiceListening ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200 dark:border-gray-700 focus:border-gray-400'}`} />
                     {/* G3 — voice memo mic */}
                     <button type="button" onClick={toggleVoiceMemo} title={voiceListening ? 'Stop dictation' : 'Dictate with your voice'} className={`self-end sm:self-stretch px-3 min-h-[38px] rounded-xl border text-[16px] transition-all ${voiceListening ? 'bg-red-50 border-red-300 animate-pulse' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
                       {voiceListening ? '🔴' : '🎤'}
@@ -6763,7 +6763,7 @@ export default function App() {
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden animate-in scale-in-from-95 duration-200 max-h-[90vh] flex flex-col">
             
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Edit Relationship</h3>
               <button onClick={() => setEditingClient(null)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
@@ -6772,48 +6772,48 @@ export default function App() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Full Name *</label>
-                  <input type="text" required value={editingClient.name || ''} onChange={e => setEditingClient({...editingClient, name: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                  <input type="text" required value={editingClient.name || ''} onChange={e => setEditingClient({...editingClient, name: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Email *</label>
-                  <input type="email" required value={editingClient.email || ''} onChange={e => setEditingClient({...editingClient, email: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                  <input type="email" required value={editingClient.email || ''} onChange={e => setEditingClient({...editingClient, email: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Country</label>
-                  <input type="text" list="country-list" value={editingClient.country || ''} onChange={e => setEditingClient({...editingClient, country: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                  <input type="text" list="country-list" value={editingClient.country || ''} onChange={e => setEditingClient({...editingClient, country: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Phone</label>
-                  <input type="text" value={editingClient.phone_number || ''} onChange={e => setEditingClient({...editingClient, phone_number: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                  <input type="text" value={editingClient.phone_number || ''} onChange={e => setEditingClient({...editingClient, phone_number: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">LinkedIn URL</label>
-                  <input type="url" value={editingClient.linkedin_url || ''} onChange={e => setEditingClient({...editingClient, linkedin_url: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                  <input type="url" value={editingClient.linkedin_url || ''} onChange={e => setEditingClient({...editingClient, linkedin_url: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Birthday</label>
-                  <input type="date" value={editingClient.birthday || ''} onChange={e => setEditingClient({...editingClient, birthday: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none" />
+                  <input type="date" value={editingClient.birthday || ''} onChange={e => setEditingClient({...editingClient, birthday: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-600 focus:outline-none" />
                 </div>
                 {/* PART F — company fields */}
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Company Name</label>
-                  <input type="text" value={editingClient.company_name || ''} onChange={e => setEditingClient({...editingClient, company_name: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                  <input type="text" value={editingClient.company_name || ''} onChange={e => setEditingClient({...editingClient, company_name: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Company Website</label>
-                  <input type="text" value={editingClient.company_url || ''} onChange={e => setEditingClient({...editingClient, company_url: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                  <input type="text" value={editingClient.company_url || ''} onChange={e => setEditingClient({...editingClient, company_url: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
                 </div>
                 {/* G18 — referral chain */}
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Referred by</label>
-                  <select value={editingClient.referred_by_client_id || ''} onChange={e => setEditingClient({...editingClient, referred_by_client_id: e.target.value ? parseInt(e.target.value, 10) : null})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                  <select value={editingClient.referred_by_client_id || ''} onChange={e => setEditingClient({...editingClient, referred_by_client_id: e.target.value ? parseInt(e.target.value, 10) : null})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
                     <option value="">— Nobody / unknown —</option>
                     {[...clients].filter(c => c.id !== editingClient.id).sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Source</label>
-                  <select value={editingClient.source || ''} onChange={e => setEditingClient({...editingClient, source: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                  <select value={editingClient.source || ''} onChange={e => setEditingClient({...editingClient, source: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
                     <option value="">Unknown</option>
                     {CLIENT_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
@@ -6829,12 +6829,12 @@ export default function App() {
                       <div key={cf.id} className="flex flex-col gap-1.5">
                         <label className="text-[11px] font-medium text-gray-700">{cf.field_name}</label>
                         {cf.field_type === 'select' ? (
-                          <select value={formCustomValues[cf.id] || ''} onChange={e => setFormCustomValues({...formCustomValues, [cf.id]: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white focus:outline-none text-gray-700">
+                          <select value={formCustomValues[cf.id] || ''} onChange={e => setFormCustomValues({...formCustomValues, [cf.id]: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white focus:outline-none text-gray-700">
                             <option value="">-- Select --</option>
                             {(cf.select_options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
                           </select>
                         ) : (
-                          <input type={cf.field_type} value={formCustomValues[cf.id] || ''} onChange={e => setFormCustomValues({...formCustomValues, [cf.id]: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-gray-400 text-gray-900" />
+                          <input type={cf.field_type} value={formCustomValues[cf.id] || ''} onChange={e => setFormCustomValues({...formCustomValues, [cf.id]: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white focus:outline-none focus:border-gray-400 text-gray-900" />
                         )}
                       </div>
                     ))}
@@ -6844,13 +6844,13 @@ export default function App() {
 
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Notes (Legacy)</label>
-                <textarea rows={2} value={editingClient.note_conversation || ''} onChange={e => setEditingClient({...editingClient, note_conversation: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50/50 text-gray-900 focus:outline-none focus:bg-white font-normal" placeholder="Legacy text data..."></textarea>
+                <textarea rows={2} value={editingClient.note_conversation || ''} onChange={e => setEditingClient({...editingClient, note_conversation: e.target.value})} className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:bg-white dark:focus:bg-gray-800 font-normal dark:placeholder-gray-500" placeholder="Legacy text data..."></textarea>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Priority</label>
-                  <select value={editingClient.relationship || 'Medium'} onChange={e => setEditingClient({...editingClient, relationship: e.target.value})} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm text-gray-700 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors appearance-none">
+                  <select value={editingClient.relationship || 'Medium'} onChange={e => setEditingClient({...editingClient, relationship: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm text-gray-700 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors appearance-none">
                     <option value="Low">Low</option>
                     <option value="Medium">Medium</option>
                     <option value="High">High</option>
@@ -6858,7 +6858,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Pipeline Stage</label>
-                  <select value={editingClient.status || 'New'} onChange={e => setEditingClient({...editingClient, status: e.target.value})} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg shadow-sm text-gray-700 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors appearance-none">
+                  <select value={editingClient.status || 'New'} onChange={e => setEditingClient({...editingClient, status: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm text-gray-700 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 transition-colors appearance-none">
                     {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                     {/* Render legacy fallbacks if needed */}
                     {!PIPELINE_STAGES.includes(editingClient.status) && <option value={editingClient.status}>{editingClient.status} (Legacy)</option>}
@@ -6895,7 +6895,7 @@ export default function App() {
               </div>
               <div className="w-full bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3 mt-4">
                 <p className="text-[12px] font-medium text-gray-700 text-left">Please type your email address <strong className="text-gray-900 select-all">{user?.email}</strong> to confirm:</p>
-                <input type="email" value={deleteAccountEmail} onChange={(e) => setDeleteAccountEmail(e.target.value)} placeholder={user?.email} className="w-full px-3 py-2 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400" />
+                <input type="email" value={deleteAccountEmail} onChange={(e) => setDeleteAccountEmail(e.target.value)} placeholder={user?.email} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] bg-white border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400" />
               </div>
               <div className="flex w-full gap-3 pt-2">
                 <button onClick={() => {setShowDeleteModal(false); setDeleteAccountEmail('');}} className="flex-1 py-2.5 text-[13px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Cancel</button>
@@ -6912,19 +6912,19 @@ export default function App() {
       {showDealForm && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowDealForm(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">{editingDeal ? 'Edit Deal' : 'New Deal'}</h3>
               <button onClick={() => setShowDealForm(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
             <form onSubmit={handleCreateDeal} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Title *</label>
-                <input type="text" required value={dealTitle} onChange={e => setDealTitle(e.target.value)} className="w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                <input type="text" required value={dealTitle} onChange={e => setDealTitle(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Relationship *</label>
-                  <select required value={dealClientId} onChange={e => setDealClientId(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                  <select required value={dealClientId} onChange={e => setDealClientId(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
                     <option value="">-- Select relationship --</option>
                     {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
@@ -6932,39 +6932,39 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Value</label>
                   <div className="flex gap-1.5">
-                    <input type="number" min="0" step="0.01" value={dealValue} onChange={e => setDealValue(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                    <input type="number" min="0" step="0.01" value={dealValue} onChange={e => setDealValue(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                     {/* G20 — currency */}
-                    <select value={dealCurrency} onChange={e => setDealCurrency(e.target.value)} className="px-2 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none shrink-0">
+                    <select value={dealCurrency} onChange={e => setDealCurrency(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-2 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none shrink-0">
                       {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Stage</label>
-                  <select value={dealStage} onChange={e => setDealStage(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                  <select value={dealStage} onChange={e => setDealStage(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
                     {DEAL_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Probability ({dealProbability}%)</label>
-                  <input type="range" min="0" max="100" step="5" value={dealProbability} onChange={e => setDealProbability(e.target.value)} className="w-full" />
+                  <input type="range" min="0" max="100" step="5" value={dealProbability} onChange={e => setDealProbability(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full" />
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Close Date</label>
-                  <input type="date" value={dealCloseDate} onChange={e => setDealCloseDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-gray-600 focus:outline-none" />
+                  <input type="date" value={dealCloseDate} onChange={e => setDealCloseDate(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 focus:outline-none" />
                 </div>
               </div>
               {/* G19 — recurring revenue */}
               <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 space-y-3">
                 <label className="flex items-center gap-2 text-[13px] font-medium text-gray-700 cursor-pointer">
-                  <input type="checkbox" checked={dealIsRecurring} onChange={e => setDealIsRecurring(e.target.checked)} className="rounded border-gray-300 text-gray-900 focus:ring-0" />
+                  <input type="checkbox" checked={dealIsRecurring} onChange={e => setDealIsRecurring(e.target.checked)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
                   Recurring revenue (subscription / retainer)
                 </label>
                 {dealIsRecurring && (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Billing Cycle</label>
-                      <select value={dealBillingCycle} onChange={e => setDealBillingCycle(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                      <select value={dealBillingCycle} onChange={e => setDealBillingCycle(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
                         <option value="monthly">Monthly</option>
                         <option value="quarterly">Quarterly</option>
                         <option value="annual">Annual</option>
@@ -6972,14 +6972,14 @@ export default function App() {
                     </div>
                     <div>
                       <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Next Renewal</label>
-                      <input type="date" value={dealRenewalDate} onChange={e => setDealRenewalDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-gray-600 focus:outline-none" />
+                      <input type="date" value={dealRenewalDate} onChange={e => setDealRenewalDate(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 focus:outline-none" />
                     </div>
                   </div>
                 )}
               </div>
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Notes</label>
-                <textarea rows={2} value={dealNotes} onChange={e => setDealNotes(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                <textarea rows={2} value={dealNotes} onChange={e => setDealNotes(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                 <button type="button" onClick={() => setShowDealForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
@@ -6997,7 +6997,7 @@ export default function App() {
       {showEmailComposer && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowEmailComposer(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Send Email</h3>
               <button onClick={() => setShowEmailComposer(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
@@ -7009,7 +7009,7 @@ export default function App() {
                     // email_templates.id is a uuid string — never parseInt it
                     const t = emailTemplates.find(x => String(x.id) === e.target.value);
                     if (t) { setEmailSubject(t.subject); setEmailBody(t.body); }
-                  }} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                  }} className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 focus:outline-none">
                     <option value="">-- Choose a template --</option>
                     {emailTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
@@ -7017,15 +7017,15 @@ export default function App() {
               )}
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">To</label>
-                <input type="email" required value={emailTo} onChange={e => setEmailTo(e.target.value)} className="w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                <input type="email" required value={emailTo} onChange={e => setEmailTo(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
               </div>
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Subject</label>
-                <input type="text" required value={emailSubject} onChange={e => setEmailSubject(e.target.value)} className="w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                <input type="text" required value={emailSubject} onChange={e => setEmailSubject(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
               </div>
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Body</label>
-                <textarea rows={6} required value={emailBody} onChange={e => setEmailBody(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                <textarea rows={6} required value={emailBody} onChange={e => setEmailBody(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                 <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} {'{{phone}}'} {'{{stage}}'}</p>
               </div>
               {/* PART B — provider toggle (persisted to localStorage) */}
@@ -7052,18 +7052,18 @@ export default function App() {
       {showBulkEmailModal && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Email {selectedClientIds.length} relationships</h3>
               <button onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
             <form onSubmit={handleBulkSendEmail} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Subject</label>
-                <input type="text" required value={bulkEmailSubject} onChange={e => setBulkEmailSubject(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                <input type="text" required value={bulkEmailSubject} onChange={e => setBulkEmailSubject(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
               </div>
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Body</label>
-                <textarea rows={8} required value={bulkEmailBody} onChange={e => setBulkEmailBody(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                <textarea rows={8} required value={bulkEmailBody} onChange={e => setBulkEmailBody(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                 <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} — resolved per recipient.</p>
               </div>
               <div className="bg-gray-50 border border-gray-100 rounded-xl p-3">
@@ -7093,7 +7093,7 @@ export default function App() {
       {showImportPreview && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !importLoading && setShowImportPreview(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40">
               <h3 className="text-[15px] font-bold text-gray-900">
                 Import Preview — {importPreviewData.filter(r => !r.error).length} rows ready, {importPreviewData.filter(r => r.error).length} errors
               </h3>
@@ -7114,7 +7114,7 @@ export default function App() {
                 <tbody className="divide-y divide-gray-50">
                   {importPreviewData.map(r => (
                     <tr key={r.key} className={r.error ? 'bg-red-50/60' : r.warning ? 'bg-yellow-50/60' : 'bg-green-50/40'}>
-                      <td className="p-2"><input type="checkbox" disabled={!!r.error} checked={r.checked} onChange={() => setImportPreviewData(prev => prev.map(x => x.key === r.key ? { ...x, checked: !x.checked } : x))} className="rounded border-gray-300 focus:ring-0" /></td>
+                      <td className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 p-2"><input type="checkbox" disabled={!!r.error} checked={r.checked} onChange={() => setImportPreviewData(prev => prev.map(x => x.key === r.key ? { ...x, checked: !x.checked } : x))} className="rounded border-gray-300 dark:border-gray-600 focus:ring-0" /></td>
                       <td className="p-2 font-semibold text-gray-900">{r.name || '—'}</td>
                       <td className="p-2 text-gray-600">{r.email || '—'}</td>
                       <td className="p-2 text-gray-500">{r.country || '—'}</td>
@@ -7143,7 +7143,7 @@ export default function App() {
       {showMergeTool && mergeSource && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !mergeLoading && setShowMergeTool(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Merge Relationship — Step {mergeStep} of 2</h3>
               <button onClick={() => !mergeLoading && setShowMergeTool(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
@@ -7151,7 +7151,7 @@ export default function App() {
               {mergeStep === 1 && (
                 <>
                   <p className="text-gray-600">Merging <span className="font-bold text-gray-900">{mergeSource.name}</span> into another relationship. Select the <span className="font-semibold">target</span> relationship to keep:</p>
-                  <input type="text" autoFocus placeholder="Search relationships..." value={mergeSearch} onChange={e => setMergeSearch(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                  <input type="text" autoFocus placeholder="Search relationships..." value={mergeSearch} onChange={e => setMergeSearch(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                   <div className="max-h-64 overflow-y-auto space-y-1.5">
                     {clients.filter(c => c.id !== mergeSource.id && ((c.name || '').toLowerCase().includes(mergeSearch.toLowerCase()) || (c.email || '').toLowerCase().includes(mergeSearch.toLowerCase()))).slice(0, 10).map(c => (
                       <button key={c.id} onClick={() => setMergeTarget(c)} className={`w-full flex items-center justify-between p-3 rounded-xl border text-left transition-colors ${mergeTarget?.id === c.id ? 'border-gray-900 bg-gray-50' : 'border-gray-100 hover:border-gray-300'}`}>
@@ -7208,14 +7208,14 @@ export default function App() {
       {showGoalForm && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowGoalForm(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Set Monthly Goal</h3>
               <button onClick={() => setShowGoalForm(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
             <form onSubmit={handleSaveGoal} className="p-6 space-y-4 text-[13px]">
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Goal Type</label>
-                <select value={goalType} onChange={e => setGoalType(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none">
+                <select value={goalType} onChange={e => setGoalType(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
                   <option value="new_clients">New Relationships</option>
                   <option value="activities_logged">Activities Logged</option>
                   <option value="deals_closed">Deals Closed</option>
@@ -7224,7 +7224,7 @@ export default function App() {
               </div>
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Target for {new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</label>
-                <input type="number" min="1" required value={goalTarget} onChange={e => setGoalTarget(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400" />
+                <input type="number" min="1" required value={goalTarget} onChange={e => setGoalTarget(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                 <button type="button" onClick={() => setShowGoalForm(false)} className="px-4 py-2 text-[13px] font-medium text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
@@ -7239,7 +7239,7 @@ export default function App() {
       {showKeyboardHelp && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[140] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowKeyboardHelp(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
               <h3 className="text-[15px] font-bold text-gray-900">Keyboard Shortcuts</h3>
               <button onClick={() => setShowKeyboardHelp(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
             </div>
