@@ -4,13 +4,13 @@
 // Resend (RESEND_API_KEY + email_settings.resend_from_email) for cold outreach.
 // v5 additions: cold_contacts enrollments, unsubscribe list enforcement, unsubscribe
 // footer link, prospect→contacted lifecycle.
-// Auth: service-role key OR the CRON_TOKEN function secret (set via
-// `supabase secrets set CRON_TOKEN=...` to the same token the pg_cron job sends —
-// never hardcode it here; this file is committed to the repo). Cron: */15.
+// Auth: service-role key, OR a cron token looked up from Supabase Vault at request time
+// (name='cron_token' — see `vault.create_secret`). This intentionally avoids both (a)
+// hardcoding any literal secret in this committed source file, and (b) requiring a
+// `supabase secrets set` step, since the function already has DB access via its own
+// service-role client and can dereference Vault directly. Cron: */15.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { resolveNextNode, advanceAfterNode, syntheticChainEdges, pickSubjectVariant, addDaysStr } from './_shared/sequence-logic.ts';
-
-const CRON_TOKEN = Deno.env.get('CRON_TOKEN') || '';
 
 function mergeTags(str: string, c: any) {
   return (str || '')
@@ -74,12 +74,19 @@ async function sendViaResend(from: string, to: string, subject: string, html: st
 
 Deno.serve(async (req: Request) => {
   const svcKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const admin = createClient(Deno.env.get('SUPABASE_URL')!, svcKey);
   const auth = req.headers.get('Authorization') || '';
-  const cronOk = CRON_TOKEN && auth === `Bearer ${CRON_TOKEN}`;
+  let cronOk = false;
+  if (auth !== `Bearer ${svcKey}`) {
+    // Not the service-role key — check whether it matches the Vault-stored cron token,
+    // fetched via a SECURITY DEFINER RPC (public.get_cron_token) restricted to service_role.
+    // Looked up fresh on every request; never cached, never logged, never hardcoded.
+    const { data: cronToken } = await admin.rpc('get_cron_token');
+    cronOk = Boolean(cronToken) && auth === `Bearer ${cronToken}`;
+  }
   if (auth !== `Bearer ${svcKey}` && !cronOk) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
   }
-  const admin = createClient(Deno.env.get('SUPABASE_URL')!, svcKey);
   const projectUrl = Deno.env.get('SUPABASE_URL')!;
   const today = new Date().toISOString().split('T')[0];
   const out = { sent: 0, tasks: 0, skipped: 0, completed: 0, waited: 0, unsubscribed: 0, quota_deferred: 0, needs_reauth: 0, errors: [] as string[] };

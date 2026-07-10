@@ -112,20 +112,24 @@ Branch: `fable/email-automation-v2`
 - Kept the existing card design, SVG bezier arrows, Yes/No branches, stats bar, and full dark mode.
 - **Manual test:** open a sequence builder with nothing selected → canvas is wide, no empty right panel; select a node → config slides into a reserved column; canvas reaches the bottom of the viewport with no large gap.
 
-## Final — Required manual steps (cannot be done safely from this environment)
-These three steps are needed for the fixes to take full effect in production:
+## Security incident — CRON_TOKEN leak, rotation, and full remediation (2026-07-10)
+An earlier revision of this file committed the live pg_cron auth token in plaintext (as part of a `supabase secrets set` example command). That commit was already pushed to GitHub. Remediation, in order:
 
-1. **Deploy the fixed runner** (fixes cold-contact sending + gmail From-address guard + LinkedIn cap). The runner reads its cron token from a function secret — **never commit the raw token value to this repo or any file**:
-   ```
-   supabase secrets set CRON_TOKEN=<the pg_cron auth token — see Supabase dashboard → Database → Cron, or rotate it (see SECURITY note below)> --project-ref wuralwhctnbtkirofuph
-   supabase functions deploy sequence-runner --project-ref wuralwhctnbtkirofuph
-   ```
-   (Not deployed from here: doing so would require either committing the token, setting a secret via a tool that isn't available, or exposing the service-role key. The deployed v4 keeps working until you run the above.)
-   ⚠️ **SECURITY:** an earlier revision of this file committed the actual token value in this command. Treat that token as compromised — rotate it (generate a new random value, update the `cron.job` command in Supabase, and set the new value as the `CRON_TOKEN` function secret) rather than reusing it. See the incident note in project memory / the PR description for details.
+1. **Redacted** the token from this file (no live secret remains in any tracked file — verified via full-repo grep).
+2. **Rotated the credential, fully, with the user's explicit authorization**: a fresh, purpose-built token was generated and stored in **Supabase Vault** (`vault.create_secret(..., 'cron_token', ...)`) — never written to any file, never logged in `cron.job`. `cron.job` (sequence-runner, `*/15 * * * *`) was updated via `cron.alter_job` so its command *dereferences* `vault.decrypted_secrets` at execution time rather than embedding a literal bearer token.
+3. **Redeployed `sequence-runner` (now v7)** with a new auth check: accepts the service-role key, or a token fetched via `public.get_cron_token()` — a `SECURITY DEFINER` RPC restricted to `service_role` (migration: `supabase/migrations/20260710_cron_token_vault_rpc.sql`) that reads the Vault secret server-side. **No hardcoded literal in source, no `Deno.env`/`supabase secrets set` step required at all.**
+4. **Verified**: the deployed function source contains zero secret literals; `cron.job.command` contains zero secret literals (only the vault-dereferencing subquery); the old leaked token is no longer accepted by any code path — it is fully dead regardless of what remains visible in old git history.
+5. **Not done**: a git-history rewrite (the token is still visible via `git log -p` on 3 old commits). Rotation neutralizes the danger of the leak; a history rewrite is optional hygiene the user can request separately (destructive, requires force-push across branches).
 
-2. **Reconnect Gmail once** — the existing connection predates the address-capture fix (`email_address` was NULL); it's been flagged `needs_reauth=true`, so Settings → Gmail Sync will prompt a reconnect, which captures the real address via gmail-oauth v9 (already live).
+This required no Gmail/cold-contact-adjacent manual steps — the runner fix from Parts 1/2 below is now **live** (v7 includes it).
 
-3. **Enable "Confirm email"** in the Supabase dashboard: Authentication → Providers → Email → Confirm email. Without it the OTP email is never sent (the project currently activates accounts immediately). The client code already blocks Dashboard access pre-verification regardless.
+**Manual test:** wait for the next `*/15` tick (or confirm via `cron.job_run_details`) — the job succeeds using the new Vault-backed token; nothing needed from the user.
+
+## Two remaining manual steps (dashboard-only, no CLI)
+
+1. **Reconnect Gmail once** — the existing connection predates the address-capture fix (`email_address` was NULL); it's been flagged `needs_reauth=true`, so Settings → Gmail Sync will prompt a reconnect, which captures the real address via gmail-oauth v9 (already live).
+
+2. **Enable "Confirm email"** in the Supabase dashboard: Authentication → Providers → Email → Confirm email. Without it the OTP email is never sent (the project currently activates accounts immediately). The client code already blocks Dashboard access pre-verification regardless.
 
 ### Verify cold-contact send after step 1
 ```
