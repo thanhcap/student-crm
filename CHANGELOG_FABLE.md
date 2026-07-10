@@ -111,3 +111,27 @@ Branch: `fable/email-automation-v2`
 - Config panel is contextual: its 300px column only mounts when a node is selected; otherwise the canvas spans the full width (`grid-cols-[60px_1fr]` → `[60px_1fr_300px]`).
 - Kept the existing card design, SVG bezier arrows, Yes/No branches, stats bar, and full dark mode.
 - **Manual test:** open a sequence builder with nothing selected → canvas is wide, no empty right panel; select a node → config slides into a reserved column; canvas reaches the bottom of the viewport with no large gap.
+
+## Final — Required manual steps (cannot be done safely from this environment)
+These three steps are needed for the fixes to take full effect in production:
+
+1. **Deploy the fixed runner** (fixes cold-contact sending + gmail From-address guard + LinkedIn cap). The runner reads its cron token from a function secret (never committed):
+   ```
+   supabase secrets set CRON_TOKEN=crn_f6943a7e76c203186c09085f93aa8fd7132fd0ffe2df1c45 --project-ref wuralwhctnbtkirofuph
+   supabase functions deploy sequence-runner --project-ref wuralwhctnbtkirofuph
+   ```
+   (Not deployed from here: doing so would require either committing the token, setting a secret via a tool that isn't available, or exposing the service-role key. The deployed v4 keeps working until you run the above.)
+
+2. **Reconnect Gmail once** — the existing connection predates the address-capture fix (`email_address` was NULL); it's been flagged `needs_reauth=true`, so Settings → Gmail Sync will prompt a reconnect, which captures the real address via gmail-oauth v9 (already live).
+
+3. **Enable "Confirm email"** in the Supabase dashboard: Authentication → Providers → Email → Confirm email. Without it the OTP email is never sent (the project currently activates accounts immediately). The client code already blocks Dashboard access pre-verification regardless.
+
+### Verify cold-contact send after step 1
+```
+-- create a test enrollment for an existing prospect cold contact
+insert into sequence_enrollments (sequence_id, cold_contact_id, user_id, status, current_step, next_send_at)
+select 9, cc.id, cc.user_id, 'active', 0, current_date
+from cold_contacts cc where cc.status='prospect' limit 1;
+-- then: supabase functions invoke sequence-runner  (or wait for the */15 cron)
+-- expect: a sequence_sends row with cold_contact_id set, cold_contacts.status -> 'contacted'
+```
