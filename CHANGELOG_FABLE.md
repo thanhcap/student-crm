@@ -115,12 +115,13 @@ Branch: `fable/email-automation-v2`
 ## Final — Required manual steps (cannot be done safely from this environment)
 These three steps are needed for the fixes to take full effect in production:
 
-1. **Deploy the fixed runner** (fixes cold-contact sending + gmail From-address guard + LinkedIn cap). The runner reads its cron token from a function secret (never committed):
+1. **Deploy the fixed runner** (fixes cold-contact sending + gmail From-address guard + LinkedIn cap). The runner reads its cron token from a function secret — **never commit the raw token value to this repo or any file**:
    ```
-   supabase secrets set CRON_TOKEN=crn_f6943a7e76c203186c09085f93aa8fd7132fd0ffe2df1c45 --project-ref wuralwhctnbtkirofuph
+   supabase secrets set CRON_TOKEN=<the pg_cron auth token — see Supabase dashboard → Database → Cron, or rotate it (see SECURITY note below)> --project-ref wuralwhctnbtkirofuph
    supabase functions deploy sequence-runner --project-ref wuralwhctnbtkirofuph
    ```
    (Not deployed from here: doing so would require either committing the token, setting a secret via a tool that isn't available, or exposing the service-role key. The deployed v4 keeps working until you run the above.)
+   ⚠️ **SECURITY:** an earlier revision of this file committed the actual token value in this command. Treat that token as compromised — rotate it (generate a new random value, update the `cron.job` command in Supabase, and set the new value as the `CRON_TOKEN` function secret) rather than reusing it. See the incident note in project memory / the PR description for details.
 
 2. **Reconnect Gmail once** — the existing connection predates the address-capture fix (`email_address` was NULL); it's been flagged `needs_reauth=true`, so Settings → Gmail Sync will prompt a reconnect, which captures the real address via gmail-oauth v9 (already live).
 
