@@ -1716,6 +1716,7 @@ export default function App() {
       send_window_start: emailSettings?.send_window_start ?? 9,
       send_window_end: emailSettings?.send_window_end ?? 17,
       send_tz_offset: emailSettings?.send_tz_offset ?? -new Date().getTimezoneOffset(),
+      linkedin_daily_cap: emailSettings?.linkedin_daily_cap ?? 20,
       ...patch,
     };
     const { data, error } = await supabase.from('email_settings').upsert([next], { onConflict: 'user_id' }).select();
@@ -3426,6 +3427,33 @@ export default function App() {
     }
   };
 
+  // Part 3B — bulk-enroll many relationships into a sequence in ONE batched insert.
+  // The auto-send runner picks them up on its next tick; no per-row "Send Now" needed.
+  const handleBulkEnrollInSequence = async (sequenceId) => {
+    const seq = sequences.find(s => String(s.id) === String(sequenceId));
+    if (!seq) return;
+    const steps = seqStepsFor(seq.id);
+    if (steps.length === 0) { showToast('That sequence has no steps yet.', 'error'); return; }
+    const first = addDaysStr(steps[0].wait_days);
+    // skip relationships already actively enrolled in this sequence, and those with no email
+    const targets = selectedClientIds.filter(cid => {
+      const c = clients.find(x => x.id === cid);
+      if (!c || !c.email) return false;
+      return !sequenceEnrollments.some(en => en.sequence_id === seq.id && en.client_id === cid && en.status === 'active');
+    });
+    if (targets.length === 0) { showToast('Nothing to enroll (already enrolled or missing email).', 'error'); return; }
+    const rows = targets.map(cid => ({
+      sequence_id: seq.id, client_id: cid, user_id: user.id,
+      status: 'active', current_step: 0, next_send_at: first,
+    }));
+    const { data, error } = await supabase.from('sequence_enrollments').insert(rows).select();
+    if (error) { showToast(`Bulk enroll error: ${error.message}`, 'error'); return; }
+    setSequenceEnrollments(prev => [...prev, ...data]);
+    const skipped = selectedClientIds.length - targets.length;
+    showToast(`Enrolled ${data.length} in "${seq.name}"${skipped ? ` · ${skipped} skipped` : ''}. They send automatically.`, 'success');
+    setSelectedClientIds([]);
+  };
+
   // ==========================================
   // CSV IMPORT / EXPORT LOGIC
   // ==========================================
@@ -4964,6 +4992,12 @@ export default function App() {
                     {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                   <button onClick={() => setShowBulkEmailModal(true)} className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-[12px] font-medium hover:bg-indigo-700 shadow-sm">Bulk Email</button>
+                  {sequences.length > 0 && (
+                    <select onChange={e => { if (e.target.value) handleBulkEnrollInSequence(e.target.value); e.target.value = ''; }} className="dark:bg-gray-800 dark:text-gray-100 px-3 py-1.5 bg-white border border-gray-200 dark:border-gray-700 text-gray-700 rounded-md text-[12px] font-medium hover:bg-gray-50 outline-none">
+                      <option value="">Enroll in sequence...</option>
+                      {sequences.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  )}
                   <button onClick={handleBulkDelete} className="px-3 py-1.5 bg-red-600 text-white rounded-md text-[12px] font-medium hover:bg-red-700 shadow-sm">Delete Selected</button>
                 </div>
               </div>
@@ -6146,13 +6180,43 @@ export default function App() {
                               <p className="text-[11px] text-gray-500">Use the <span className="text-green-600 font-semibold">green dot</span> for the YES path and the <span className="font-semibold">gray dot</span> for NO.</p>
                             </div>
                           )}
-                          {['linkedin_view', 'linkedin_connect', 'call', 'manual_task'].includes(t) && (
+                          {['linkedin_view', 'call', 'manual_task'].includes(t) && (
                             <div className="space-y-2.5">
                               <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Task note <span className="normal-case font-normal">(supports {'{{name}} {{linkedin_url}}'})</span></label>
                               <textarea rows={3} value={selNode.task_note || ''} onChange={e => updateNodeLocal(selNode.id, { task_note: e.target.value })} onBlur={e => handleUpdateNode(selNode.id, { task_note: e.target.value })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
                               <p className="text-[11px] text-gray-500">When this step is due, a task is created in Tasks — LinkedIn and call steps are always manual.</p>
                             </div>
                           )}
+                          {t === 'linkedin_connect' && (() => {
+                            // Part 7 — personalized connection note + A/B variant + acceptance stats
+                            const cfg = selNode.config || {};
+                            const noteVal = cfg.note ?? selNode.task_note ?? '';
+                            const liSends = sequenceSends.filter(s => s.step_id === selNode.id && s.channel === 'linkedin_connect');
+                            const rate = (arr) => arr.length ? Math.round((arr.filter(s => s.accepted).length / arr.length) * 100) : 0;
+                            const aS = liSends.filter(s => s.subject_variant !== 'B');
+                            const bS = liSends.filter(s => s.subject_variant === 'B');
+                            const DEFAULT_NOTE = 'Hi {{first_name}}, really enjoyed learning about your work at {{company}} — would love to connect.';
+                            return (
+                              <div className="space-y-2.5">
+                                <div className="flex items-center justify-between">
+                                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Connection note</label>
+                                  <button onClick={() => { updateNodeLocal(selNode.id, { config: { ...cfg, note: DEFAULT_NOTE } }); handleUpdateNode(selNode.id, { config: { ...cfg, note: DEFAULT_NOTE } }); }} className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">Use suggested</button>
+                                </div>
+                                <textarea rows={3} placeholder="Hi {{first_name}}, ..." value={noteVal} onChange={e => updateNodeLocal(selNode.id, { config: { ...cfg, note: e.target.value } })} onBlur={e => handleUpdateNode(selNode.id, { config: { ...(selNode.config || {}), note: e.target.value } })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
+                                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Note B <span className="normal-case font-normal">(optional A/B test)</span></label>
+                                <textarea rows={2} placeholder="Alternate note — sent to half of enrollments" value={cfg.note_b || ''} onChange={e => updateNodeLocal(selNode.id, { config: { ...cfg, note_b: e.target.value } })} onBlur={e => handleUpdateNode(selNode.id, { config: { ...(selNode.config || {}), note_b: e.target.value || undefined } })} className="w-full px-3 py-2 text-[13px] border border-amber-200 dark:border-amber-800 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
+                                <p className="text-[11px] text-gray-500">💡 Merge tags: {'{{first_name}} {{company}} {{linkedin_url}}'}. Company is auto-appended when set. Warm-up tip: put a <b>LinkedIn View → Wait 1 day → Connect</b> ahead of this for higher acceptance.</p>
+                                {liSends.length > 0 && (
+                                  <div className="text-[11px] text-gray-600 dark:text-gray-300 border-t border-gray-100 dark:border-gray-800 pt-2">
+                                    <p className="font-semibold mb-0.5">Acceptance {cfg.note_b ? '(A/B)' : ''}</p>
+                                    {cfg.note_b
+                                      ? <p>A: {rate(aS)}% ({aS.filter(s => s.accepted).length}/{aS.length}) · B: {rate(bS)}% ({bS.filter(s => s.accepted).length}/{bS.length})</p>
+                                      : <p>{rate(liSends)}% accepted ({liSends.filter(s => s.accepted).length}/{liSends.length}) — tick “Accepted” on the generated task to record.</p>}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                           {t === 'goal' && (
                             <div className="space-y-2.5">
                               <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Goal label</label>
@@ -6670,8 +6734,11 @@ export default function App() {
                       ))}
                     </select>
                   </label>
-                  <label className="text-[12px] text-gray-500 flex items-center gap-2">Daily cap
+                  <label className="text-[12px] text-gray-500 flex items-center gap-2">Daily email cap
                     <input type="number" min="1" defaultValue={emailSettings?.daily_send_cap ?? 50} onBlur={e => handleSaveEmailSettings({ daily_send_cap: Math.max(1, parseInt(e.target.value, 10) || 50) })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-20 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
+                  </label>
+                  <label className="text-[12px] text-gray-500 flex items-center gap-2" title="Max LinkedIn connect/view tasks created per day — protects your account from looking automated">Daily LinkedIn cap
+                    <input type="number" min="1" defaultValue={emailSettings?.linkedin_daily_cap ?? 20} onBlur={e => handleSaveEmailSettings({ linkedin_daily_cap: Math.max(1, parseInt(e.target.value, 10) || 20) })} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-20 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
                   </label>
                 </div>
               </div>

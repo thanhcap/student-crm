@@ -96,10 +96,14 @@ Deno.serve(async (req: Request) => {
   const settings = Object.fromEntries((settingsRows || []).map((s) => [s.user_id, s]));
   const conns = Object.fromEntries((connRows || []).map((c) => [c.user_id, c]));
   const sentTodayByUser: Record<string, number> = {};
+  const linkedinTodayByUser: Record<string, number> = {}; // Part 7 — daily LinkedIn action cap
   for (const uid of userIds) {
     const { count } = await admin.from('sequence_sends').select('id', { count: 'exact', head: true })
       .eq('user_id', uid).gte('sent_at', `${today}T00:00:00Z`);
     sentTodayByUser[uid] = count || 0;
+    const { count: liCount } = await admin.from('sequence_sends').select('id', { count: 'exact', head: true })
+      .eq('user_id', uid).in('channel', ['linkedin_connect', 'linkedin_view']).gte('sent_at', `${today}T00:00:00Z`);
+    linkedinTodayByUser[uid] = liCount || 0;
   }
 
   for (const enr of due) {
@@ -195,11 +199,29 @@ Deno.serve(async (req: Request) => {
     let providerMsgId: string | null = null;
 
     if (res.action === 'task') {
+      // Part 7 — respect the daily LinkedIn action cap, deferring excess to the next tick/day
+      // (leave next_send_at unchanged so the enrollment is retried).
+      if ((channel === 'linkedin_connect' || channel === 'linkedin_view') &&
+          linkedinTodayByUser[enr.user_id] >= (cfg.linkedin_daily_cap ?? 20)) {
+        out.skipped++; continue;
+      }
       const label: Record<string, string> = { linkedin_view: 'LinkedIn: view profile of', linkedin_connect: 'LinkedIn: connect with', call: 'Call', manual_task: 'Task for' };
-      const note = (node.config && node.config.note) || node.task_note;
+      // Part 7 — A/B connection-note variants (note_b) picked deterministically per enrollment,
+      // and mutual-context surfacing (company) baked into the note when available.
+      let note = (node.config && node.config.note) || node.task_note || '';
+      let noteVariant: string | null = null;
+      if (channel === 'linkedin_connect' && node.config && node.config.note_b && String(node.config.note_b).trim()) {
+        noteVariant = enr.id % 2 === 0 ? 'A' : 'B';
+        note = noteVariant === 'B' ? node.config.note_b : (node.config.note || note);
+      }
+      if (channel === 'linkedin_connect' && client.company_name && note && !/\{\{company\}\}/.test(note)) {
+        note = `${note} (re: ${client.company_name})`;
+      }
       const title = `${label[channel] || 'Task for'} ${client.name}${note ? ' — ' + mergeTags(note, client) : ''}`.slice(0, 250);
       await admin.from('tasks').insert({ user_id: enr.user_id, client_id: enr.client_id ?? null, title, due_date: today, status: 'pending' });
       channelDesc = `Campaign "${seq.name}" — ${channel} task created: ${title}`;
+      variant = noteVariant; // record A/B connection-note variant on the send row
+      if (channel === 'linkedin_connect' || channel === 'linkedin_view') linkedinTodayByUser[enr.user_id]++;
       out.tasks++;
     } else {
       if (!client.email) { out.skipped++; continue; }
