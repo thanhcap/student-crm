@@ -104,3 +104,10 @@ Branch: `fable/email-automation-v2`
 - `sequence_sends.accepted / accepted_at` columns added; the node's acceptance rate reads them.
 - ⚠️ Known limitation: the "tick Accepted on the generated task" UI isn't wired yet (tasks and send rows share no FK today) — the column + A/B recording + reporting are in place; setting `accepted` is a follow-up.
 - **Manual test:** set Daily LinkedIn cap = 2, enroll 5 in a LinkedIn-connect sequence → runner creates 2 tasks/day.
+
+## Part 6 — Canvas layout (tighter, viewport-fit)
+- Canvas fills the viewport: `h-[calc(100vh-230px)]` (min 420px) instead of a fixed 640px slab that left dead space.
+- Node palette is now a compact ~60px icon rail (emoji + hover tooltip) instead of a 150px labeled column.
+- Config panel is contextual: its 300px column only mounts when a node is selected; otherwise the canvas spans the full width (`grid-cols-[60px_1fr]` → `[60px_1fr_300px]`).
+- Kept the existing card design, SVG bezier arrows, Yes/No branches, stats bar, and full dark mode.
+- **Manual test:** open a sequence builder with nothing selected → canvas is wide, no empty right panel; select a node → config slides into a reserved column; canvas reaches the bottom of the viewport with no large gap.

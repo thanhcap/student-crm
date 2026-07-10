@@ -5999,19 +5999,20 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 lg:grid-cols-[150px_1fr_290px] gap-4 items-start">
-                  {/* node palette */}
-                  <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-3 space-y-1 lg:sticky lg:top-4">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 px-1 mb-2">Add node</p>
+                {/* Part 6 — the config column only reserves width when a node is selected;
+                    the palette is a compact icon rail. Canvas fills the viewport height. */}
+                <div className={`grid grid-cols-1 gap-4 items-start ${selNode ? 'lg:grid-cols-[60px_1fr_300px]' : 'lg:grid-cols-[60px_1fr]'}`}>
+                  {/* node palette — compact icon rail (label on hover) */}
+                  <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-1.5 flex lg:flex-col gap-1 flex-wrap lg:sticky lg:top-4">
                     {NODE_PALETTE.map(t => (
-                      <button key={t} onClick={() => handleAddNode(editingSeq.id, t)} className="w-full flex items-center gap-2 px-2 py-1.5 text-[12px] font-medium text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
-                        <span>{NODE_META[t].emoji}</span> {NODE_META[t].label}
+                      <button key={t} onClick={() => handleAddNode(editingSeq.id, t)} title={`Add ${NODE_META[t].label}`} className="w-11 h-11 flex items-center justify-center text-[18px] rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label={`Add ${NODE_META[t].label}`}>
+                        {NODE_META[t].emoji}
                       </button>
                     ))}
                   </div>
 
-                  {/* canvas */}
-                  <div className="relative bg-gray-50 dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-inner overflow-auto h-[640px]"
+                  {/* canvas — fills viewport height instead of a fixed 640px slab */}
+                  <div className="relative bg-gray-50 dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-inner overflow-auto h-[calc(100vh-230px)] min-h-[420px]"
                     style={{ backgroundImage: 'radial-gradient(circle, rgba(148,163,184,0.25) 1px, transparent 1px)', backgroundSize: '22px 22px' }}>
                     <div className="relative" style={{ width: contentW, height: contentH }}
                       onMouseMove={e => {
@@ -6109,11 +6110,10 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* config panel */}
+                  {/* config panel — contextual: only mounts when a node is selected */}
+                  {selNode && (
                   <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-4 lg:sticky lg:top-4 space-y-3">
-                    {!selNode ? (
-                      <p className="text-[12px] text-gray-400 py-6 text-center">Select a node on the canvas to configure it.<br /><br />💡 Drag cards to arrange · click a port dot, then a target node, to draw an arrow.</p>
-                    ) : (() => {
+                    {(() => {
                       const t = selNode.node_type || 'email';
                       const meta = NODE_META[t] || NODE_META.email;
                       return (
@@ -6231,6 +6231,7 @@ export default function App() {
                       );
                     })()}
                   </div>
+                  )}
                 </div>
               </div>
             );
