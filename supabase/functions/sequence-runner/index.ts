@@ -215,7 +215,14 @@ Deno.serve(async (req: Request) => {
       if (gmailLive) {
         const accessToken = await getAccessToken(admin, conn);
         if (!accessToken) { out.needs_reauth++; out.skipped++; continue; }
-        const raw = buildMime(conn.email_address || 'me', client.email, subject, html);
+        // Part 2 — never send with a bogus 'me' From header. If the connection row
+        // never captured the Gmail address, flag it for reconnect instead of sending
+        // a malformed message.
+        if (!conn.email_address) {
+          await admin.from('gmail_connections').update({ needs_reauth: true }).eq('id', conn.id);
+          out.needs_reauth++; out.skipped++; continue;
+        }
+        const raw = buildMime(conn.email_address, client.email, subject, html);
         const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
           method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ raw }),

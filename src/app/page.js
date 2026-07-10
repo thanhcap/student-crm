@@ -1195,8 +1195,12 @@ export default function App() {
           .update({ user_id: userId, accepted: true }).eq('id', pending[0].id);
       }
     }
+    // Bug B — deterministic membership pick. If a user belongs to more than one
+    // workspace, order by created_at so the oldest (their original) membership always
+    // wins, rather than an arbitrary row that could show the wrong role.
     const { data: membership } = await supabase.from('workspace_members')
-      .select('*').eq('user_id', userId).eq('accepted', true).limit(1);
+      .select('*').eq('user_id', userId).eq('accepted', true)
+      .order('created_at', { ascending: true }).limit(1);
     if (membership && membership.length > 0) {
       const m = membership[0];
       setMyRole(m.role);
@@ -1260,13 +1264,27 @@ export default function App() {
   }
 
   async function handleUpdateMemberRole(memberId, role) {
-    const { error } = await supabase.from('workspace_members').update({ role }).eq('id', memberId);
-    if (!error) setWorkspaceMembers(prev => prev.map(m => m.id === memberId ? { ...m, role } : m));
-    else showToast(`Error updating role: ${error.message}`, 'error');
+    // Bug D — the true owner's role is derived from workspaces.owner_id and must never
+    // be reassigned through the members UI.
+    const target = workspaceMembers.find(m => m.id === memberId);
+    if (target?.role === 'owner') { showToast('The workspace owner’s role cannot be changed.', 'error'); return; }
+    // Bug C — client-side guard + verify the DB actually changed a row. Under RLS a
+    // non-owner's update returns { error: null, data: [] }; without .select() the old
+    // code optimistically showed a false success.
+    if (!['owner', 'admin'].includes(myRole)) { showToast('Only the owner or an admin can change roles.', 'error'); return; }
+    const { data, error } = await supabase.from('workspace_members').update({ role }).eq('id', memberId).select();
+    if (error || !data || data.length === 0) {
+      showToast('You do not have permission to change this role.', 'error');
+      return;
+    }
+    setWorkspaceMembers(prev => prev.map(m => m.id === memberId ? { ...m, role } : m));
   }
 
   function handleRemoveMember(memberId) {
     const member = workspaceMembers.find(m => m.id === memberId);
+    // Bug C/D — guard: only owner/admin may remove, and the owner can never be removed.
+    if (member?.role === 'owner') { showToast('The workspace owner cannot be removed.', 'error'); return; }
+    if (!['owner', 'admin'].includes(myRole)) { showToast('Only the owner or an admin can remove members.', 'error'); return; }
     showConfirm(
       'Remove Member',
       `Remove ${member?.invited_email || 'this member'} from the workspace? They will lose access immediately.`,
@@ -1851,32 +1869,58 @@ export default function App() {
   // evaluates their trigger_config, honors the unsubscribe list, then enrolls.
   async function triggerSequenceEnrollment(triggerEvent, entityId, entityType, context = {}) {
     try {
-      const matches = sequenceTriggers.filter(t => t.enabled && t.trigger_event === triggerEvent);
-      if (matches.length === 0) return;
-
       // Resolve the relationship this event is about
       const clientId = entityType === 'client' ? entityId : context?.client_id;
       if (!clientId) return;
       const client = clients.find(c => c.id === parseInt(clientId, 10)) || context?.client || null;
 
-      for (const trig of matches) {
+      // V3 — collect matching sequences from BOTH trigger systems:
+      //  (a) sequence_triggers rows (canvas Trigger-node config), and
+      //  (b) email_sequences.trigger_type/trigger_value (older per-sequence config the
+      //      founder used — e.g. the "Auto email" sequence). Dedupe by sequence id.
+      const matchedSeqIds = new Set();
+      const toEnroll = [];
+
+      for (const trig of sequenceTriggers.filter(t => t.enabled && t.trigger_event === triggerEvent)) {
         const seq = sequences.find(s => s.id === trig.sequence_id);
         if (!seq || !(seq.is_active || seq.status === 'active')) continue;
         if (trig.target_audience === 'cold_contacts') continue; // CRM events only touch relationships
-
-        // Evaluate per-event config conditions
         const cfg = trig.trigger_config || {};
         if (triggerEvent === 'deal_stage_changed' && cfg.stage && context?.stage !== cfg.stage) continue;
         if (triggerEvent === 'relationship_stage_changed' && cfg.stage && context?.status !== cfg.stage) continue;
         if (triggerEvent === 'tag_applied' && cfg.tag_id && String(context?.tagId) !== String(cfg.tag_id)) continue;
+        if (!matchedSeqIds.has(seq.id)) { matchedSeqIds.add(seq.id); toEnroll.push(seq); }
+      }
 
-        // Honor the unsubscribe list before enrolling
-        if (client?.email) {
-          const { data: unsub } = await supabase.from('unsubscribes')
-            .select('id').eq('user_id', user.id).eq('email', client.email.toLowerCase()).maybeSingle();
-          if (unsub) continue;
-        }
+      // Legacy N8N trigger_type names map onto the current event names
+      const LEGACY_ALIASES = {
+        relationship_created: ['relationship_created', 'new_relationship'],
+        tag_applied: ['tag_applied'],
+        deal_won: ['deal_won'],
+        deal_lost: ['deal_lost'],
+        deal_stage_changed: ['deal_stage_changed'],
+        relationship_stage_changed: ['relationship_stage_changed'],
+        task_completed: ['task_completed'],
+      };
+      const acceptTypes = LEGACY_ALIASES[triggerEvent] || [triggerEvent];
+      for (const seq of sequences.filter(s => (s.is_active || s.status === 'active') && acceptTypes.includes(s.trigger_type))) {
+        // stage/tag-scoped legacy triggers match on trigger_value
+        if (triggerEvent === 'deal_stage_changed' && seq.trigger_value && context?.stage !== seq.trigger_value) continue;
+        if (triggerEvent === 'relationship_stage_changed' && seq.trigger_value && context?.status !== seq.trigger_value) continue;
+        if (triggerEvent === 'tag_applied' && seq.trigger_value && context?.tagName && String(context.tagName) !== String(seq.trigger_value)) continue;
+        if (!matchedSeqIds.has(seq.id)) { matchedSeqIds.add(seq.id); toEnroll.push(seq); }
+      }
 
+      if (toEnroll.length === 0) return;
+
+      // Honor the unsubscribe list before enrolling
+      if (client?.email) {
+        const { data: unsub } = await supabase.from('unsubscribes')
+          .select('id').eq('user_id', user.id).eq('email', client.email.toLowerCase()).maybeSingle();
+        if (unsub) return;
+      }
+
+      for (const seq of toEnroll) {
         const ok = await enrollClientInSequence(seq, clientId, { silent: true });
         if (ok) showToast(`1 relationship auto-enrolled in "${seq.name}".`, 'success');
       }
@@ -2393,12 +2437,9 @@ export default function App() {
       const { error } = await supabase.from('client_tags').insert([{ client_id: clientId, tag_id: tagId }]);
       if (!error) {
         setClientTagMap(prev => ({ ...prev, [clientId]: [...(prev[clientId] || []), tagId] }));
-        // N8N — auto-enroll workflows triggered by "tag applied"
+        // Auto-enroll workflows triggered by "tag applied" (both trigger systems, unified)
         const tagName = tags.find(t => t.id === tagId)?.name;
-        if (tagName) sequences.filter(q => q.status === 'active' && q.trigger_type === 'tag_applied' && q.trigger_value === tagName)
-          .forEach(q => enrollClientInSequence(q, clientId));
-        // V2 — event-driven sequence auto-enrollment
-        triggerSequenceEnrollment('tag_applied', clientId, 'client', { client_id: clientId, tagId });
+        triggerSequenceEnrollment('tag_applied', clientId, 'client', { client_id: clientId, tagId, tagName });
       }
     }
   }
@@ -2872,7 +2913,12 @@ export default function App() {
     setIsNewUserSignUp(true);
     const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin }});
     if (error) { setAuthMessage(`Sign Up Error: ${error.message}`); setAuthLoading(false); return; }
-    setAuthMessage('Account configuration initiated! Check your email for the verification code.');
+    // Part 4 — if the project's "Confirm email" setting is OFF, signUp() returns an active
+    // session immediately and would drop the user straight into the Dashboard with no
+    // verification. Defensively sign that session out so the account cannot be used until
+    // the OTP is entered. (The real fix is the dashboard setting — see CHANGELOG.)
+    if (data?.session) await supabase.auth.signOut();
+    setAuthMessage('Account created! Check your email for the verification code.');
     setAppStep('VERIFY_OTP');
     setAuthLoading(false);
   }
@@ -2889,8 +2935,15 @@ export default function App() {
     }
     if (error) { setAuthMessage(`Verification Error: ${error.message}`); setAuthLoading(false); }
     else if (session) {
+      // Persist the signup profile while we briefly hold the verified session...
       if (isNewUserSignUp) await supabase.from('profiles').upsert([{ id: session.user.id, username, phone_number: phone, country, linkedin_profile: linkedin || null }]);
-      checkSession();
+      // Part 4 — per request: after verifying, do NOT auto-enter the Dashboard. Sign out
+      // and send the user to the Login screen to authenticate explicitly.
+      await supabase.auth.signOut();
+      setIsNewUserSignUp(false);
+      setPassword(''); setConfirmPassword(''); setOtpToken('');
+      setAuthMessage('Email verified! Please log in.');
+      setAppStep('LOG_IN');
       setAuthLoading(false);
     }
   }
@@ -3051,10 +3104,8 @@ export default function App() {
       updateStreak();
       dispatchWebhook('client.created', newClient);
       if (newClient.source) executeAutomations('source_is', newClient.source, newClient.id); // G11
-      // N8N — auto-enroll workflows triggered by "new relationship added"
-      sequences.filter(q => q.status === 'active' && q.trigger_type === 'new_relationship')
-        .forEach(q => enrollClientInSequence(q, newClient.id));
-      // V2 — event-driven sequence auto-enrollment
+      // Auto-enroll workflows triggered by "new relationship added" (unified — honors both
+      // legacy email_sequences.trigger_type='new_relationship' and sequence_triggers rows)
       triggerSequenceEnrollment('relationship_created', newClient.id, 'client', { ...newClient, client: newClient });
     } else if (error) {
       setCrmErrorMessage(`Database Sync Error: ${error.message}`);
@@ -6432,7 +6483,9 @@ export default function App() {
                           <p className="text-[13px] font-semibold text-gray-900 truncate">{m.invited_email || 'Member'}</p>
                           <p className="text-[11px] text-gray-400">{m.accepted ? 'Active' : 'Invite pending'}</p>
                         </div>
-                        {['owner', 'admin'].includes(myRole) && m.user_id !== user.id ? (
+                        {/* Bug D — the owner's row is NEVER editable (for anyone): the owner
+                            role is derived from workspaces.owner_id, not reassignable here. */}
+                        {['owner', 'admin'].includes(myRole) && m.user_id !== user.id && m.role !== 'owner' ? (
                           <>
                             <select value={m.role} onChange={e => handleUpdateMemberRole(m.id, e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 text-[12px] border border-gray-200 dark:border-gray-700 rounded-md bg-white p-1 text-gray-700 focus:outline-none">
                               {['admin', 'member', 'viewer'].map(r => <option key={r} value={r}>{r}</option>)}
