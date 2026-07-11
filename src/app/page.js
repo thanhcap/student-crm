@@ -6468,20 +6468,20 @@ export default function App() {
                 </div>
               )}
 
-              {/* CSV IMPORT PREVIEW MODAL */}
+              {/* CSV IMPORT PREVIEW — full-screen view */}
               {coldImportPreview && (
-                <div className="fixed inset-0 bg-gray-950/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
-                  <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-3xl border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col max-h-[85vh]">
-                    <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+                <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[150] overflow-y-auto">
+                  <div>
+                    <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm px-4 sm:px-8 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+                      <button onClick={() => setColdImportPreview(null)} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 shrink-0"><span aria-hidden>←</span> Back</button>
                       <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">Import preview</h3>
                       <span className="text-[12px] text-gray-500">
                         {coldImportPreview.filter(r => !r.error && !r.warning).length} valid ·
                         {' '}{coldImportPreview.filter(r => r.warning).length} duplicates ·
                         {' '}{coldImportPreview.filter(r => r.error).length} invalid
                       </span>
-                      <button onClick={() => setColdImportPreview(null)} className="ml-auto text-gray-400 hover:text-gray-900 dark:hover:text-gray-100">✕</button>
                     </div>
-                    <div className="flex-1 overflow-y-auto px-6 py-3">
+                    <div className="max-w-5xl mx-auto w-full px-4 sm:px-8 py-6 overflow-x-auto">
                       <table className="w-full text-[12px]">
                         <thead><tr className="text-left text-[10px] font-bold uppercase tracking-wider text-gray-400"><th className="py-1.5 w-8"></th><th>Email</th><th>Name</th><th className="hidden sm:table-cell">Company</th><th>Status</th></tr></thead>
                         <tbody>
@@ -7229,53 +7229,80 @@ export default function App() {
 
       {/* --- MODALS --- */}
 
-      {/* VIEWING MODAL (Enhanced) */}
+      {/* RELATIONSHIP PROFILE — full-screen view (was a cramped max-w-2xl modal) */}
       {viewingClient && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 animate-in fade-in duration-200 md:p-4 md:flex md:items-center md:justify-center" onClick={() => { setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null); }}>
-          <div className="bg-white w-full h-full overflow-y-auto md:h-auto md:rounded-2xl shadow-xl md:max-w-2xl border border-gray-100 md:overflow-hidden md:max-h-[90vh] flex flex-col animate-in slide-in-from-bottom-4 duration-300" onClick={e => e.stopPropagation()}>
-
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-lg font-bold text-gray-900 truncate">{viewingClient.name}</h3>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-900 text-white" title="Lead score">
-                    {clientsWithScores.find(c => c.id === viewingClient.id)?.leadScore ?? 0}
-                  </span>
-                </div>
-                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-0.5">Relationship Profile</p>
-                {/* FEATURE 9 — tags on profile */}
-                <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                  {(clientTagMap[viewingClient.id] || []).map(tid => {
-                    const t = tags.find(x => x.id === tid);
-                    return t ? <TagPill key={tid} tag={t} onRemove={canEdit ? (id) => handleToggleClientTag(viewingClient.id, id) : undefined} /> : null;
-                  })}
-                  {canEdit && tags.length > 0 && (
-                    <div className="relative group">
-                      <button className="text-[11px] font-medium text-gray-400 border border-dashed border-gray-300 rounded-full px-2 py-0.5 hover:text-gray-700">+ tag</button>
-                      <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-20 hidden group-hover:block group-focus-within:block min-w-[140px]">
-                        {tags.map(t => (
-                          <label key={t.id} className="flex items-center gap-2 py-1 px-1 text-[12px] cursor-pointer hover:bg-gray-50 rounded">
-                            <input type="checkbox" checked={(clientTagMap[viewingClient.id] || []).includes(t.id)} onChange={() => handleToggleClientTag(viewingClient.id, t.id)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded border-gray-300 dark:border-gray-600 focus:ring-0" />
-                            <span style={{ color: t.color }} className="font-semibold">{t.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="w-7 h-7 rounded-full bg-white border border-gray-200 flex items-center justify-center font-bold text-gray-400 hover:text-gray-800 hover:shadow-sm transition-all">&times;</button>
-              </div>
+        <div className="fixed inset-0 bg-white dark:bg-gray-950 z-50 overflow-y-auto animate-in fade-in duration-200">
+          {/* Sticky header — persistent Back affordance replaces the corner × */}
+          <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between gap-3">
+            <button onClick={() => { setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null); }} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 shrink-0">
+              <span aria-hidden>←</span> Back to Relationships
+            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button type="button" onClick={() => { setEmailTo(viewingClient.email || ''); setShowEmailComposer(true); }} className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">Send Email</button>
+              <button type="button" onClick={() => handleExportPDF(viewingClient)} className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Export PDF</button>
+              {canEdit && (
+                <button type="button" onClick={() => {
+                  setEditingClient(viewingClient);
+                  setViewingClient(null);
+                  const cfs = {};
+                  customFieldDefs.forEach(def => {
+                    const existing = customFieldValues.find(v => v.client_id === viewingClient.id && v.field_definition_id === def.id);
+                    cfs[def.id] = existing ? existing.value : '';
+                  });
+                  setFormCustomValues(cfs);
+                }} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90 transition-opacity shadow-sm">Edit</button>
+              )}
             </div>
+          </div>
 
-            <div className="p-6 space-y-6 text-[13px] overflow-y-auto flex-1">
+          <div className="max-w-6xl mx-auto px-4 sm:px-8 py-8 grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8 items-start">
+            {/* LEFT: contact/company sidebar — sticky on desktop, stacks above tabs on mobile */}
+            <div className="lg:sticky lg:top-24 lg:self-start space-y-5">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 flex items-center justify-center text-[20px] font-bold shrink-0">
+                  {(viewingClient.name || '?').slice(0, 2).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-[18px] font-bold text-gray-900 dark:text-white truncate">{viewingClient.name}</h2>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900" title="Lead score">
+                      {clientsWithScores.find(c => c.id === viewingClient.id)?.leadScore ?? 0}
+                    </span>
+                    <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{viewingClient.status}</span>
+                  </div>
+                </div>
+              </div>
+              {/* FEATURE 9 — tags on profile */}
+              <div className="flex flex-wrap items-center gap-1">
+                {(clientTagMap[viewingClient.id] || []).map(tid => {
+                  const t = tags.find(x => x.id === tid);
+                  return t ? <TagPill key={tid} tag={t} onRemove={canEdit ? (id) => handleToggleClientTag(viewingClient.id, id) : undefined} /> : null;
+                })}
+                {canEdit && tags.length > 0 && (
+                  <div className="relative group">
+                    <button className="text-[11px] font-medium text-gray-400 border border-dashed border-gray-300 dark:border-gray-600 rounded-full px-2 py-0.5 hover:text-gray-700 dark:hover:text-gray-200">+ tag</button>
+                    <div className="absolute left-0 top-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 z-20 hidden group-hover:block group-focus-within:block min-w-[140px]">
+                      {tags.map(t => (
+                        <label key={t.id} className="flex items-center gap-2 py-1 px-1 text-[12px] cursor-pointer hover:bg-gray-50 dark:bg-gray-800/40 dark:hover:bg-gray-800 rounded">
+                          <input type="checkbox" checked={(clientTagMap[viewingClient.id] || []).includes(t.id)} onChange={() => handleToggleClientTag(viewingClient.id, t.id)} className="rounded border-gray-300 dark:border-gray-600 focus:ring-0" />
+                          <span style={{ color: t.color }} className="font-semibold">{t.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="sm:hidden flex gap-2">
+                <button type="button" onClick={() => { setEmailTo(viewingClient.email || ''); setShowEmailComposer(true); }} className="flex-1 px-4 py-2.5 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl">Send Email</button>
+                <button type="button" onClick={() => handleExportPDF(viewingClient)} className="px-4 py-2.5 text-[13px] font-semibold border border-gray-200 dark:border-gray-700 rounded-xl text-gray-700 dark:text-gray-200">PDF</button>
+              </div>
+              <div className="space-y-5 text-[13px]">
 
               {/* FEATURE 23 — SMART FOLLOW-UP SUGGESTION */}
-              {followUpLoading && <div className="h-10 bg-green-50 border border-green-100 rounded-xl animate-pulse" />}
+              {followUpLoading && <div className="h-10 bg-green-50 dark:bg-green-950/30 border border-green-100 dark:border-green-900 rounded-xl animate-pulse" />}
               {!followUpLoading && followUpSuggestion && (
-                <div className="bg-green-50 rounded-xl p-3 border border-green-100">
-                  <p className="text-[13px] text-green-900">💡 <span className="font-semibold">Suggested:</span> {followUpSuggestion}</p>
+                <div className="bg-green-50 dark:bg-green-950/30 rounded-xl p-3 border border-green-100 dark:border-green-900">
+                  <p className="text-[13px] text-green-900 dark:text-green-300">💡 <span className="font-semibold">Suggested:</span> {followUpSuggestion}</p>
                   <div className="flex gap-3 mt-2 text-[12px] font-medium">
                     <button onClick={() => { setActivityType('Note'); setActivityDesc(followUpSuggestion); setActiveProfileTab('activity'); }} className="text-green-700 hover:underline">Log this as a note</button>
                     <button onClick={() => { setNewTaskTitle(followUpSuggestion.slice(0, 100)); setActiveProfileTab('tasks'); }} className="text-green-700 hover:underline">Create task</button>
@@ -7285,29 +7312,29 @@ export default function App() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Email</span>
-                  <span className="font-semibold text-gray-800 block break-all">{viewingClient.email}</span>
+                  <span className="font-semibold text-gray-800 dark:text-gray-200 block break-all">{viewingClient.email}</span>
                 </div>
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Country</span>
-                  <span className="font-semibold text-gray-800 block">{viewingClient.country || 'Not specified'}</span>
+                  <span className="font-semibold text-gray-800 dark:text-gray-200 block">{viewingClient.country || 'Not specified'}</span>
                 </div>
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Phone</span>
-                  <span className="font-semibold text-gray-800 block">{viewingClient.phone_number || 'Not provided'}</span>
+                  <span className="font-semibold text-gray-800 dark:text-gray-200 block">{viewingClient.phone_number || 'Not provided'}</span>
                 </div>
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Birthday</span>
-                  <span className="font-semibold text-gray-800 block">{viewingClient.birthday || 'Not specified'}</span>
+                  <span className="font-semibold text-gray-800 dark:text-gray-200 block">{viewingClient.birthday || 'Not specified'}</span>
                 </div>
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Source</span>
-                  <span className="font-semibold text-gray-800 block">{viewingClient.source || 'Unknown'}</span>
+                  <span className="font-semibold text-gray-800 dark:text-gray-200 block">{viewingClient.source || 'Unknown'}</span>
                 </div>
                 {/* PART F — company row with Visit link */}
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Company</span>
                   {viewingClient.company_name || viewingClient.company_url ? (
-                    <span className="font-semibold text-gray-800 flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 flex-wrap">
                       {/* G17 — auto-fetched company logo */}
                       {companyFaviconUrl(viewingClient.company_url) && (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -7332,7 +7359,7 @@ export default function App() {
 
               {/* DYNAMIC CUSTOM FIELDS RENDER IN PROFILE */}
               {customFieldDefs.length > 0 && (
-                <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100">
+                <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-3">Custom Data Points</span>
                   <div className="grid grid-cols-2 gap-4">
                     {customFieldDefs.map(cf => {
@@ -7340,7 +7367,7 @@ export default function App() {
                       return (
                         <div key={cf.id} className="space-y-0.5">
                           <span className="text-[11px] font-bold text-gray-500 block">{cf.field_name}</span>
-                          <span className="font-semibold text-gray-900 block">{cv ? cv.value : '—'}</span>
+                          <span className="font-semibold text-gray-900 dark:text-gray-100 block">{cv ? cv.value : '—'}</span>
                         </div>
                       )
                     })}
@@ -7348,10 +7375,10 @@ export default function App() {
                 </div>
               )}
 
-              <div className="space-y-1 bg-gray-50 p-3 rounded-xl border border-gray-100">
+              <div className="space-y-1 bg-gray-50 dark:bg-gray-800/40 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
                 <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">LinkedIn</span>
                 {viewingClient.linkedin_url ? (
-                  <a href={viewingClient.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-gray-900 font-semibold hover:underline flex items-center gap-1 break-all">
+                  <a href={viewingClient.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-gray-900 dark:text-gray-100 font-semibold hover:underline flex items-center gap-1 break-all">
                     {viewingClient.linkedin_url} <span className="text-[10px] font-normal text-gray-400">↗</span>
                   </a>
                 ) : (
@@ -7365,7 +7392,7 @@ export default function App() {
                 const referrals = clients.filter(c => c.referred_by_client_id === viewingClient.id);
                 if (!referrer && referrals.length === 0) return null;
                 return (
-                  <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 space-y-2">
+                  <div className="bg-gray-50/50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800 space-y-2">
                     <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Referral Network</span>
                     {referrer && (
                       <p className="text-[13px]">
@@ -7388,7 +7415,7 @@ export default function App() {
               })()}
 
               {/* FEATURE 15 — QUICK NOTE (always visible, auto-saves) */}
-              <div className="pt-4 border-t border-gray-100">
+              <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400">Quick Note</h4>
                   <span className="text-[11px] font-medium text-gray-400">
@@ -7398,12 +7425,18 @@ export default function App() {
                 <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this relationship — auto-saves as you type..." disabled={!canEdit} className="dark:text-gray-100 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-xl bg-yellow-50/50 dark:bg-yellow-900/10 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
               </div>
 
+              </div>
+            </div>
+
+            {/* RIGHT: tab bar + content — the extra horizontal room is the point of this view */}
+            <div className="min-w-0 text-[13px]">
               {/* FEATURE 7 — PROFILE TAB BAR */}
-              <div className="flex gap-1 bg-gray-100 p-1 rounded-lg sticky top-0 z-10">
+              <div className="flex gap-1 mb-6 border-b border-gray-100 dark:border-gray-800">
                 {[['activity', 'Activity'], ['tasks', 'Tasks'], ['files', 'Files'], ['deals', 'Deals']].map(([key, label]) => (
-                  <button key={key} onClick={() => setActiveProfileTab(key)} className={`flex-1 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide rounded-md transition-all ${activeProfileTab === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{label}</button>
+                  <button key={key} onClick={() => setActiveProfileTab(key)} className={`px-4 py-2.5 text-[13px] font-semibold border-b-2 -mb-px transition-colors ${activeProfileTab === key ? 'border-gray-900 dark:border-white text-gray-900 dark:text-white' : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}>{label}</button>
                 ))}
               </div>
+              <div className="space-y-6">
 
               {/* TAB: FILES (Feature 7) */}
               {activeProfileTab === 'files' && (
@@ -7424,15 +7457,15 @@ export default function App() {
                     <EmptyState title="No files yet" desc="Drop a file above or click to upload attachments for this relationship." />
                   ) : (
                     clientFiles.filter(f => f.client_id === viewingClient.id).map(f => (
-                      <div key={f.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl">
+                      <div key={f.id} className="flex items-center gap-3 p-3 border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl">
                         <span className="text-lg shrink-0">
                           {(f.file_type || '').includes('pdf') ? '📄' : (f.file_type || '').startsWith('image') ? '🖼️' : '📎'}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold text-gray-900 truncate">{f.file_name}</p>
+                          <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{f.file_name}</p>
                           <p className="text-[11px] text-gray-400">{formatFileSize(f.file_size)} · {new Date(f.created_at).toLocaleDateString()}</p>
                         </div>
-                        <button onClick={() => handleDownloadFile(f)} className="text-[12px] font-medium text-gray-500 hover:text-gray-900">Download</button>
+                        <button onClick={() => handleDownloadFile(f)} className="text-[12px] font-medium text-gray-500 hover:text-gray-900 dark:text-gray-100">Download</button>
                         {canDelete && <button onClick={() => handleDeleteFile(f)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>}
                       </div>
                     ))
@@ -7444,18 +7477,18 @@ export default function App() {
               {activeProfileTab === 'deals' && (
                 <div className="space-y-3">
                   {canEdit && (
-                    <button onClick={() => { resetDealForm(); setDealClientId(String(viewingClient.id)); setShowDealForm(true); }} className="w-full px-3 py-2 text-[12px] font-medium text-gray-700 border border-dashed border-gray-300 rounded-xl hover:border-gray-400 hover:text-gray-900 transition-colors">+ Add Deal for {viewingClient.name}</button>
+                    <button onClick={() => { resetDealForm(); setDealClientId(String(viewingClient.id)); setShowDealForm(true); }} className="w-full px-3 py-2 text-[12px] font-medium text-gray-700 dark:text-gray-300 border border-dashed border-gray-300 rounded-xl hover:border-gray-400 hover:text-gray-900 dark:text-gray-100 transition-colors">+ Add Deal for {viewingClient.name}</button>
                   )}
                   {deals.filter(d => d.client_id === viewingClient.id).length === 0 ? (
                     <EmptyState title="No deals yet" desc="Create your first deal to start tracking your pipeline." />
                   ) : (
                     deals.filter(d => d.client_id === viewingClient.id).map(d => (
-                      <div key={d.id} className="flex items-center gap-3 p-3 border border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl">
+                      <div key={d.id} className="flex items-center gap-3 p-3 border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl">
                         <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold text-gray-900 truncate">{d.title}</p>
+                          <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{d.title}</p>
                           <p className="text-[11px] text-gray-400">{d.stage} · {d.probability}%{d.close_date ? ` · Close ${d.close_date}` : ''}</p>
                         </div>
-                        <span className="text-[13px] font-bold text-gray-900 shrink-0">{fmtMoney(d.value)}</span>
+                        <span className="text-[13px] font-bold text-gray-900 dark:text-gray-100 shrink-0">{fmtMoney(d.value)}</span>
                       </div>
                     ))
                   )}
@@ -7491,11 +7524,11 @@ export default function App() {
                   {tasks.filter(t => t.client_id === viewingClient.id).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).map(task => {
                     const isOverdue = task.status === 'pending' && new Date(task.due_date) < new Date(todayStr);
                     return (
-                      <div key={task.id} className="flex items-center justify-between p-2.5 bg-gray-50/50 dark:bg-gray-800/40 border border-gray-100 rounded-xl">
+                      <div key={task.id} className="flex items-center justify-between p-2.5 bg-gray-50/50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 rounded-xl">
                         <div className="flex items-center gap-3">
                           <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0 cursor-pointer" />
                           <div>
-                            <span className={`text-[13px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
+                            <span className={`text-[13px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 dark:text-gray-100 font-medium'}`}>
                               {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>🔁 </span>}
                               {task.title}
                             </span>
@@ -7516,7 +7549,7 @@ export default function App() {
                   <span className="text-[12px] font-bold text-gray-400 uppercase tracking-wider">Activity Timeline</span>
                   <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
                     {['All', 'Note', 'Call', 'Email', 'Meeting'].map(t => (
-                      <button key={t} onClick={() => setActivityFilterType(t)} className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded ${activityFilterType === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{t}</button>
+                      <button key={t} onClick={() => setActivityFilterType(t)} className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded ${activityFilterType === t ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{t}</button>
                     ))}
                   </div>
                 </div>
@@ -7537,7 +7570,7 @@ export default function App() {
                     </div>
                   ) : (
                     activities.filter(a => a.client_id === viewingClient.id && (activityFilterType === 'All' || a.activity_type === activityFilterType)).map(act => (
-                      <div key={act.id} className="p-3 border border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl group relative">
+                      <div key={act.id} className="p-3 border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl group relative">
                         <div className="flex justify-between items-start mb-2">
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded uppercase">{act.activity_type}</span>
@@ -7546,7 +7579,7 @@ export default function App() {
                           
                           {/* Inline Edit/Delete Actions */}
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => {setEditingActivityId(act.id); setEditingActivityDesc(act.description);}} className="text-[10px] font-bold text-gray-400 hover:text-gray-900 bg-white border border-gray-200 px-1.5 py-0.5 rounded shadow-sm">Edit</button>
+                            <button onClick={() => {setEditingActivityId(act.id); setEditingActivityDesc(act.description);}} className="text-[10px] font-bold text-gray-400 hover:text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 rounded shadow-sm">Edit</button>
                             <button onClick={() => handleDeleteActivity(act.id)} className="text-[10px] font-bold text-red-400 hover:text-white hover:bg-red-500 border border-red-200 hover:border-red-500 px-1.5 py-0.5 rounded shadow-sm transition-colors">Del</button>
                           </div>
                         </div>
@@ -7560,7 +7593,7 @@ export default function App() {
                             </div>
                           </form>
                         ) : (
-                          <p className="text-[13px] text-gray-800 leading-relaxed whitespace-pre-wrap">{act.description}</p>
+                          <p className="text-[13px] text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap">{act.description}</p>
                         )}
                       </div>
                     ))
@@ -7568,7 +7601,7 @@ export default function App() {
                 </div>
 
                 {/* Add New Activity Form */}
-                <form onSubmit={handleAddActivityLog} className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm flex flex-col gap-3 mt-4">
+                <form onSubmit={handleAddActivityLog} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3 shadow-sm flex flex-col gap-3 mt-4">
                   {/* FEATURE 22 — quick-log template pills */}
                   <div className="flex flex-wrap gap-1.5">
                     {activityTemplates.map((t, i) => (
@@ -7609,7 +7642,7 @@ export default function App() {
                   <div className="flex flex-col sm:flex-row gap-2">
                     <textarea placeholder={voiceListening ? 'Listening... speak your note' : 'Record details, meeting minutes, or email content...'} value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className={`flex-1 px-3 py-2 text-[13px] border rounded-lg focus:outline-none dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 ${voiceListening ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200 dark:border-gray-700 focus:border-gray-400'}`} />
                     {/* G3 — voice memo mic */}
-                    <button type="button" onClick={toggleVoiceMemo} title={voiceListening ? 'Stop dictation' : 'Dictate with your voice'} className={`self-end sm:self-stretch px-3 min-h-[38px] rounded-xl border text-[16px] transition-all ${voiceListening ? 'bg-red-50 border-red-300 animate-pulse' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                    <button type="button" onClick={toggleVoiceMemo} title={voiceListening ? 'Stop dictation' : 'Dictate with your voice'} className={`self-end sm:self-stretch px-3 min-h-[38px] rounded-xl border text-[16px] transition-all ${voiceListening ? 'bg-red-50 border-red-300 animate-pulse' : 'bg-white border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:bg-gray-800/40'}`}>
                       {voiceListening ? '🔴' : '🎤'}
                     </button>
                     <button type="submit" className="sm:w-24 font-medium text-[12px] text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm self-end sm:self-stretch min-h-[38px]">Log Entry</button>
@@ -7618,41 +7651,23 @@ export default function App() {
               </div>
               )}
 
+              </div>
             </div>
-
-            <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex flex-wrap justify-end gap-2">
-              {/* FEATURE 4 — email composer trigger */}
-              <button type="button" onClick={() => { setEmailTo(viewingClient.email || ''); setShowEmailComposer(true); }} className="px-4 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors">Send Email</button>
-              {/* FEATURE 21 — PDF export */}
-              <button type="button" onClick={() => handleExportPDF(viewingClient)} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Export PDF</button>
-              <button type="button" onClick={() => { 
-                setEditingClient(viewingClient); 
-                setViewingClient(null);
-                const cfs = {};
-                customFieldDefs.forEach(def => {
-                  const existing = customFieldValues.find(v => v.client_id === viewingClient.id && v.field_definition_id === def.id);
-                  cfs[def.id] = existing ? existing.value : '';
-                });
-                setFormCustomValues(cfs);
-              }} className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors shadow-sm">Edit Relationship</button>
-              <button type="button" onClick={() => {setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null);}} className="px-4 py-1.5 text-[12px] font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">Close</button>
-            </div>
-
           </div>
         </div>
       )}
 
       {/* EDITING MODAL */}
       {editingClient && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden animate-in scale-in-from-95 duration-200 max-h-[90vh] flex flex-col">
-            
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Edit Relationship</h3>
-              <button onClick={() => setEditingClient(null)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+        <div className="fixed inset-0 bg-white dark:bg-gray-950 z-50 overflow-y-auto animate-in fade-in duration-200">
+          <div>
+            <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between">
+              <button onClick={() => setEditingClient(null)} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"><span aria-hidden>←</span> Back</button>
+              <h3 className="text-[15px] font-bold text-gray-900 dark:text-white">Edit Relationship</h3>
+              <div className="w-16" />
             </div>
 
-            <form onSubmit={handleUpdateClient} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
+            <form onSubmit={handleUpdateClient} className="max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 space-y-4 text-[13px]">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Full Name *</label>
@@ -7794,13 +7809,14 @@ export default function App() {
 
       {/* DEAL FORM MODAL (Feature 1) */}
       {showDealForm && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowDealForm(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">{editingDeal ? 'Edit Deal' : 'New Deal'}</h3>
-              <button onClick={() => setShowDealForm(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+        <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[90] overflow-y-auto animate-in fade-in duration-200">
+          <div>
+            <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between">
+              <button onClick={() => setShowDealForm(false)} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"><span aria-hidden>←</span> Back</button>
+              <h3 className="text-[15px] font-bold text-gray-900 dark:text-white">{editingDeal ? 'Edit Deal' : 'New Deal'}</h3>
+              <div className="w-16" />
             </div>
-            <form onSubmit={handleCreateDeal} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
+            <form onSubmit={handleCreateDeal} className="max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 space-y-4 text-[13px]">
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Title *</label>
                 <input type="text" required value={dealTitle} onChange={e => setDealTitle(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
@@ -7879,13 +7895,14 @@ export default function App() {
 
       {/* EMAIL COMPOSER MODAL (Feature 4) */}
       {showEmailComposer && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowEmailComposer(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Send Email</h3>
-              <button onClick={() => setShowEmailComposer(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+        <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[90] overflow-y-auto animate-in fade-in duration-200">
+          <div>
+            <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between">
+              <button onClick={() => setShowEmailComposer(false)} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"><span aria-hidden>←</span> Cancel</button>
+              <h3 className="text-[15px] font-bold text-gray-900 dark:text-white">New Email{viewingClient ? ` to ${viewingClient.name}` : ''}</h3>
+              <div className="w-16" />
             </div>
-            <form onSubmit={handleSendEmail} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
+            <form onSubmit={handleSendEmail} className="max-w-2xl mx-auto w-full px-4 sm:px-6 py-10 space-y-5 text-[13px]">
               {emailTemplates.length > 0 && (
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Template</label>
@@ -7934,13 +7951,14 @@ export default function App() {
 
       {/* BULK EMAIL MODAL (Feature 18) */}
       {showBulkEmailModal && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Email {selectedClientIds.length} relationships</h3>
-              <button onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+        <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[90] overflow-y-auto animate-in fade-in duration-200">
+          <div>
+            <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between">
+              <button onClick={() => !bulkEmailSending && setShowBulkEmailModal(false)} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"><span aria-hidden>←</span> Cancel</button>
+              <h3 className="text-[15px] font-bold text-gray-900 dark:text-white">Email {selectedClientIds.length} relationships</h3>
+              <div className="w-16" />
             </div>
-            <form onSubmit={handleBulkSendEmail} className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
+            <form onSubmit={handleBulkSendEmail} className="max-w-2xl mx-auto w-full px-4 sm:px-6 py-10 space-y-5 text-[13px]">
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Subject</label>
                 <input type="text" required value={bulkEmailSubject} onChange={e => setBulkEmailSubject(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
@@ -7975,14 +7993,15 @@ export default function App() {
 
       {/* IMPORT PREVIEW MODAL (Feature 16) */}
       {showImportPreview && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !importLoading && setShowImportPreview(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40">
-              <h3 className="text-[15px] font-bold text-gray-900">
+        <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[90] overflow-y-auto animate-in fade-in duration-200">
+          <div>
+            <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center gap-4">
+              <button onClick={() => !importLoading && setShowImportPreview(false)} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 shrink-0"><span aria-hidden>←</span> Back</button>
+              <h3 className="text-[15px] font-bold text-gray-900 dark:text-white">
                 Import Preview — {importPreviewData.filter(r => !r.error).length} rows ready, {importPreviewData.filter(r => r.error).length} errors
               </h3>
             </div>
-            <div className="overflow-auto flex-1 p-4">
+            <div className="max-w-5xl mx-auto w-full px-4 sm:px-6 py-8 overflow-x-auto">
               <table className="w-full text-left text-[12px]">
                 <thead>
                   <tr className="text-[11px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-200">
@@ -8025,13 +8044,14 @@ export default function App() {
 
       {/* CLIENT MERGE MODAL (Feature 27) */}
       {showMergeTool && mergeSource && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => !mergeLoading && setShowMergeTool(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Merge Relationship — Step {mergeStep} of 2</h3>
-              <button onClick={() => !mergeLoading && setShowMergeTool(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+        <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[90] overflow-y-auto animate-in fade-in duration-200">
+          <div>
+            <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between">
+              <button onClick={() => !mergeLoading && setShowMergeTool(false)} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"><span aria-hidden>←</span> Back</button>
+              <h3 className="text-[15px] font-bold text-gray-900 dark:text-white">Merge Relationship — Step {mergeStep} of 2</h3>
+              <div className="w-16" />
             </div>
-            <div className="p-6 space-y-4 text-[13px] overflow-y-auto flex-1">
+            <div className="max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 space-y-4 text-[13px]">
               {mergeStep === 1 && (
                 <>
                   <p className="text-gray-600">Merging <span className="font-bold text-gray-900">{mergeSource.name}</span> into another relationship. Select the <span className="font-semibold">target</span> relationship to keep:</p>
@@ -8090,13 +8110,14 @@ export default function App() {
 
       {/* GOAL FORM MODAL (Feature 26) */}
       {showGoalForm && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[90] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowGoalForm(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Set Monthly Goal</h3>
-              <button onClick={() => setShowGoalForm(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
+        <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[90] overflow-y-auto animate-in fade-in duration-200">
+          <div>
+            <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between">
+              <button onClick={() => setShowGoalForm(false)} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"><span aria-hidden>←</span> Back</button>
+              <h3 className="text-[15px] font-bold text-gray-900 dark:text-white">Set Monthly Goal</h3>
+              <div className="w-16" />
             </div>
-            <form onSubmit={handleSaveGoal} className="p-6 space-y-4 text-[13px]">
+            <form onSubmit={handleSaveGoal} className="max-w-md mx-auto w-full px-4 sm:px-6 py-8 space-y-4 text-[13px]">
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Goal Type</label>
                 <select value={goalType} onChange={e => setGoalType(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">

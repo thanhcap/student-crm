@@ -140,3 +140,16 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 -- then: supabase functions invoke sequence-runner  (or wait for the */15 cron)
 -- expect: a sequence_sends row with cold_contact_id set, cold_contacts.status -> 'contacted'
 ```
+
+# ============ v4 — Full-Screen UX + Networking + Launch Pages (branch fable/networking-fullscreen-launch) ============
+
+## Step 0 — Audit (inventory + discrepancies vs prompt)
+- App is a single 8.2k-line `src/app/page.js` driven by `appStep` — no real sub-routing (the `src/app/clients/*` and `src/app/login/*` files are dead stubs with hardcoded fake data). Full-screen conversions therefore stay state-driven; only the new marketing/pricing surfaces get real routes.
+- Modal inventory (fixed-overlay + centered card): ConfirmModal (component), global search palette, cold CSV import preview, relationship profile (`viewingClient`), edit relationship (`editingClient`), delete-confirm, deal form, email composer, bulk email, CSV import preview, merge tool, goal form, keyboard help.
+- Kept as small dialogs deliberately: ConfirmModal, delete-confirm (destructive yes/no), global search (palette idiom), keyboard help. Everything content-bearing converted (below).
+- State names confirmed: `viewingClient`/`editingClient`/`showDealForm`/`showEmailComposer`/`showGoalForm`/`activeProfileTab` (already existed); lead scoring exists (`clientsWithScores`, `leadScore`, `filterScore`). No plan-gating exists anywhere (Part 7 tiers are marketing-only). No Job/Payment forms exist (prompt discrepancy — nothing to convert).
+
+## Part 1 — Full-screen views (was cramped modals)
+- **Relationship profile**: full-viewport surface, sticky header (Back to Relationships · Send Email · Export PDF · Edit), `max-w-6xl` two-column layout — 320px sticky identity/contact/custom-fields/referrals/quick-note sidebar + tabbed (Activity/Tasks/Files/Deals) main column with underline-style tabs. Collapses to one column on mobile (sidebar stacks above tabs, header stays sticky). Bounded dark-mode pass applied to the whole block (it was previously white-only even in dark mode).
+- **Converted with the same sticky-header/Back pattern**: Edit Relationship, Deal form, Email composer (`max-w-2xl` readable writing column), Bulk email, CSV import preview (`max-w-5xl`), Merge tool, Goal form, Cold-contacts CSV preview.
+- **Manual test:** open a relationship at 1280px — two columns, sticky sidebar, no dimmed backdrop; at 375px — single column, no horizontal scroll; Back button everywhere replaces the corner ×.
