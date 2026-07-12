@@ -25,11 +25,17 @@ function b64url(bytes: Uint8Array) {
   bytes.forEach((b) => { bin += String.fromCharCode(b); });
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-// RFC 2822 MIME message, base64url-encoded (Gmail API requirement)
-function buildMime(from: string, to: string, subject: string, html: string) {
+// RFC 2822 MIME message, base64url-encoded (Gmail API requirement).
+// v5: optional display name + Reply-To from the sequence's from_name/reply_to.
+function buildMime(from: string, to: string, subject: string, html: string, fromName?: string | null, replyTo?: string | null) {
   const encSubject = `=?UTF-8?B?${btoa(String.fromCharCode(...new TextEncoder().encode(subject)))}?=`;
-  const msg = [`From: ${from}`, `To: ${to}`, `Subject: ${encSubject}`, 'MIME-Version: 1.0', 'Content-Type: text/html; charset=UTF-8', '', html].join('\r\n');
-  return b64url(new TextEncoder().encode(msg));
+  const fromHeader = fromName && fromName.trim()
+    ? `From: =?UTF-8?B?${btoa(String.fromCharCode(...new TextEncoder().encode(fromName.trim())))}?= <${from}>`
+    : `From: ${from}`;
+  const lines = [fromHeader, `To: ${to}`];
+  if (replyTo && /.+@.+/.test(replyTo)) lines.push(`Reply-To: ${replyTo.trim()}`);
+  lines.push(`Subject: ${encSubject}`, 'MIME-Version: 1.0', 'Content-Type: text/html; charset=UTF-8', '', html);
+  return b64url(new TextEncoder().encode(lines.join('\r\n')));
 }
 // 3.4 — silent refresh with needs_reauth marking
 async function getAccessToken(admin: any, conn: any): Promise<string | null> {
@@ -232,6 +238,16 @@ Deno.serve(async (req: Request) => {
       out.tasks++;
     } else {
       if (!client.email) { out.skipped++; continue; }
+      // v5 belt-and-braces: subject/body are nullable now — an incomplete email step
+      // must never send even if is_draft somehow wasn't set. Advance past it.
+      if (!node.subject || !String(node.subject).trim() || !node.body || !String(node.body).trim()) {
+        const advDraft = advanceAfterNode(node, steps, edges);
+        const draftPatch = advDraft.done
+          ? { current_step: (enr.current_step || 0) + 1, current_node_id: node.id, status: 'completed', stopped_reason: 'completed', next_send_at: null }
+          : { current_step: (enr.current_step || 0) + 1, current_node_id: advDraft.nodeId, next_send_at: addDaysStr(advDraft.waitDays) };
+        await admin.from('sequence_enrollments').update(draftPatch).eq('id', enr.id);
+        out.skipped++; continue;
+      }
       const pick = pickSubjectVariant(node, enr);
       variant = pick.variant;
       const subject = mergeTags(pick.subject, client);
@@ -251,7 +267,7 @@ Deno.serve(async (req: Request) => {
           await admin.from('gmail_connections').update({ needs_reauth: true }).eq('id', conn.id);
           out.needs_reauth++; out.skipped++; continue;
         }
-        const raw = buildMime(conn.email_address, client.email, subject, html);
+        const raw = buildMime(conn.email_address, client.email, subject, html, seq.from_name, seq.reply_to);
         const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
           method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ raw }),

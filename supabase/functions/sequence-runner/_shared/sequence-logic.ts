@@ -107,6 +107,10 @@ export function resolveNextNode(enrollment: any, nodes: any[], edges: any[], sen
       node = byId[e.to_step_id]; entry = false; continue;
     }
     if (t === 'goal') return { action: 'goal', node };
+    // v5 — draft steps must NEVER execute: skip past them like a failed condition.
+    if (node.is_draft === true) {
+      node = byId[defaultEdgeFrom(edges, node.id)?.to_step_id]; entry = false; continue;
+    }
     // action node — legacy per-step condition column still skips (backfilled chains)
     if ((node.condition || 'always') !== 'always' && !stepConditionMet(node, enrollment, sends)) {
       node = byId[defaultEdgeFrom(edges, node.id)?.to_step_id]; entry = false; continue;

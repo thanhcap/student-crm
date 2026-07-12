@@ -188,3 +188,20 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - Cinematic Email Automation pitch: the page's largest visual (full sequence canvas mock with Yes/No branches), gradient background, extra vertical whitespace, 0-clicks/auto-stop/2-channels stat row — deliberately slower-paced than the rest.
 - Grouped comparison accordion (Core CRM open by default; Email Automation, AI, Team & Security) and a 4-question FAQ accordion; dark final CTA.
 - **Manual test (browser-verified):** `/pricing` renders all sections; accordion + toggle interactive; tier CTAs deep-link to signup; dark-mode classes on every element.
+
+# ============ v5 — Builder Full-Screen + Cold↔CRM Bridge + 3D Landing (branch fable/builder-fullscreen-3d) ============
+(Covers BOTH pasted master prompts — the "email-automation-rework" one and the "builder-fullscreen-3d" one — as a single pass, since the second builds directly on the first.)
+
+## Step 0 — Reconnaissance (reality vs the prompts)
+- **Migration claim VERIFIED live**: `client_id` nullable on `sequence_enrollments` + `sequence_sends`, `subject`/`body` nullable on `sequence_steps`, `is_draft`/`from_name`/`reply_to`/`description` exist, and both `*_one_contact_ref` CHECK constraints are in place. NOT re-applied.
+- **React key warning root cause found — and it is NOT the builder**: the only `Date.now()` identity in the file is `showToast` (`const id = Date.now()`), and page.js:8674 is exactly the `toasts.map(... key={toast.id})` render. Two toasts in the same millisecond (easy: bulk enroll + auto-enroll both toast in one handler pass) collide. The prompt's node/template hypothesis doesn't apply: `handleAddNode`/`handleCreateFromTemplate` already insert to the DB first and key off returned real ids.
+- All 4 existing `sequence_enrollments`/`sequence_sends` inserts already set exactly one contact ref (the cold path passes `client_id: null` explicitly) — conformance audit passed with no changes needed.
+- Email Automation section already matches most of the target architecture from v4 (full-screen gallery/builder/who-replied/enroll panel, icon-rail palette, contextual config, SVG beziers, batched template inserts, shared `matchesClientFilters`) — this pass reuses it and adds what's genuinely missing: the full-screen email draft studio, 2-step create flow, is_draft plumbing, engagement filters, cold→relationship conversion, 3D hero, logout→landing.
+- `three`/`@react-three/fiber` not installed; logout currently lands on `LOG_IN`.
+
+## Part A — is_draft plumbing + runner v8 (deployed)
+- `resolveNextNode` (shared graph walker) now skips any node with `is_draft = true` — an unfinished draft can never execute; the walker flows past it to the next node.
+- Belt-and-braces in the runner's email branch: subject/body are nullable now, so an email step with empty subject OR body advances the enrollment without sending, even if `is_draft` wasn't set.
+- `buildMime` honors the new `email_sequences.from_name` (RFC 2047-encoded display name) and `reply_to` headers.
+- **Deployed as sequence-runner v8** (no secrets in source; Vault-based cron auth unchanged).
+- **Manual test:** set a step's `is_draft=true` via SQL, invoke the runner with a due enrollment → no send row for that step; enrollment advances past it.
