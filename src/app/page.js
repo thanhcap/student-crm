@@ -481,6 +481,173 @@ function CountUp({ value, suffix = '' }) {
 }
 
 // ==========================================
+// V5 PART D — FULL-SCREEN EMAIL DRAFT STUDIO
+// Writing surface left (readable max-w-2xl), live merge-tag preview right,
+// autosave 900ms after typing stops, is_draft set automatically while incomplete.
+// ==========================================
+
+const STUDIO_MERGE_TAGS = [
+  { tag: '{{first_name}}', label: 'First name' },
+  { tag: '{{last_name}}', label: 'Last name' },
+  { tag: '{{name}}', label: 'Full name' },
+  { tag: '{{company}}', label: 'Company' },
+  { tag: '{{title}}', label: 'Job title' },
+  { tag: '{{email}}', label: 'Email' },
+  { tag: '{{sender_name}}', label: 'Your name' },
+];
+
+function EmailStudio({ node, sequence, templates, contacts, fromAddress, resolveTags, onSave, onSaveTemplate, onTestSend, onClose }) {
+  const [subject, setSubject] = useState(node.subject ?? '');
+  const [subjectB, setSubjectB] = useState(node.subject_b ?? '');
+  const [body, setBody] = useState(node.body ?? '');
+  const [abEnabled, setAbEnabled] = useState(!!node.subject_b);
+  const [previewContact, setPreviewContact] = useState(contacts[0] || null);
+  const [dirty, setDirty] = useState(false);
+  const [saveState, setSaveState] = useState('saved');
+  const bodyRef = useRef(null);
+
+  // Autosave 900ms after typing stops; incomplete drafts stay is_draft=true.
+  useEffect(() => {
+    if (!dirty) return;
+    setSaveState('saving');
+    const t = setTimeout(async () => {
+      await onSave({
+        subject: subject.trim() ? subject : null,
+        subject_b: abEnabled && subjectB.trim() ? subjectB : null,
+        body: body.trim() ? body : null,
+        is_draft: !subject.trim() || !body.trim(),
+      });
+      setDirty(false);
+      setSaveState('saved');
+    }, 900);
+    return () => clearTimeout(t);
+  }, [subject, subjectB, body, abEnabled, dirty]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function insertAtCursor(tag) {
+    const el = bodyRef.current;
+    if (!el) { setBody(v => v + tag); setDirty(true); return; }
+    const start = el.selectionStart, end = el.selectionEnd;
+    const next = body.slice(0, start) + tag + body.slice(end);
+    setBody(next); setDirty(true);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + tag.length, start + tag.length);
+    });
+  }
+
+  // Warn about tags that resolve empty for the previewed contact — the guard against
+  // "Hi , I loved your work at ." sends.
+  const emptyTags = useMemo(() => {
+    if (!previewContact) return [];
+    const used = [...new Set(`${subject}\n${body}`.match(/\{\{[a-z_]+\}\}/g) || [])];
+    return used.filter(t => !resolveTags(t, previewContact).trim());
+  }, [subject, body, previewContact, resolveTags]);
+
+  const words = body.trim() ? body.trim().split(/\s+/).length : 0;
+  const incomplete = !subject.trim() || !body.trim();
+
+  return (
+    <div className="fixed inset-0 z-[70] flex flex-col bg-white dark:bg-gray-950">
+      <header className="shrink-0 flex items-center justify-between gap-3 px-4 sm:px-6 h-14 border-b border-gray-100 dark:border-gray-800">
+        <button onClick={onClose} className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white shrink-0"><span aria-hidden>←</span> Back to canvas</button>
+        <h1 className="text-[14px] font-bold text-gray-900 dark:text-white hidden sm:block">Edit email step</h1>
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <span className={`text-[11px] font-semibold ${saveState === 'saving' ? 'text-amber-500' : 'text-gray-400'}`}>{saveState === 'saving' ? 'Saving…' : incomplete ? 'Draft — won’t send' : 'Saved ✓'}</span>
+          <button onClick={() => onTestSend(resolveTags(subject, previewContact), resolveTags(body, previewContact))} disabled={incomplete}
+            className="px-3 py-1.5 text-[12px] font-semibold border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-900 disabled:opacity-40">Send test to me</button>
+          <button onClick={onClose} className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-lg hover:opacity-90">Done</button>
+        </div>
+      </header>
+
+      <div className="flex-1 flex min-h-0">
+        {/* LEFT — writing surface */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-2xl mx-auto px-5 sm:px-8 py-8">
+            {/* templates: apply + save-as */}
+            <div className="flex flex-wrap items-center gap-1.5 mb-6">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mr-1">Templates</span>
+              {templates.slice(0, 6).map(t => (
+                <button key={t.id} onClick={() => {
+                  if ((subject.trim() || body.trim()) && !window.confirm(`Replace the current draft with “${t.name}”?`)) return;
+                  setSubject(t.subject || ''); setBody(t.body || ''); setDirty(true);
+                }} className="px-2.5 py-1 text-[11px] font-semibold rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700">{t.name}</button>
+              ))}
+              <button onClick={() => {
+                const name = window.prompt('Template name?');
+                if (name?.trim()) onSaveTemplate(name.trim(), subject, body);
+              }} disabled={incomplete} className="px-2.5 py-1 text-[11px] font-semibold rounded-full border border-dashed border-gray-300 dark:border-gray-600 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-40">+ Save as template</button>
+            </div>
+
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Subject</label>
+            <input value={subject} onChange={e => { setSubject(e.target.value); setDirty(true); }}
+              placeholder="Loved your work at {{company}}, {{first_name}}"
+              className="w-full px-4 py-3 text-[14px] font-medium rounded-xl bg-gray-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-900 focus:border-gray-900 dark:focus:border-white outline-none transition-colors" />
+            <p className={`mt-1 text-[11px] ${subject.length > 60 ? 'text-amber-500' : 'text-gray-400'}`}>{subject.length} chars{subject.length > 60 ? ' — long subjects get clipped on mobile' : ''}</p>
+
+            {abEnabled ? (
+              <div className="mt-3">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-purple-500 mb-1.5">Subject — Variant B</label>
+                <input value={subjectB} onChange={e => { setSubjectB(e.target.value); setDirty(true); }}
+                  placeholder="A different angle — half of enrollments get this one"
+                  className="w-full px-4 py-3 text-[14px] rounded-xl bg-purple-50/40 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900 outline-none text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
+                <button onClick={() => { setAbEnabled(false); setSubjectB(''); setDirty(true); }} className="mt-1.5 text-[11px] font-semibold text-gray-400 hover:text-red-600">Remove B variant</button>
+              </div>
+            ) : (
+              <button onClick={() => { setAbEnabled(true); setDirty(true); }} className="mt-2 text-[12px] font-semibold text-purple-600 dark:text-purple-400 hover:underline">+ A/B test this subject</button>
+            )}
+
+            <div className="mt-7 mb-2 flex items-center justify-between flex-wrap gap-2">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Body</label>
+              <div className="flex flex-wrap gap-1">
+                {STUDIO_MERGE_TAGS.map(m => (
+                  <button key={m.tag} onClick={() => insertAtCursor(m.tag)} title={m.label}
+                    className="px-2 py-0.5 text-[10px] font-mono font-semibold rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/70">{m.tag}</button>
+                ))}
+              </div>
+            </div>
+            <textarea ref={bodyRef} value={body} rows={16}
+              onChange={e => { setBody(e.target.value); setDirty(true); }}
+              placeholder={'Hi {{first_name}},\n\nI came across {{company}} and…\n\n— {{sender_name}}'}
+              className="w-full px-4 py-3.5 text-[14px] leading-relaxed rounded-xl resize-y bg-gray-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-900 focus:border-gray-900 dark:focus:border-white outline-none transition-colors" />
+            <p className="mt-1 text-[11px] text-gray-400">{words} words · ~{Math.max(1, Math.round(words / 200))} min read{!/unsubscribe/i.test(body) && words > 0 ? ' · the runner appends an unsubscribe footer automatically' : ''}</p>
+          </div>
+        </div>
+
+        {/* RIGHT — live preview against a real contact */}
+        <aside className="hidden lg:flex w-[420px] shrink-0 flex-col border-l border-gray-100 dark:border-gray-800 bg-gray-50/40 dark:bg-gray-900/40">
+          <div className="shrink-0 px-5 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Preview as</span>
+            <select value={previewContact ? `${previewContact._kind}_${previewContact.id}` : ''}
+              onChange={e => setPreviewContact(contacts.find(c => `${c._kind}_${c.id}` === e.target.value) || null)}
+              className="text-[12px] font-semibold px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 outline-none max-w-[220px]">
+              {contacts.length === 0 && <option value="">No contacts yet</option>}
+              {contacts.map(c => <option key={`${c._kind}_${c.id}`} value={`${c._kind}_${c.id}`}>{c.name || c.email}{c._kind === 'cold' ? ' (cold)' : ''}</option>)}
+            </select>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5">
+            <div className="rounded-xl bg-white dark:bg-gray-950 border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
+              <p className="text-[11px] text-gray-400 mb-1">From: {sequence.from_name ? `${sequence.from_name} <${fromAddress || '…'}>` : (fromAddress || 'your connected Gmail')}</p>
+              <p className="text-[11px] text-gray-400 mb-3">To: {previewContact?.email || '—'}</p>
+              <p className="text-[14px] font-bold text-gray-900 dark:text-white mb-3 pb-3 border-b border-gray-100 dark:border-gray-800">
+                {resolveTags(subject, previewContact) || <span className="text-gray-300 dark:text-gray-600 font-normal">(no subject)</span>}
+              </p>
+              <div className="text-[13px] leading-relaxed text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                {resolveTags(body, previewContact) || <span className="text-gray-300 dark:text-gray-600">(empty body)</span>}
+              </div>
+            </div>
+            {emptyTags.length > 0 && previewContact && (
+              <div className="mt-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-[12px] text-amber-800 dark:text-amber-300">
+                ⚠️ {emptyTags.map(t => <code key={t} className="font-mono font-bold">{t}</code>).reduce((acc, el, i) => i === 0 ? [el] : [...acc, ', ', el], [])} {emptyTags.length === 1 ? 'is' : 'are'} empty for {previewContact.name || previewContact.email} — those spots will render blank. Check your other enrolled contacts too.
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
 // V4 PART 6 — MARKETING LANDING PAGE
 // Shown to logged-out visitors at "/" (appStep === 'LANDING'). Authenticated
 // sessions never see it — checkSession routes them straight to the Dashboard.
@@ -977,6 +1144,11 @@ export default function App() {
   const [whoRepliedSeqFilter, setWhoRepliedSeqFilter] = useState(null);
   // V5 Part C — engagement inbox filter: replied | opened | clicked | all
   const [inboxFilter, setInboxFilter] = useState('replied');
+  // V5 Part D — full-screen email draft studio + 2-step create flow
+  const [composerNodeId, setComposerNodeId] = useState(null);
+  const [showCreateFlow, setShowCreateFlow] = useState(false);
+  const [createStep, setCreateStep] = useState(1);
+  const [createMeta, setCreateMeta] = useState({ name: '', description: '', from_name: '', reply_to: '' });
   // V4 Part 4 — CRM-connected enroll panel
   const [showEnrollPanel, setShowEnrollPanel] = useState(null); // sequence id or null
   const [enrollFilterStatus, setEnrollFilterStatus] = useState('All');
@@ -1743,13 +1915,24 @@ export default function App() {
   // FEATURE 4 — EMAIL COMPOSER / FEATURE 18 — BULK EMAIL
   // ==========================================
 
-  function resolveMergeTags(str, client) {
-    return (str || '')
-      .replace(/{{name}}/g, client?.name || '')
-      .replace(/{{email}}/g, client?.email || '')
-      .replace(/{{phone}}/g, client?.phone_number || '')
-      .replace(/{{stage}}/g, client?.status || '')
-      .replace(/{{company}}/g, client?.company_name || ''); // LGM — mirrors the runner's mergeTags
+  // V5 Part D — extended (not replaced): handles relationships AND cold contacts through
+  // one resolver, plus first/last name, title, and sender identity. Mirrors the runner.
+  function resolveMergeTags(str, contact, seq = null) {
+    if (!str) return '';
+    const first = contact?.first_name ?? ((contact?.name || '').split(' ')[0] || '');
+    const last = contact?.last_name ?? ((contact?.name || '').split(' ').slice(1).join(' '));
+    const full = contact?.name || `${first} ${last}`.trim();
+    return str
+      .replace(/{{first_name}}/g, first)
+      .replace(/{{last_name}}/g, last)
+      .replace(/{{name}}/g, full)
+      .replace(/{{email}}/g, contact?.email || '')
+      .replace(/{{phone}}/g, contact?.phone_number ?? contact?.phone ?? '')
+      .replace(/{{stage}}/g, contact?.status || '')
+      .replace(/{{title}}/g, contact?.title || '')
+      .replace(/{{company}}/g, contact?.company_name ?? contact?.company ?? '')
+      .replace(/{{linkedin_url}}/g, contact?.linkedin_url || '')
+      .replace(/{{sender_name}}/g, seq?.from_name || profile?.username || '');
   }
 
   // PART B — default send path opens a real compose tab in the user's browser.
@@ -2465,9 +2648,10 @@ export default function App() {
   const nodePos = (node, idx) => ({ x: node.pos_x ?? 300, y: node.pos_y ?? (30 + idx * 130) });
 
   // Part 6 — one-click template instantiation: sequence + steps + edges (+ trigger row)
-  async function handleCreateFromTemplate(tpl) {
+  async function handleCreateFromTemplate(tpl, meta = {}) {
     const { data: seqRows, error: seqErr } = await supabase.from('email_sequences').insert([{
-      user_id: user.id, name: tpl.name, status: 'draft', trigger_type: 'manual', is_active: false,
+      user_id: user.id, name: meta.name || tpl.name, status: 'draft', trigger_type: 'manual', is_active: false,
+      description: meta.description || null, from_name: meta.from_name || null, reply_to: meta.reply_to || null,
     }]).select();
     if (seqErr || !seqRows) { showToast(`Error: ${seqErr?.message}`, 'error'); return; }
     const seq = seqRows[0];
@@ -2504,14 +2688,36 @@ export default function App() {
     showToast(`"${tpl.name}" created — customize it, then flip it Active.`, 'success');
   }
 
+  // V5 Part D — blank campaign from the 2-step create flow: sequence + a lone trigger node
+  async function createBlankCampaign(meta) {
+    const { data: seqRows, error } = await supabase.from('email_sequences').insert([{
+      user_id: user.id, name: meta.name, status: 'draft', trigger_type: 'manual', is_active: false,
+      description: meta.description || null, from_name: meta.from_name || null, reply_to: meta.reply_to || null,
+    }]).select();
+    if (error || !seqRows) { showToast(`Error: ${error?.message}`, 'error'); return; }
+    const seq = seqRows[0];
+    const { data: trigRows } = await supabase.from('sequence_steps').insert([{
+      sequence_id: seq.id, user_id: user.id, step_order: 0, node_type: 'trigger',
+      channel: 'trigger', wait_days: 0, condition: 'always', subject: null, body: null,
+      config: { type: 'manual' }, pos_x: 320, pos_y: 30,
+    }]).select();
+    setSequences(prev => [...prev, seq]);
+    if (trigRows) setSequenceSteps(prev => [...prev, ...trigRows]);
+    setEditingSeqId(seq.id);
+    setSelectedNodeId(null);
+    showToast(`"${seq.name}" created — add steps from the palette.`, 'success');
+  }
+
   // Part 7 — canvas node CRUD
   async function handleAddNode(seqId, nodeType) {
     const nodes = seqNodesFor(seqId);
     const maxOrder = nodes.reduce((m, n) => Math.max(m, n.step_order), -1);
     const last = nodes[nodes.length - 1];
     const base = last ? nodePos(last, nodes.length - 1) : { x: 300, y: -100 };
+    // V5 Part D — email steps start as real drafts (nullable subject/body, is_draft=true)
+    // instead of placeholder text that could accidentally send.
     const defaults = {
-      email: { subject: 'New email — click to edit', body: '' },
+      email: { subject: null, body: null, is_draft: true },
       wait: { config: { days: 1 } },
       condition: { config: { type: 'if_no_reply' } },
       goal: { config: { label: 'Goal reached' } },
@@ -2573,10 +2779,26 @@ export default function App() {
     if (active && seqNodesFor(seq.id).filter(n => !['trigger', 'goal', 'wait'].includes(n.node_type || 'email')).length === 0) {
       showToast('Add at least one action step before activating.', 'error'); return;
     }
-    const patch = { is_active: active, status: active ? 'active' : 'paused' };
-    const { error } = await supabase.from('email_sequences').update(patch).eq('id', seq.id);
-    if (!error) setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, ...patch } : s));
-    else showToast(`Error: ${error.message}`, 'error');
+    const applyPatch = async () => {
+      const patch = { is_active: active, status: active ? 'active' : 'paused' };
+      const { error } = await supabase.from('email_sequences').update(patch).eq('id', seq.id);
+      if (!error) setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, ...patch } : s));
+      else showToast(`Error: ${error.message}`, 'error');
+    };
+    // V5 Part D — going live with unfinished drafts deserves a pause: they silently won't send.
+    if (active) {
+      const draftCount = seqNodesFor(seq.id).filter(n =>
+        (n.node_type || 'email') === 'email' && (n.is_draft || !n.subject?.trim() || !n.body?.trim())).length;
+      if (draftCount > 0) {
+        showConfirm(
+          'Activate with drafts?',
+          `${draftCount} email step${draftCount === 1 ? ' is' : 's are'} still ${draftCount === 1 ? 'a draft' : 'drafts'} (missing subject or body) and won't send. Activate anyway?`,
+          'Activate anyway', 'primary', applyPatch,
+        );
+        return;
+      }
+    }
+    await applyPatch();
   }
 
   // Part 8 — trigger config: one sequence_triggers row per sequence (manual = no row)
@@ -6517,10 +6739,17 @@ export default function App() {
                               setNodeDrag({ nodeId: n.id, dx: e.clientX - p.x, dy: e.clientY - p.y });
                               setSelectedNodeId(n.id);
                             }}
-                            onClick={() => { if (connectFrom) handleAddEdge(editingSeq.id, connectFrom.nodeId, connectFrom.branch, n.id); else setSelectedNodeId(n.id); }}>
+                            onClick={() => { if (connectFrom) handleAddEdge(editingSeq.id, connectFrom.nodeId, connectFrom.branch, n.id); else setSelectedNodeId(n.id); }}
+                            onDoubleClick={() => { if ((n.node_type || 'email') === 'email') setComposerNodeId(n.id); }}>
                             <div className="flex items-center gap-1.5 px-3 pt-2.5">
                               <span className="text-[13px]">{meta.emoji}</span>
                               <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100">{meta.label}</span>
+                              {/* V5 Part D — completeness dot (state by dot, never color alone) */}
+                              {t === 'email' && (
+                                (n.is_draft || !n.subject?.trim() || !n.body?.trim())
+                                  ? <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title="Draft — won’t send" />
+                                  : <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" title="Ready" />
+                              )}
                               {t !== 'trigger' && (
                                 <button onClick={() => handleDeleteNode(n)} className="ml-auto text-gray-300 hover:text-red-500 text-[13px] leading-none px-1" title="Delete node">✕</button>
                               )}
@@ -6592,19 +6821,24 @@ export default function App() {
                               )}
                             </div>
                           )}
-                          {t === 'email' && (
-                            <div className="space-y-2.5">
-                              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Subject <span className="normal-case font-normal">(supports {'{{name}} {{first_name}} {{company}}'})</span></label>
-                              <input type="text" value={selNode.subject || ''} onChange={e => updateNodeLocal(selNode.id, { subject: e.target.value })} onBlur={e => handleUpdateNode(selNode.id, { subject: e.target.value })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
-                              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Subject B <span className="normal-case font-normal">(optional A/B test)</span></label>
-                              <input type="text" value={selNode.subject_b || ''} onChange={e => updateNodeLocal(selNode.id, { subject_b: e.target.value })} onBlur={e => handleUpdateNode(selNode.id, { subject_b: e.target.value || null })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
-                              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Body</label>
-                              <textarea rows={8} value={selNode.body || ''} onChange={e => updateNodeLocal(selNode.id, { body: e.target.value })} onBlur={e => handleUpdateNode(selNode.id, { body: e.target.value })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none font-mono" />
-                              <label className="flex items-center gap-2 text-[12px] text-gray-600 dark:text-gray-300">Extra delay before this email:
-                                <input type="number" min="0" value={selNode.wait_days ?? 0} onChange={e => updateNodeLocal(selNode.id, { wait_days: parseInt(e.target.value, 10) || 0 })} onBlur={e => handleUpdateNode(selNode.id, { wait_days: parseInt(e.target.value, 10) || 0 })} className="w-16 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" /> days
-                              </label>
-                            </div>
-                          )}
+                          {t === 'email' && (() => {
+                            // V5 Part D — writing happens in the full-screen studio, not this sidebar
+                            const isDraftNow = selNode.is_draft || !selNode.subject?.trim() || !selNode.body?.trim();
+                            return (
+                              <div className="space-y-3">
+                                <div className={`p-3 rounded-xl border text-[12px] ${isDraftNow ? 'border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300' : 'border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 text-green-800 dark:text-green-300'}`}>
+                                  {isDraftNow ? '● Draft — missing subject or body; this step won’t send.' : '● Ready to send.'}
+                                </div>
+                                {selNode.subject?.trim() && <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">“{selNode.subject}”</p>}
+                                {selNode.body?.trim() && <p className="text-[12px] text-gray-500 line-clamp-3 whitespace-pre-wrap">{selNode.body}</p>}
+                                <button onClick={() => setComposerNodeId(selNode.id)} className="w-full px-3 py-2.5 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">✎ Open email editor</button>
+                                <p className="text-[11px] text-gray-400 text-center">or double-click the node on the canvas</p>
+                                <label className="flex items-center gap-2 text-[12px] text-gray-600 dark:text-gray-300 pt-1">Extra delay before this email:
+                                  <input type="number" min="0" value={selNode.wait_days ?? 0} onChange={e => updateNodeLocal(selNode.id, { wait_days: parseInt(e.target.value, 10) || 0 })} onBlur={e => handleUpdateNode(selNode.id, { wait_days: parseInt(e.target.value, 10) || 0 })} className="w-16 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" /> days
+                                </label>
+                              </div>
+                            );
+                          })()}
                           {t === 'wait' && (
                             <label className="flex items-center gap-2 text-[13px] text-gray-600 dark:text-gray-300">Wait
                               <input type="number" min="0" value={selNode.config?.days ?? 1} onChange={e => updateNodeLocal(selNode.id, { config: { ...(selNode.config || {}), days: parseInt(e.target.value, 10) || 0 } })} onBlur={e => handleUpdateNode(selNode.id, { config: { ...(selNode.config || {}), days: parseInt(e.target.value, 10) || 0 } })} className="w-20 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" /> days before continuing
@@ -6724,24 +6958,9 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* TEMPLATE GALLERY (Part 6) */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    {SEQ_TEMPLATES.map(tpl => (
-                      <button key={tpl.key} onClick={() => handleCreateFromTemplate(tpl)} className="text-left p-4 bg-white dark:bg-gray-900 rounded-2xl border border-dashed border-gray-300 dark:border-gray-600 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all group">
-                        <span className="text-xl">{tpl.emoji}</span>
-                        <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 mt-1.5 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{tpl.name}</p>
-                        <p className="text-[11px] text-gray-500 mt-1 line-clamp-2">{tpl.desc}</p>
-                        <p className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 mt-2">＋ Use template</p>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* NEW BLANK SEQUENCE */}
-                  <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                    <form onSubmit={handleCreateSequence} className="flex flex-wrap gap-2 text-[13px]">
-                      <input type="text" required placeholder="Or start blank — sequence name (e.g. Cold outreach — agencies)" value={newSeqName} onChange={e => setNewSeqName(e.target.value)} className="flex-1 min-w-[220px] px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:bg-white dark:focus:bg-gray-800 focus:outline-none focus:border-gray-400" />
-                      <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Create Sequence</button>
-                    </form>
+                  {/* V5 Part D — creation moved to the full-screen 2-step flow */}
+                  <div className="flex justify-end">
+                    <button onClick={() => { setShowCreateFlow(true); setCreateStep(1); }} className="px-4 py-2.5 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">+ New Campaign</button>
                   </div>
 
                   {/* SEQUENCE CARD GRID */}
@@ -6766,10 +6985,12 @@ export default function App() {
                                 {seq.is_active ? 'Active' : 'Paused'}
                               </button>
                             </div>
+                            {seq.description && <p className="text-[12px] text-gray-400 line-clamp-2">{seq.description}</p>}
                             <p className="text-[11px] text-gray-500">
                               ⚡ {trig ? (TRIGGER_TYPES.find(x => x.value === trig.trigger_event)?.label || trig.trigger_event) : 'Manual'} ·
                               {' '}{activeEnr.length} enrolled · {sSends.length} sent
-                              <br />Last sent: {seq.last_run_at ? new Date(seq.last_run_at).toLocaleDateString() : 'never'}
+                              {' · '}{sSends.filter(s => s.replied_at).length > 0 && <span className="font-semibold text-green-600 dark:text-green-400">{sSends.filter(s => s.replied_at).length} replied · </span>}
+                              Last sent: {seq.last_run_at ? new Date(seq.last_run_at).toLocaleDateString() : 'never'}
                             </p>
                             <div className="flex items-center gap-2 mt-auto pt-2 border-t border-gray-100 dark:border-gray-800 text-[12px] font-medium">
                               <button onClick={() => { setEditingSeqId(seq.id); setSelectedNodeId(null); }} className="px-3 py-1.5 font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:opacity-90 shadow-sm">Open builder →</button>
@@ -8713,6 +8934,125 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* V5 PART D — FULL-SCREEN EMAIL DRAFT STUDIO */}
+      {composerNodeId && (() => {
+        const node = sequenceSteps.find(s => s.id === composerNodeId);
+        const seq = node ? sequences.find(s => s.id === node.sequence_id) : null;
+        if (!node || !seq) return null;
+        // Preview contacts: everyone enrolled in this sequence (both kinds), else first 20 relationships
+        const enrolled = sequenceEnrollments.filter(en => en.sequence_id === seq.id);
+        let previewables = enrolled.map(en => {
+          if (en.client_id != null) {
+            const c = clients.find(x => x.id === en.client_id);
+            return c ? { ...c, _kind: 'client' } : null;
+          }
+          const cc = coldContacts.find(x => x.id === en.cold_contact_id);
+          return cc ? { ...cc, _kind: 'cold', name: `${cc.first_name || ''} ${cc.last_name || ''}`.trim() || cc.email } : null;
+        }).filter(Boolean);
+        if (previewables.length === 0) previewables = clients.filter(c => c.email).slice(0, 20).map(c => ({ ...c, _kind: 'client' }));
+        return (
+          <EmailStudio
+            node={node}
+            sequence={seq}
+            templates={emailTemplates}
+            contacts={previewables}
+            fromAddress={gmailConn?.email_address || user?.email}
+            resolveTags={(str, c) => resolveMergeTags(str, c, seq)}
+            onSave={patch => handleUpdateNode(node.id, patch)}
+            onSaveTemplate={async (name, subj, bod) => {
+              const { data, error } = await supabase.from('email_templates').insert([{ user_id: user.id, name, subject: subj, body: bod }]).select();
+              if (data && !error) { setEmailTemplates(prev => [data[0], ...prev]); showToast(`Template “${name}” saved.`, 'success'); }
+              else showToast(`Error: ${error?.message}`, 'error');
+            }}
+            onTestSend={(resolvedSubject, resolvedBody) => {
+              // Existing interactive send path = a prefilled Gmail compose tab. Addressed to
+              // YOU (never the contact) so a test can't leak. Guard: needs a known address.
+              const me = gmailConn?.email_address || user?.email;
+              if (!me) { showToast('Connect Gmail in Settings first so we know your address.', 'error'); return; }
+              if (gmailConn?.needs_reauth) { showToast('Your Gmail connection needs a reconnect (Settings → Gmail Sync).', 'error'); return; }
+              const url = emailProvider === 'mailto' ? buildMailtoUrl(me, `[TEST] ${resolvedSubject}`, resolvedBody) : buildGmailUrl(me, `[TEST] ${resolvedSubject}`, resolvedBody);
+              const tab = window.open(url, '_blank', 'noopener,noreferrer');
+              if (!tab && emailProvider !== 'mailto') window.location.href = buildMailtoUrl(me, `[TEST] ${resolvedSubject}`, resolvedBody);
+              showToast(`Test compose opened, addressed to ${me}.`, 'success');
+            }}
+            onClose={() => setComposerNodeId(null)}
+          />
+        );
+      })()}
+
+      {/* V5 PART D — CREATE CAMPAIGN: full-screen 2-step flow */}
+      {showCreateFlow && (
+        <div className="fixed inset-0 z-[70] bg-white dark:bg-gray-950 overflow-y-auto">
+          <header className="sticky top-0 z-20 flex items-center justify-between px-6 h-14 bg-white/90 dark:bg-gray-950/90 backdrop-blur border-b border-gray-100 dark:border-gray-800">
+            <button onClick={() => { if (createStep === 2) setCreateStep(1); else { setShowCreateFlow(false); setCreateStep(1); } }} className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"><span aria-hidden>←</span> {createStep === 2 ? 'Basics' : 'Cancel'}</button>
+            <h1 className="text-[14px] font-bold text-gray-900 dark:text-white">New Campaign — step {createStep} of 2</h1>
+            <div className="w-16" />
+          </header>
+
+          {createStep === 1 ? (
+            <div className="max-w-lg mx-auto px-6 py-12 space-y-6">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Campaign name *</label>
+                <input autoFocus value={createMeta.name} onChange={e => setCreateMeta(m => ({ ...m, name: e.target.value }))}
+                  placeholder="Cold outreach — agencies Q3"
+                  className="w-full px-4 py-3 text-[15px] font-medium rounded-xl bg-gray-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:border-gray-900 dark:focus:border-white outline-none" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Description <span className="normal-case font-normal">(shows on the campaign card)</span></label>
+                <textarea rows={2} value={createMeta.description} onChange={e => setCreateMeta(m => ({ ...m, description: e.target.value }))}
+                  placeholder="Who is this for, and what's the goal?"
+                  className="w-full px-4 py-3 text-[13px] rounded-xl bg-gray-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:border-gray-900 dark:focus:border-white outline-none resize-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">From name</label>
+                  <input value={createMeta.from_name} onChange={e => setCreateMeta(m => ({ ...m, from_name: e.target.value }))}
+                    placeholder={profile?.username || 'Your name'}
+                    className="w-full px-4 py-3 text-[13px] rounded-xl bg-gray-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:border-gray-900 dark:focus:border-white outline-none" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Reply-to</label>
+                  <input type="email" value={createMeta.reply_to} onChange={e => setCreateMeta(m => ({ ...m, reply_to: e.target.value }))}
+                    placeholder={gmailConn?.email_address || 'you@company.com'}
+                    className="w-full px-4 py-3 text-[13px] rounded-xl bg-gray-50/60 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:border-gray-900 dark:focus:border-white outline-none" />
+                </div>
+              </div>
+              <button disabled={!createMeta.name.trim()} onClick={() => setCreateStep(2)}
+                className="w-full px-4 py-3 text-[14px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90 disabled:opacity-40">Continue →</button>
+            </div>
+          ) : (
+            <div className="max-w-4xl mx-auto px-6 py-12">
+              <h2 className="text-center text-[18px] font-bold text-gray-900 dark:text-white mb-2">Start from</h2>
+              <p className="text-center text-[13px] text-gray-500 mb-8">A template gives you a working campaign you can edit — not a blank grid.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {SEQ_TEMPLATES.map(tpl => (
+                  <button key={tpl.key} onClick={async () => { setShowCreateFlow(false); setCreateStep(1); await handleCreateFromTemplate(tpl, createMeta); setCreateMeta({ name: '', description: '', from_name: '', reply_to: '' }); }}
+                    className="text-left p-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all group">
+                    <p className="text-[14px] font-bold text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400">{tpl.emoji} {tpl.name}</p>
+                    <p className="text-[12px] text-gray-500 mt-1 mb-3">{tpl.desc}</p>
+                    {/* tiny shape preview so users see what they're choosing */}
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {tpl.nodes.slice(0, 9).map((n, i) => (
+                        <span key={i} className="flex items-center gap-1">
+                          <span className="w-6 h-6 grid place-items-center rounded-md bg-gray-100 dark:bg-gray-800 text-[11px]">{NODE_META[n.node_type]?.emoji || '✉'}</span>
+                          {i < Math.min(tpl.nodes.length, 9) - 1 && <span className="text-gray-300 dark:text-gray-600 text-[10px]">→</span>}
+                        </span>
+                      ))}
+                      {tpl.nodes.length > 9 && <span className="text-[10px] text-gray-400">+{tpl.nodes.length - 9}</span>}
+                    </div>
+                  </button>
+                ))}
+                <button onClick={async () => { setShowCreateFlow(false); setCreateStep(1); await createBlankCampaign(createMeta); setCreateMeta({ name: '', description: '', from_name: '', reply_to: '' }); }}
+                  className="text-left p-5 rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 transition-all">
+                  <p className="text-[14px] font-bold text-gray-900 dark:text-white">▦ Blank canvas</p>
+                  <p className="text-[12px] text-gray-500 mt-1">Just a trigger node — build the rest yourself.</p>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* KEYBOARD HELP MODAL (Feature 28) */}
       {showKeyboardHelp && (
