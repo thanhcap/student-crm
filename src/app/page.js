@@ -470,6 +470,257 @@ function CountUp({ value, suffix = '' }) {
   return <>{n}{suffix}</>;
 }
 
+// ==========================================
+// V4 PART 6 — MARKETING LANDING PAGE
+// Shown to logged-out visitors at "/" (appStep === 'LANDING'). Authenticated
+// sessions never see it — checkSession routes them straight to the Dashboard.
+// Product visuals are CSS-built mockups (no /marketing/*.png assets exist yet;
+// broken images on a revenue-critical page would be worse than stylized mocks).
+// ==========================================
+
+function MockWindow({ children, className = '' }) {
+  return (
+    <div className={`rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-2xl overflow-hidden ${className}`}>
+      <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-950/60">
+        <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
+        <span className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
+        <span className="w-2.5 h-2.5 rounded-full bg-green-400" />
+      </div>
+      <div className="p-5 sm:p-6" style={{ aspectRatio: '16/9' }}>{children}</div>
+    </div>
+  );
+}
+
+// Miniature automation-canvas mock: trigger → email → wait → condition → yes/no
+function MockCanvas() {
+  const node = (emoji, label, sub, border) => (
+    <div className={`w-40 sm:w-44 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 border-l-4 ${border} shadow-sm px-2.5 py-1.5 text-left`}>
+      <p className="text-[10px] font-bold text-gray-900 dark:text-gray-100">{emoji} {label}</p>
+      <p className="text-[9px] text-gray-400 truncate">{sub}</p>
+    </div>
+  );
+  return (
+    <div className="w-full h-full rounded-lg bg-gray-50 dark:bg-gray-950 relative overflow-hidden flex items-center justify-center"
+      style={{ backgroundImage: 'radial-gradient(circle, rgba(148,163,184,0.3) 1px, transparent 1px)', backgroundSize: '18px 18px' }}>
+      <div className="flex flex-col items-center gap-0">
+        {node('⚡', 'Trigger', 'Deal marked Won', 'border-l-purple-500')}
+        <div className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
+        {node('✉️', 'Email', '“Welcome aboard, {{first_name}}!”', 'border-l-blue-500')}
+        <div className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
+        {node('⏱', 'Wait', '3 days', 'border-l-gray-400')}
+        <div className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
+        {node('🔀', 'Condition', 'If no reply yet', 'border-l-amber-500')}
+        <div className="flex gap-10 mt-3">
+          <div className="flex flex-col items-center">
+            <span className="text-[8px] font-bold text-white bg-green-500 rounded-full px-1.5 py-0.5 mb-1">Yes</span>
+            {node('✉️', 'Follow-up', '“Quick follow-up…”', 'border-l-blue-500')}
+          </div>
+          <div className="flex flex-col items-center">
+            <span className="text-[8px] font-bold text-white bg-gray-400 rounded-full px-1.5 py-0.5 mb-1">No</span>
+            {node('🎯', 'Goal', 'Replied — stop', 'border-l-emerald-500')}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MockTable() {
+  const rows = [
+    ['An Nguyen', 'Meridian Labs', 'Active', 'bg-green-500', 86],
+    ['Priya Shah', 'Northwind', 'Engaged', 'bg-blue-500', 74],
+    ['Tomás Rivera', 'Atlas & Co', 'Contacted', 'bg-yellow-400', 58],
+    ['Mai Tran', 'Brightpath', 'New', 'bg-gray-400', 41],
+  ];
+  return (
+    <div className="w-full h-full flex flex-col gap-2 justify-center">
+      {rows.map(([name, co, stage, dot, score]) => (
+        <div key={name} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+          <span className="w-7 h-7 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[9px] font-bold flex items-center justify-center shrink-0">{name.slice(0, 2).toUpperCase()}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold text-gray-900 dark:text-gray-100 truncate">{name}</p>
+            <p className="text-[9px] text-blue-500 truncate">{co} ↗</p>
+          </div>
+          <span className="flex items-center gap-1 text-[9px] text-gray-500"><span className={`w-1.5 h-1.5 rounded-full ${dot}`} />{stage}</span>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900">{score}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MockKanban() {
+  const cols = [
+    ['Proposal', ['Website revamp — $4.2k', 'Retainer — $1.8k/mo']],
+    ['Negotiation', ['Brand kit — $2.5k']],
+    ['Won 🎉', ['Onboarding pack — $3.6k', 'Audit — $900']],
+  ];
+  return (
+    <div className="w-full h-full grid grid-cols-3 gap-3">
+      {cols.map(([title, cards]) => (
+        <div key={title} className="rounded-lg bg-gray-50 dark:bg-gray-950 border border-gray-100 dark:border-gray-800 p-2">
+          <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-2">{title}</p>
+          <div className="space-y-1.5">
+            {cards.map(c => (
+              <div key={c} className="px-2 py-1.5 rounded-md bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm text-[9px] font-medium text-gray-700 dark:text-gray-300">{c}</div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MockReport() {
+  const bars = [35, 55, 42, 70, 62, 88, 95];
+  return (
+    <div className="w-full h-full flex flex-col justify-center gap-4">
+      <div className="grid grid-cols-3 gap-3">
+        {[['Pipeline', '$18.4k'], ['Win rate', '38%'], ['Replies', '27']].map(([l, v]) => (
+          <div key={l} className="rounded-lg border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 px-3 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-gray-400">{l}</p>
+            <p className="text-[15px] font-bold text-gray-900 dark:text-gray-100">{v}</p>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-end gap-2 h-24 px-2">
+        {bars.map((h, i) => (
+          <div key={i} className="flex-1 rounded-t bg-indigo-500/80" style={{ height: `${h}%` }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MockReplies() {
+  const rows = [
+    ['Priya Shah', 'Re: Idea for Northwind — “Yes, let’s talk Tuesday”'],
+    ['Tomás Rivera', 'Re: Quick follow-up — “Send over the deck”'],
+    ['An Nguyen', 'Re: Welcome aboard — “Thanks! Excited to start”'],
+  ];
+  return (
+    <div className="w-full h-full flex flex-col gap-2 justify-center">
+      {rows.map(([name, msg]) => (
+        <div key={name} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-green-100 dark:border-green-900/50 bg-green-50/50 dark:bg-green-950/20">
+          <span className="w-7 h-7 rounded-full bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-400 text-[9px] font-bold flex items-center justify-center shrink-0">{name.slice(0, 2).toUpperCase()}</span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-gray-900 dark:text-gray-100">{name} <span className="text-[8px] font-bold uppercase text-green-600">Replied</span></p>
+            <p className="text-[9px] text-gray-500 truncate">{msg}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LandingPage({ onLogin, onSignup }) {
+  const tabs = [
+    { key: 'relationships', label: 'Relationships', copy: 'Every contact, full history, one click away — no more digging through email threads.', mock: <MockTable /> },
+    { key: 'deals', label: 'Deals Pipeline', copy: 'Drag deals across stages. Won deals auto-trigger onboarding emails — no manual step.', mock: <MockKanban /> },
+    { key: 'automation', label: 'Email Automation', copy: 'Multi-step, multichannel campaigns that send themselves and stop the moment someone replies.', mock: <MockCanvas /> },
+    { key: 'replies', label: 'Who Replied', copy: 'Every reply across every campaign in one list — jump straight to the relationship and close.', mock: <MockReplies /> },
+    { key: 'reports', label: 'Reports', copy: 'Pipeline value, win rate, activity trends — the numbers that actually matter, at a glance.', mock: <MockReport /> },
+  ];
+  const [activeTab, setActiveTab] = useState(tabs[0].key);
+  const tab = tabs.find(t => t.key === activeTab);
+  const capabilities = [
+    { label: 'Automatic Outreach', headline: 'Set it up once. It runs while you sleep.', copy: 'A cron-driven engine sends every due step inside your send window, respects your daily caps, and honors unsubscribes automatically. You wake up to replies, not to a to-do list.', mock: <MockCanvas />, reverse: false },
+    { label: 'Relationship Intelligence', headline: 'Know exactly who needs attention today.', copy: 'Lead scores from real engagement signals, health tracking, and smart follow-up suggestions surface the handful of people worth your next hour.', mock: <MockTable />, reverse: true },
+    { label: 'Deals that trigger action', headline: 'Won isn’t the end — it’s a trigger.', copy: 'Drag a deal to Won and the onboarding sequence starts itself. Stage changes, new relationships, and tags can all fire campaigns automatically.', mock: <MockKanban />, reverse: false },
+    { label: 'Reporting', headline: 'Every number a founder actually checks, in one place.', copy: 'Pipeline value, win rate, source breakdowns, and campaign funnels — no spreadsheet gymnastics, no export step.', mock: <MockReport />, reverse: true },
+  ];
+  return (
+    <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-white font-sans">
+      {/* NAV */}
+      <nav className="sticky top-0 z-20 bg-white/90 dark:bg-gray-950/90 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800">
+        <div className="max-w-5xl mx-auto px-6 py-3.5 flex items-center gap-4">
+          <span className="text-[15px] font-bold tracking-tight">Student CRM</span>
+          <a href="/pricing" className="ml-auto text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Pricing</a>
+          <button onClick={onLogin} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Log in</button>
+          <button onClick={onSignup} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Start Free</button>
+        </div>
+      </nav>
+
+      {/* HERO */}
+      <section className="max-w-5xl mx-auto px-6 pt-20 sm:pt-24 pb-16 text-center">
+        <h1 className="text-[38px] sm:text-[56px] font-bold tracking-tight leading-[1.05] mb-5">
+          Outreach that runs itself.<br />Relationships that don’t slip through.
+        </h1>
+        <p className="text-[16px] sm:text-[17px] text-gray-500 dark:text-gray-400 max-w-xl mx-auto mb-8">
+          A CRM built for people who’d rather be talking to prospects than clicking “send” 100 times.
+        </p>
+        <div className="flex items-center justify-center gap-3 mb-14">
+          <button onClick={onSignup} className="px-6 py-3 text-[14px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Start Free</button>
+          <a href="/pricing" className="px-6 py-3 text-[14px] font-semibold border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-900">See Pricing</a>
+        </div>
+        <MockWindow><MockCanvas /></MockWindow>
+      </section>
+
+      {/* PROOF STRIP */}
+      <section className="border-y border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
+        <div className="max-w-5xl mx-auto px-6 py-10 grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
+          {[['100+', 'contacts auto-emailed while you sleep'], ['LinkedIn + Email', 'multichannel steps in one canvas'], ['0 manual clicks', 'once a campaign is active']].map(([v, s]) => (
+            <div key={v}>
+              <p className="text-[22px] font-bold">{v}</p>
+              <p className="text-[13px] text-gray-500">{s}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* TABBED FEATURE SHOWCASE */}
+      <section className="max-w-5xl mx-auto px-6 py-20">
+        <h2 className="text-center text-[28px] sm:text-[32px] font-bold tracking-tight mb-8">One tool. The whole outreach loop.</h2>
+        <div className="flex flex-wrap justify-center gap-2 mb-6">
+          {tabs.map(t => (
+            <button key={t.key} onClick={() => setActiveTab(t.key)}
+              className={`px-4 py-2 text-[13px] font-semibold rounded-full transition-colors ${activeTab === t.key ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-center text-[15px] text-gray-500 max-w-md mx-auto mb-6">{tab.copy}</p>
+        <MockWindow>{tab.mock}</MockWindow>
+      </section>
+
+      {/* CAPABILITY SECTIONS */}
+      {capabilities.map(c => (
+        <section key={c.label} className="max-w-5xl mx-auto px-6 py-14">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+            <div className={c.reverse ? 'lg:order-2' : ''}>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-500 mb-2">{c.label}</p>
+              <h2 className="text-[26px] sm:text-[28px] font-bold mb-3">{c.headline}</h2>
+              <p className="text-[15px] text-gray-500 dark:text-gray-400">{c.copy}</p>
+            </div>
+            <div className={c.reverse ? 'lg:order-1' : ''}>
+              <MockWindow className="shadow-lg">{c.mock}</MockWindow>
+            </div>
+          </div>
+        </section>
+      ))}
+
+      {/* FINAL CTA */}
+      <section className="bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-20 text-center mt-8">
+        <h2 className="text-[28px] sm:text-[32px] font-bold mb-6 px-6">Stop clicking “send” 100 times a day.</h2>
+        <div className="flex items-center justify-center gap-3">
+          <button onClick={onSignup} className="px-6 py-3 text-[14px] font-semibold bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl hover:opacity-90">Start Free</button>
+          <a href="/pricing" className="px-6 py-3 text-[14px] font-semibold border border-white/30 dark:border-gray-900/30 rounded-xl hover:bg-white/10 dark:hover:bg-gray-900/10">See Pricing</a>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="border-t border-gray-100 dark:border-gray-800">
+        <div className="max-w-5xl mx-auto px-6 py-8 flex flex-wrap items-center gap-4 text-[12px] text-gray-400">
+          <span className="font-semibold text-gray-500 dark:text-gray-400">Student CRM</span>
+          <a href="/pricing" className="hover:text-gray-900 dark:hover:text-gray-100">Pricing</a>
+          <button onClick={onLogin} className="hover:text-gray-900 dark:hover:text-gray-100">Log in</button>
+          <span className="ml-auto">© {new Date().getFullYear()} Student CRM</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
 export default function App() {
   const router = useRouter();
   
@@ -1052,7 +1303,19 @@ export default function App() {
   async function checkSession() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-      setAppStep('LOG_IN');
+      // V4 Part 6 — logged-out visitors land on the marketing page; /pricing's
+      // "Start Free" deep-links to signup via ?signup=1. Existing users just
+      // click "Log in" — the auth flow itself is untouched.
+      const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      if (params?.get('signup') === '1') {
+        window.history.replaceState({}, '', '/');
+        setAppStep('SIGN_UP');
+      } else if (params?.get('login') === '1') {
+        window.history.replaceState({}, '', '/');
+        setAppStep('LOG_IN');
+      } else {
+        setAppStep('LANDING');
+      }
       return;
     }
     setUser(session.user);
@@ -4022,6 +4285,11 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  // V4 Part 6 — marketing page for logged-out visitors (its own full surface)
+  if (appStep === 'LANDING') {
+    return <LandingPage onLogin={() => { setAppStep('LOG_IN'); setAuthMessage(''); }} onSignup={() => { setAppStep('SIGN_UP'); setAuthMessage(''); }} />;
   }
 
   return (

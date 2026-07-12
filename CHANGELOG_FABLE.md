@@ -174,3 +174,17 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - Manual Send Email composer: full-viewport with sticky Cancel header and a readable `max-w-2xl` writing column (converted in the Part 1 pass; internals/Gmail-tab send byte-for-byte unchanged).
 - Campaign step editor: the canvas config panel now widens to 480px when the selected node is an email step (other node types keep 300px) — real writing room without leaving the canvas.
 - **Manual test:** select an email node → panel is visibly wider; select a wait node → back to compact; Send Email from a profile opens the full-page composer prefilled.
+
+## Part 6 — Landing page
+- Logged-out visitors hitting `/` now land on a marketing page (`appStep === 'LANDING'`); authenticated sessions go straight to the Dashboard as before (login flow untouched). `/?signup=1` and `/?login=1` deep-link into the auth forms (used by /pricing).
+- Sections: sticky nav (Pricing · Log in · Start Free), hero with headline + CSS-built automation-canvas mockup in a browser-chrome frame, proof strip, 5-tab interactive feature showcase (Relationships / Deals / Automation / Who Replied / Reports — each with its own CSS product mockup), 4 alternating capability sections, dark final CTA banner, footer.
+- Product visuals are CSS mockups, not images — no `/marketing/*.png` assets exist, and broken images on a revenue-critical page would be worse (noted as an upgrade path for real screenshots/video later).
+- Fully responsive (single column < lg), dark-mode aware, no layout shift (aspect-ratio frames).
+- **Manual test (browser-verified):** `/` logged-out shows the landing at 1280px and 375px (no horizontal scroll); Start Free → signup form; `/?signup=1` deep link lands on signup with URL cleaned.
+
+## Part 7 — Pricing page
+- New public route `/pricing` (static, self-contained — doesn't import the app bundle). Nav links back to `/`, `/?login=1`, `/?signup=1`.
+- Monthly/Annual toggle (−10%), 3 tier cards (Free $0 / Pro $19 recommended / Team $39 per-seat) — marketing-only for now: Step 0 confirmed no plan-gating exists in the app yet, so tiers describe the roadmap SKUs without enforcing limits.
+- Cinematic Email Automation pitch: the page's largest visual (full sequence canvas mock with Yes/No branches), gradient background, extra vertical whitespace, 0-clicks/auto-stop/2-channels stat row — deliberately slower-paced than the rest.
+- Grouped comparison accordion (Core CRM open by default; Email Automation, AI, Team & Security) and a 4-question FAQ accordion; dark final CTA.
+- **Manual test (browser-verified):** `/pricing` renders all sections; accordion + toggle interactive; tier CTAs deep-link to signup; dark-mode classes on every element.
