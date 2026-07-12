@@ -349,6 +349,35 @@ function companyFaviconUrl(companyUrl, size = 64) {
   } catch { return null; }
 }
 
+// PART 2 (v4) — company is ALWAYS a real link: the company_url when set,
+// otherwise a LinkedIn company search for the name. Handles both relationship
+// clients (company_name/company_url) and cold contacts (company).
+function companyLinkFor(contact) {
+  if (contact?.company_url) {
+    const url = contact.company_url.trim();
+    return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  }
+  const name = contact?.company_name || contact?.company;
+  if (name) return `https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(name)}`;
+  return null;
+}
+
+function CompanyLink({ client, className = '' }) {
+  const name = client?.company_name || client?.company;
+  if (!name) return null;
+  const href = companyLinkFor(client);
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer"
+       onClick={e => e.stopPropagation()} /* rows that open the profile shouldn't swallow this click */
+       className={`inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline ${className}`}>
+      {name}
+      <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+      </svg>
+    </a>
+  );
+}
+
 // G20 — multi-currency (static rates, display-only directional context)
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'VND', 'JPY', 'AUD', 'CAD'];
 const FX_TO_USD = { USD: 1, EUR: 1.09, GBP: 1.27, VND: 0.000039, JPY: 0.0067, AUD: 0.66, CAD: 0.73 };
@@ -682,6 +711,17 @@ export default function App() {
   const [coldImportLoading, setColdImportLoading] = useState(false);
   const [coldDraft, setColdDraft] = useState({ email: '', first_name: '', last_name: '', company: '', title: '', linkedin_url: '' });
   const [coldEnrollSeqId, setColdEnrollSeqId] = useState('');
+  // V4 Part 3 — "Who Has Replied?" cross-campaign view (null seq filter = all campaigns)
+  const [showWhoRepliedView, setShowWhoRepliedView] = useState(false);
+  const [whoRepliedSeqFilter, setWhoRepliedSeqFilter] = useState(null);
+  // V4 Part 4 — CRM-connected enroll panel
+  const [showEnrollPanel, setShowEnrollPanel] = useState(null); // sequence id or null
+  const [enrollFilterStatus, setEnrollFilterStatus] = useState('All');
+  const [enrollFilterPriority, setEnrollFilterPriority] = useState('All');
+  const [enrollFilterSource, setEnrollFilterSource] = useState('All');
+  const [enrollFilterScoreMin, setEnrollFilterScoreMin] = useState(0);
+  const [enrollSearchTerm, setEnrollSearchTerm] = useState('');
+  const [enrollFilterTags, setEnrollFilterTags] = useState([]);
   const [stepEdit, setStepEdit] = useState(null); // inline editor: full step draft
   const [enrollMulti, setEnrollMulti] = useState({}); // sequenceId -> Set-ish {clientId: true}
   const repliesCheckedRef = useRef(false);
@@ -3429,29 +3469,36 @@ export default function App() {
 
   // Part 3B — bulk-enroll many relationships into a sequence in ONE batched insert.
   // The auto-send runner picks them up on its next tick; no per-row "Send Now" needed.
-  const handleBulkEnrollInSequence = async (sequenceId) => {
-    const seq = sequences.find(s => String(s.id) === String(sequenceId));
-    if (!seq) return;
+  // V4 Part 4 — one batched insert, shared by the table bulk bar AND the enroll panel
+  const bulkEnrollClientsInSequence = async (seq, clientIds) => {
+    if (!seq) return 0;
     const steps = seqStepsFor(seq.id);
-    if (steps.length === 0) { showToast('That sequence has no steps yet.', 'error'); return; }
+    if (steps.length === 0) { showToast('That sequence has no steps yet.', 'error'); return 0; }
     const first = addDaysStr(steps[0].wait_days);
     // skip relationships already actively enrolled in this sequence, and those with no email
-    const targets = selectedClientIds.filter(cid => {
+    const targets = clientIds.filter(cid => {
       const c = clients.find(x => x.id === cid);
       if (!c || !c.email) return false;
       return !sequenceEnrollments.some(en => en.sequence_id === seq.id && en.client_id === cid && en.status === 'active');
     });
-    if (targets.length === 0) { showToast('Nothing to enroll (already enrolled or missing email).', 'error'); return; }
+    if (targets.length === 0) { showToast('Nothing to enroll (already enrolled or missing email).', 'error'); return 0; }
     const rows = targets.map(cid => ({
       sequence_id: seq.id, client_id: cid, user_id: user.id,
       status: 'active', current_step: 0, next_send_at: first,
     }));
     const { data, error } = await supabase.from('sequence_enrollments').insert(rows).select();
-    if (error) { showToast(`Bulk enroll error: ${error.message}`, 'error'); return; }
+    if (error) { showToast(`Bulk enroll error: ${error.message}`, 'error'); return 0; }
     setSequenceEnrollments(prev => [...prev, ...data]);
-    const skipped = selectedClientIds.length - targets.length;
+    const skipped = clientIds.length - targets.length;
     showToast(`Enrolled ${data.length} in "${seq.name}"${skipped ? ` · ${skipped} skipped` : ''}. They send automatically.`, 'success');
-    setSelectedClientIds([]);
+    return data.length;
+  };
+
+  const handleBulkEnrollInSequence = async (sequenceId) => {
+    const seq = sequences.find(s => String(s.id) === String(sequenceId));
+    if (!seq) return;
+    const n = await bulkEnrollClientsInSequence(seq, selectedClientIds);
+    if (n > 0) setSelectedClientIds([]);
   };
 
   // ==========================================
@@ -3582,47 +3629,61 @@ export default function App() {
     return m;
   }, [relationshipHealth]);
 
+  // V4 Part 4 — ONE predicate shared by the main relationships table AND the enroll
+  // panel, so "filter" means the same thing everywhere. All data dependencies are
+  // passed via opts to keep it referentially honest.
+  function matchesClientFilters(client, opts) {
+    const {
+      search = '', priority = 'All', status = 'All', tagIds = [], source = '',
+      health = null, dateAdded = null, hasDeals = false, hasActivity = null,
+      score = null, scoreMin = 0,
+      clientTagMap = {}, healthByClientId = {}, deals = [], activities = [],
+    } = opts;
+    if (!client || typeof client !== 'object') return false;
+    const q = search.toLowerCase();
+    const matchesSearch = !q || (client.name || '').toLowerCase().includes(q) || (client.email || '').toLowerCase().includes(q) || (client.country || '').toLowerCase().includes(q) || (client.company_name || '').toLowerCase().includes(q);
+    const matchesPriority = priority === 'All' || client.relationship === priority;
+    const matchesStatus = status === 'All' || client.status === status;
+    const matchesTags = tagIds.length === 0 || tagIds.every(id => (clientTagMap[client.id] || []).includes(id));
+    const matchesHealth = !health || healthByClientId[client.id] === health;
+    let matchesDateAdded = true;
+    if (dateAdded) {
+      const created = new Date(client.created_at || 0);
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (dateAdded === 'today') matchesDateAdded = created >= startOfDay;
+      if (dateAdded === 'this_week') { const d = new Date(startOfDay); d.setDate(d.getDate() - d.getDay()); matchesDateAdded = created >= d; }
+      if (dateAdded === 'this_month') matchesDateAdded = created >= new Date(now.getFullYear(), now.getMonth(), 1);
+      if (dateAdded === 'this_quarter') matchesDateAdded = created >= new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+    }
+    const matchesHasDeals = !hasDeals || deals.some(d => d.client_id === client.id);
+    const matchesSource = !source || source === 'All' || (source === 'Unknown' ? !client.source : client.source === source);
+    let matchesHasActivity = true;
+    if (hasActivity) {
+      const acts = activities.filter(a => a.client_id === client.id);
+      if (hasActivity === 'none') matchesHasActivity = acts.length === 0;
+      else {
+        const days = hasActivity === 'last_7' ? 7 : 30;
+        const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+        matchesHasActivity = acts.some(a => new Date(a.activity_date) >= cutoff);
+      }
+    }
+    let matchesScore = true;
+    if (score === 'high') matchesScore = client.leadScore >= 75;
+    if (score === 'medium') matchesScore = client.leadScore >= 50 && client.leadScore < 75;
+    if (score === 'low') matchesScore = client.leadScore < 50;
+    if (scoreMin > 0) matchesScore = matchesScore && (client.leadScore ?? 0) >= scoreMin;
+    return matchesSearch && matchesPriority && matchesStatus && matchesTags && matchesHealth && matchesDateAdded && matchesHasDeals && matchesHasActivity && matchesScore && matchesSource;
+  }
+
   const filteredAndSortedClients = useMemo(() => (clientsWithScores || [])
     .filter(Boolean)
-    .filter(client => {
-      if (!client || typeof client !== 'object') return false;
-      const matchesSearch = (client.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (client.email || '').toLowerCase().includes(searchTerm.toLowerCase()) || (client.country || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesPriority = filterPriority === 'All' || client.relationship === filterPriority;
-      const matchesStatus = filterStatus === 'All' || client.status === filterStatus;
-      // FEATURE 9 — tag filter (client must have every selected tag)
-      const matchesTags = filterTags.length === 0 || filterTags.every(id => (clientTagMap[client.id] || []).includes(id));
-      // FEATURE 19 — health filter
-      const matchesHealth = !filterHealth || healthByClientId[client.id] === filterHealth;
-      // FEATURE 29 — advanced filters
-      let matchesDateAdded = true;
-      if (filterDateAdded) {
-        const created = new Date(client.created_at || 0);
-        const now = new Date();
-        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        if (filterDateAdded === 'today') matchesDateAdded = created >= startOfDay;
-        if (filterDateAdded === 'this_week') { const d = new Date(startOfDay); d.setDate(d.getDate() - d.getDay()); matchesDateAdded = created >= d; }
-        if (filterDateAdded === 'this_month') matchesDateAdded = created >= new Date(now.getFullYear(), now.getMonth(), 1);
-        if (filterDateAdded === 'this_quarter') matchesDateAdded = created >= new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
-      }
-      const matchesHasDeals = !filterHasDeals || deals.some(d => d.client_id === client.id);
-      // PART C3 — source filter ('Unknown' matches clients with no source)
-      const matchesSource = !filterSource || (filterSource === 'Unknown' ? !client.source : client.source === filterSource);
-      let matchesHasActivity = true;
-      if (filterHasActivity) {
-        const acts = activities.filter(a => a.client_id === client.id);
-        if (filterHasActivity === 'none') matchesHasActivity = acts.length === 0;
-        else {
-          const days = filterHasActivity === 'last_7' ? 7 : 30;
-          const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
-          matchesHasActivity = acts.some(a => new Date(a.activity_date) >= cutoff);
-        }
-      }
-      let matchesScore = true;
-      if (filterScore === 'high') matchesScore = client.leadScore >= 75;
-      if (filterScore === 'medium') matchesScore = client.leadScore >= 50 && client.leadScore < 75;
-      if (filterScore === 'low') matchesScore = client.leadScore < 50;
-      return matchesSearch && matchesPriority && matchesStatus && matchesTags && matchesHealth && matchesDateAdded && matchesHasDeals && matchesHasActivity && matchesScore && matchesSource;
-    }).sort((a, b) => {
+    .filter(client => matchesClientFilters(client, {
+      search: searchTerm, priority: filterPriority, status: filterStatus, tagIds: filterTags,
+      source: filterSource, health: filterHealth, dateAdded: filterDateAdded,
+      hasDeals: filterHasDeals, hasActivity: filterHasActivity, score: filterScore,
+      clientTagMap, healthByClientId, deals, activities,
+    })).sort((a, b) => {
       if (!a || !b) return 0;
       if (sortBy === 'created_at_desc') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
       if (sortBy === 'created_at_asc') return new Date(a.created_at || 0) - new Date(b.created_at || 0);
@@ -3637,6 +3698,36 @@ export default function App() {
     filterPriority !== 'All', filterStatus !== 'All', filterDateAdded, filterHasDeals,
     filterHasActivity, filterScore, filterTags.length > 0, filterHealth, filterSource,
   ].filter(Boolean).length;
+
+  // V4 Part 3 — every reply across every campaign, straight from sequence_sends
+  // (already loaded client-side; replied_at is stamped by gmail-sync / the runner).
+  const repliesWithContact = useMemo(() => {
+    return (sequenceSends || [])
+      .filter(s => s.replied_at && (!whoRepliedSeqFilter || s.sequence_id === whoRepliedSeqFilter))
+      .sort((a, b) => new Date(b.replied_at) - new Date(a.replied_at))
+      .map(r => {
+        const contact = r.client_id != null
+          ? clients.find(c => c.id === r.client_id)
+          : coldContacts.find(cc => cc.id === r.cold_contact_id);
+        return {
+          ...r, contact, isColdContact: r.cold_contact_id != null,
+          seqName: sequences.find(q => q.id === r.sequence_id)?.name || 'campaign',
+          stepSubject: sequenceSteps.find(st => st.id === r.step_id)?.subject || '',
+        };
+      })
+      .filter(r => r.contact);
+  }, [sequenceSends, whoRepliedSeqFilter, clients, coldContacts, sequences, sequenceSteps]);
+  const allRepliesCount = useMemo(() => (sequenceSends || []).filter(s => s.replied_at).length, [sequenceSends]);
+
+  // V4 Part 4 — enroll panel: SAME predicate as the main table (matchesClientFilters)
+  const enrollMatchingClients = useMemo(() => {
+    if (!showEnrollPanel) return [];
+    return (clientsWithScores || []).filter(c => c && c.email && matchesClientFilters(c, {
+      search: enrollSearchTerm, status: enrollFilterStatus, priority: enrollFilterPriority,
+      source: enrollFilterSource, tagIds: enrollFilterTags, scoreMin: enrollFilterScoreMin,
+      clientTagMap, healthByClientId, deals, activities,
+    }));
+  }, [showEnrollPanel, clientsWithScores, enrollSearchTerm, enrollFilterStatus, enrollFilterPriority, enrollFilterSource, enrollFilterTags, enrollFilterScoreMin, clientTagMap, healthByClientId, deals, activities]);
 
   const BUILT_IN_VIEWS = [
     { name: 'High Priority', filters: { filterPriority: 'High' } },
@@ -5092,6 +5183,7 @@ export default function App() {
                                     {client.quick_note && <span className="ml-1.5 text-[12px]" title={client.quick_note.slice(0, 60)}>📝</span>}
                                   </span>
                                   <span className="text-[11px] text-gray-400 block font-normal mt-0.5">{client.email}</span>
+                                  <CompanyLink client={client} className="text-[11px] mt-0.5" />
                                 </div>
                               </td>
                               <td className="p-4">
@@ -5982,12 +6074,14 @@ export default function App() {
                       }} className="w-full mt-1 px-2 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:opacity-90">▶ Enroll selected</button>
                     </div>
                   </details>
-                  {/* stats bar */}
+                  {/* V4 Part 4 — filter-driven bulk enroll */}
+                  <button onClick={() => { setShowEnrollPanel(editingSeq.id); setEnrollSearchTerm(''); setEnrollFilterStatus('All'); setEnrollFilterPriority('All'); setEnrollFilterSource('All'); setEnrollFilterScoreMin(0); setEnrollFilterTags([]); }} className="px-3 py-1.5 text-[12px] font-semibold border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">Enroll by filter</button>
+                  {/* stats bar — Replied is clickable (per-campaign who-replied, V4 Part 3) */}
                   <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] font-medium text-gray-500">
                     <span>Sent <b className="text-gray-900 dark:text-gray-100">{stats.Sent}</b></span>
                     <span>Opened <b className="text-blue-600 dark:text-blue-400">{stats.Opened}{stats.Sent > 0 ? ` (${Math.round((stats.Opened / stats.Sent) * 100)}%)` : ''}</b></span>
                     <span>Clicked <b className="text-indigo-600 dark:text-indigo-400">{stats.Clicked}</b></span>
-                    <span>Replied <b className="text-green-600 dark:text-green-400">{stats.Replied}</b></span>
+                    <button onClick={() => { setWhoRepliedSeqFilter(editingSeq.id); setShowWhoRepliedView(true); }} title="See who replied in this campaign" className="hover:underline decoration-green-400">Replied <b className="text-green-600 dark:text-green-400">{stats.Replied}</b></button>
                     <span>Unsubscribed <b className="text-red-500">{stats.Unsubscribed}</b></span>
                   </div>
                 </div>
@@ -6001,7 +6095,8 @@ export default function App() {
 
                 {/* Part 6 — the config column only reserves width when a node is selected;
                     the palette is a compact icon rail. Canvas fills the viewport height. */}
-                <div className={`grid grid-cols-1 gap-4 items-start ${selNode ? 'lg:grid-cols-[60px_1fr_300px]' : 'lg:grid-cols-[60px_1fr]'}`}>
+                {/* V4 Part 5.2 — email steps get a wide (480px) writing panel; other nodes keep 300px */}
+                <div className={`grid grid-cols-1 gap-4 items-start ${selNode ? ((selNode.node_type || 'email') === 'email' ? 'lg:grid-cols-[60px_1fr_480px]' : 'lg:grid-cols-[60px_1fr_300px]') : 'lg:grid-cols-[60px_1fr]'}`}>
                   {/* node palette — compact icon rail (label on hover) */}
                   <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-1.5 flex lg:flex-col gap-1 flex-wrap lg:sticky lg:top-4">
                     {NODE_PALETTE.map(t => (
@@ -6252,10 +6347,17 @@ export default function App() {
                   <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Email Automation</h1>
                   <p className="text-[13px] text-gray-500">Build multichannel sequences on a visual canvas — they enroll and send themselves.</p>
                 </div>
-                <div className="ml-auto flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
-                  {[['sequences', 'Sequences'], ['contacts', `Cold Contacts${coldContacts.length ? ` (${coldContacts.length})` : ''}`], ['unsubs', 'Unsubscribes']].map(([k, label]) => (
-                    <button key={k} onClick={() => setSeqView(k)} className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${seqView === k ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'}`}>{label}</button>
-                  ))}
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {/* V4 Part 3 — cross-campaign replies entry point, badge-counted */}
+                  <button onClick={() => { setWhoRepliedSeqFilter(null); setShowWhoRepliedView(true); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold border border-green-200 dark:border-green-900 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-950/60 transition-colors">
+                    💬 Who Has Replied?
+                    {allRepliesCount > 0 && <span className="px-1.5 py-0.5 rounded-full bg-green-600 text-white text-[10px] font-bold">{allRepliesCount}</span>}
+                  </button>
+                  <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
+                    {[['sequences', 'Sequences'], ['contacts', `Cold Contacts${coldContacts.length ? ` (${coldContacts.length})` : ''}`], ['unsubs', 'Unsubscribes']].map(([k, label]) => (
+                      <button key={k} onClick={() => setSeqView(k)} className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${seqView === k ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'}`}>{label}</button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -6431,7 +6533,7 @@ export default function App() {
                                     <p className="font-semibold text-gray-900 dark:text-gray-100">{[c.first_name, c.last_name].filter(Boolean).join(' ') || '—'}</p>
                                     <p className="text-[11px] text-gray-400">{c.email}{c.title ? ` · ${c.title}` : ''}</p>
                                   </td>
-                                  <td className="px-2 py-2.5 hidden md:table-cell text-gray-600 dark:text-gray-300">{c.company || '—'}</td>
+                                  <td className="px-2 py-2.5 hidden md:table-cell text-gray-600 dark:text-gray-300">{c.company ? <CompanyLink client={c} /> : '—'}</td>
                                   <td className="px-2 py-2.5"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${statusCls}`}>{c.status}</span></td>
                                   <td className="px-2 py-2.5 hidden sm:table-cell text-[11px] text-gray-400">{activeIn.length > 0 ? `${activeIn.length} active sequence${activeIn.length === 1 ? '' : 's'}` : enr.length > 0 ? 'finished' : '—'}</td>
                                   <td className="px-4 py-2.5 text-right">
@@ -7330,26 +7432,17 @@ export default function App() {
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Source</span>
                   <span className="font-semibold text-gray-800 dark:text-gray-200 block">{viewingClient.source || 'Unknown'}</span>
                 </div>
-                {/* PART F — company row with Visit link */}
+                {/* PART 2 (v4) — company is always a real link (url or LinkedIn search) */}
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Company</span>
                   {viewingClient.company_name || viewingClient.company_url ? (
-                    <span className="font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold flex items-center gap-2 flex-wrap">
                       {/* G17 — auto-fetched company logo */}
                       {companyFaviconUrl(viewingClient.company_url) && (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={companyFaviconUrl(viewingClient.company_url)} alt="" className="w-5 h-5 rounded" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
                       )}
-                      {viewingClient.company_name || '—'}
-                      {viewingClient.company_url && (
-                        <a
-                          href={viewingClient.company_url.startsWith('http') ? viewingClient.company_url : `https://${viewingClient.company_url}`}
-                          target="_blank" rel="noopener noreferrer"
-                          className="text-[12px] font-semibold text-indigo-600 hover:underline"
-                        >
-                          Visit ↗
-                        </a>
-                      )}
+                      <CompanyLink client={viewingClient} />
                     </span>
                   ) : (
                     <span className="text-gray-400 font-normal italic">Not specified</span>
@@ -8139,6 +8232,121 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* V4 PART 3 — WHO HAS REPLIED? (cross-campaign full-screen view) */}
+      {showWhoRepliedView && (
+        <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[95] overflow-y-auto animate-in fade-in duration-200">
+          <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between gap-3">
+            <button onClick={() => { setShowWhoRepliedView(false); setWhoRepliedSeqFilter(null); }} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 shrink-0"><span aria-hidden>←</span> Back to Email Automation</button>
+            <h1 className="text-[15px] font-bold text-gray-900 dark:text-white">Who Has Replied?{whoRepliedSeqFilter ? ` — ${sequences.find(q => q.id === whoRepliedSeqFilter)?.name || ''}` : ''}</h1>
+            {whoRepliedSeqFilter
+              ? <button onClick={() => setWhoRepliedSeqFilter(null)} className="text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0">Show all campaigns</button>
+              : <div className="w-40" />}
+          </div>
+          <div className="max-w-4xl mx-auto px-4 sm:px-8 py-8 space-y-3">
+            {repliesWithContact.length === 0 && (
+              <p className="text-[13px] text-gray-400 text-center py-12">No replies yet{whoRepliedSeqFilter ? ' in this campaign' : ' across any campaign'}. Replies are detected by Gmail sync and stop the sequence automatically.</p>
+            )}
+            {repliesWithContact.map(r => (
+              <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-400 flex items-center justify-center text-[13px] font-bold shrink-0">
+                    {(r.contact.name || r.contact.first_name || '?').slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold text-gray-900 dark:text-white truncate">
+                      {r.contact.name || `${r.contact.first_name ?? ''} ${r.contact.last_name ?? ''}`.trim() || r.contact.email}
+                      {r.isColdContact && <span className="ml-2 text-[10px] font-bold uppercase text-gray-400">Cold Contact</span>}
+                    </p>
+                    <CompanyLink client={r.contact} className="text-[12px]" />
+                    <p className="text-[11px] text-gray-400 mt-0.5">Replied to {r.stepSubject ? `“${r.stepSubject}”` : 'an email'} in {r.seqName} · {new Date(r.replied_at).toLocaleDateString()}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {!r.isColdContact && r.contact && <button onClick={() => { setShowWhoRepliedView(false); setViewingClient(clients.find(c => c.id === r.contact.id) || r.contact); }} className="px-3 py-1.5 text-[12px] font-semibold border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800">View Relationship</button>}
+                  {(() => {
+                    const enr = sequenceEnrollments.find(e2 => e2.id === r.enrollment_id);
+                    return enr && enr.status === 'active'
+                      ? <button onClick={() => handleStopEnrollment(enr)} className="px-3 py-1.5 text-[12px] font-semibold text-red-600 border border-red-200 dark:border-red-900 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30">Stop Sequence</button>
+                      : <span className="text-[11px] font-semibold text-gray-400 capitalize">{enr ? enr.status : 'stopped'}</span>;
+                  })()}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* V4 PART 4 — ENROLL BY FILTER (full-screen panel, same predicate as the main table) */}
+      {showEnrollPanel && (() => {
+        const seq = sequences.find(s => s.id === showEnrollPanel);
+        if (!seq) return null;
+        return (
+          <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[95] overflow-y-auto animate-in fade-in duration-200">
+            <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between gap-3">
+              <button onClick={() => setShowEnrollPanel(null)} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 shrink-0"><span aria-hidden>←</span> Back</button>
+              <h1 className="text-[15px] font-bold text-gray-900 dark:text-white truncate">Enroll in “{seq.name}”</h1>
+              <div className="w-16" />
+            </div>
+            <div className="max-w-4xl mx-auto px-4 sm:px-8 py-8">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                <select value={enrollFilterStatus} onChange={e => setEnrollFilterStatus(e.target.value)} className="px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none">
+                  <option value="All">All Stages</option>
+                  {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <select value={enrollFilterPriority} onChange={e => setEnrollFilterPriority(e.target.value)} className="px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none">
+                  <option value="All">All Priorities</option>
+                  {['High', 'Medium', 'Low'].map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <select value={enrollFilterSource} onChange={e => setEnrollFilterSource(e.target.value)} className="px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none">
+                  <option value="All">All Sources</option>
+                  {CLIENT_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <label className="flex items-center gap-2 px-3 py-2 text-[12px] text-gray-500 border border-gray-200 dark:border-gray-700 rounded-lg">
+                  Score ≥
+                  <input type="number" min="0" max="100" value={enrollFilterScoreMin} onChange={e => setEnrollFilterScoreMin(Math.max(0, parseInt(e.target.value, 10) || 0))} className="w-14 bg-transparent dark:text-white focus:outline-none" />
+                </label>
+                {tags.length > 0 && (
+                  <div className="col-span-2 sm:col-span-4 flex flex-wrap items-center gap-1.5">
+                    {tags.map(t => (
+                      <button key={t.id} onClick={() => setEnrollFilterTags(prev => prev.includes(t.id) ? prev.filter(x => x !== t.id) : [...prev, t.id])}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ring-1 ring-inset transition-all ${enrollFilterTags.includes(t.id) ? 'text-white ring-transparent' : 'text-gray-500 ring-gray-300 dark:ring-gray-600 hover:ring-gray-400'}`}
+                        style={enrollFilterTags.includes(t.id) ? { backgroundColor: t.color } : {}}>
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <input type="text" placeholder="Search name, email, company..." value={enrollSearchTerm} onChange={e => setEnrollSearchTerm(e.target.value)} className="col-span-2 sm:col-span-4 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500 rounded-lg focus:outline-none" />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-indigo-50 dark:bg-indigo-950/30 rounded-xl mb-4">
+                <span className="text-[13px] font-semibold text-indigo-700 dark:text-indigo-300">{enrollMatchingClients.length} relationships match these filters</span>
+                <button disabled={enrollMatchingClients.length === 0} onClick={async () => {
+                  const n = await bulkEnrollClientsInSequence(seq, enrollMatchingClients.map(c => c.id));
+                  if (n > 0) setShowEnrollPanel(null);
+                }} className="px-4 py-2 text-[13px] font-semibold text-white bg-indigo-600 rounded-xl hover:opacity-90 disabled:opacity-40">Enroll All Matching</button>
+              </div>
+
+              <div className="space-y-1.5">
+                {enrollMatchingClients.slice(0, 100).map(c => {
+                  const already = sequenceEnrollments.some(en => en.sequence_id === seq.id && en.client_id === c.id && en.status === 'active');
+                  return (
+                    <div key={c.id} className={`flex items-center gap-3 px-3 py-2 rounded-xl border border-gray-100 dark:border-gray-800 text-[13px] ${already ? 'opacity-50' : ''}`}>
+                      <span className="font-semibold text-gray-900 dark:text-gray-100 truncate">{c.name}</span>
+                      <span className="text-[11px] text-gray-400 truncate">{c.email}</span>
+                      <CompanyLink client={c} className="text-[11px] hidden sm:inline-flex" />
+                      <span className="ml-auto text-[11px] font-bold text-gray-500 shrink-0" title="Lead score">{c.leadScore ?? 0}</span>
+                      {already && <span className="text-[10px] font-bold uppercase text-gray-400 shrink-0">Enrolled</span>}
+                    </div>
+                  );
+                })}
+                {enrollMatchingClients.length > 100 && <p className="text-[11px] text-gray-400 text-center py-2">…and {enrollMatchingClients.length - 100} more (all will be enrolled)</p>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* KEYBOARD HELP MODAL (Feature 28) */}
       {showKeyboardHelp && (

@@ -153,3 +153,24 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **Relationship profile**: full-viewport surface, sticky header (Back to Relationships · Send Email · Export PDF · Edit), `max-w-6xl` two-column layout — 320px sticky identity/contact/custom-fields/referrals/quick-note sidebar + tabbed (Activity/Tasks/Files/Deals) main column with underline-style tabs. Collapses to one column on mobile (sidebar stacks above tabs, header stays sticky). Bounded dark-mode pass applied to the whole block (it was previously white-only even in dark mode).
 - **Converted with the same sticky-header/Back pattern**: Edit Relationship, Deal form, Email composer (`max-w-2xl` readable writing column), Bulk email, CSV import preview (`max-w-5xl`), Merge tool, Goal form, Cold-contacts CSV preview.
 - **Manual test:** open a relationship at 1280px — two columns, sticky sidebar, no dimmed backdrop; at 375px — single column, no horizontal scroll; Back button everywhere replaces the corner ×.
+
+## Part 2 — Company is always a real clickable link
+- Module-scope `companyLinkFor(contact)`: uses `company_url` (https-normalized) when set, otherwise a LinkedIn company search for the name; returns null when neither exists. Handles both relationship clients (`company_name`/`company_url`) and cold contacts (`company`).
+- Reusable `<CompanyLink client={...} />` (external-link icon, `stopPropagation` so clickable table rows don't swallow it) replaces ad-hoc renders in: relationship profile sidebar (keeps the G17 favicon), relationships table row (new line under email), cold contacts table cell, the Who-Replied rows (Part 3), and the enroll panel rows (Part 4).
+- **Manual test:** relationship with `company_url` → opens that URL in a new tab; name-only → LinkedIn company search; neither → no company row rendered.
+
+## Part 3 — "Who Has Replied?" view
+- Cross-campaign full-screen view (Part 1 pattern) listing every reply from the already-loaded `sequence_sends` (`replied_at` stamped by gmail-sync/runner — no new tracking infrastructure, no new fetch): avatar, name (+Cold Contact badge), CompanyLink, "Replied to “subject” in campaign · date", View Relationship (clients), Stop Sequence (active enrollments only; completed/stopped show their status).
+- Entry points: badge-counted "💬 Who Has Replied?" button in the Email Automation hub header, and the canvas stats-bar "Replied" stat is now clickable → opens the view pre-filtered to that campaign (with a "Show all campaigns" release).
+- **Manual test:** click Replied in a campaign header → only that campaign's replies; hub button → all replies; Stop Sequence stops an active enrollment.
+
+## Part 4 — Enroll filter connected to the real CRM
+- The main relationships table predicate was extracted into ONE shared `matchesClientFilters(client, opts)` — the table's `filteredAndSortedClients` and the new enroll panel both call it (single source of truth; enroll adds a `scoreMin` numeric floor).
+- Full-screen "Enroll by filter" panel (button in the campaign builder header): stage/priority/source selects, tag pills, min-score input, search, live "N relationships match" count, preview list (first 100) with lead scores and already-enrolled dimming.
+- "Enroll All Matching" → `bulkEnrollClientsInSequence` — ONE batched insert (skips no-email + already-active), shared with the relationships-table bulk bar (refactored to call the same function).
+- **Manual test:** set Priority=High in the panel → count matches the main table filtered the same way; Enroll All Matching creates all rows in one insert; runner picks them up next tick.
+
+## Part 5 — Composer surfaces
+- Manual Send Email composer: full-viewport with sticky Cancel header and a readable `max-w-2xl` writing column (converted in the Part 1 pass; internals/Gmail-tab send byte-for-byte unchanged).
+- Campaign step editor: the canvas config panel now widens to 480px when the selected node is an email step (other node types keep 300px) — real writing room without leaving the canvas.
+- **Manual test:** select an email node → panel is visibly wider; select a wait node → back to compact; Send Email from a profile opens the full-page composer prefilled.
