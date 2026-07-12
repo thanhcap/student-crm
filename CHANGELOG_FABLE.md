@@ -237,3 +237,14 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - Hero restructured: 3D (or gradient) behind the headline/CTAs in a 62vh centered band; the CSS product mock moved to its own section below.
 - `handleLogout` now resets all per-session state (clients/activities/tasks/deals/sequences/steps/enrollments/sends/edges/triggers/cold contacts/unsubscribes + open views) and lands on the marketing page (`LANDING`), not a bare login form.
 - **Manual test:** desktop logged-out `/` shows the animated graph behind the headline; narrow viewport or reduced-motion shows the gradient; logout from the app lands on the marketing page; console clean.
+
+## VEX video-background hero (design request)
+- Replaced the landing hero (the Part E 3D graph) with a full-viewport **raw video background** (CloudFront mp4, autoplay/loop/muted/playsInline, `object-cover`, no dark/gradient overlay).
+- Added a global `.liquid-glass` utility (frosted dark panel + masked luminous edge via `::before`) and `-moz-osx-font-smoothing: grayscale` to `globals.css`. Inter is already the app's sans font via `next/font` (`--font-sans`), so the spec's `<link>`/Tailwind-config steps were satisfied without a CDN font.
+- `FadeIn` (opacity 0→1 after configurable delay/duration) and `AnimatedHeading` (per-character slide-in-from-left + fade, 30ms stagger, 200ms initial delay, 500ms per char) components. Chars are grouped per word (`whitespace-nowrap`) so the heading breaks only at word boundaries, never mid-word.
+- Hero: liquid-glass navbar (VEX · Story/Investing/Building/Advisory hidden <md · "Start a Chat"), bottom-pinned content in a `lg:grid-cols-2` — headline "Shaping tomorrow / with vision and action." (`-0.04em` tracking, staggered entrance), subheading (fade 800ms), CTAs "Start a Chat" + "Explore Now" (fade 1200ms), and a bottom-right glass tag "Investing. Building. Advisory." (fade 1400ms). CTAs wired to signup / scroll-to-content so nothing is a dead control.
+- **Browser-verified** at 1600px (2-column, tag bottom-right) and 375px (single column, center nav hidden, no horizontal scroll); console clean.
+- ⚠️ Note: this hero uses the VEX venture-firm branding/copy exactly as specified, but the marketing sections below it are still the Student CRM product copy — the page reads as two identities. Left as-is per "recreate this hero exactly"; say the word and I'll reconcile the branding either direction.
+
+## Final — push
+- Backup of prior origin/main taken; branch `fable/builder-fullscreen-3d` (Parts A–E + VEX hero) merged to main and pushed. Vercel auto-deploys.

@@ -2,16 +2,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Papa from 'papaparse';
-import dynamic from 'next/dynamic';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
-
-// V5 Part E — 3D hero is lazy-loaded so three.js never enters the initial bundle;
-// ssr:false is required (three touches `window`). Fallback = the static gradient.
-const Hero3D = dynamic(() => import('./Hero3D').then(m => m.Hero3D), {
-  ssr: false,
-  loading: () => null,
-});
 
 // ==========================================
 // REUSABLE CONFIRM DIALOG COMPONENT
@@ -798,19 +790,72 @@ function MockReplies() {
   );
 }
 
-function LandingPage({ onLogin, onSignup }) {
-  // V5 Part E — 3D only on desktop, never under prefers-reduced-motion.
-  // A 3D hero that janks mobile actively costs signups.
-  const [show3d, setShow3d] = useState(false);
+// Fade-in wrapper: opacity 0 → 1 after `delay`ms, over `duration`ms.
+function FadeIn({ delay = 0, duration = 1000, className = '', children }) {
+  const [shown, setShown] = useState(false);
   useEffect(() => {
-    const wide = window.matchMedia('(min-width: 1024px)');
-    const motionOk = window.matchMedia('(prefers-reduced-motion: no-preference)');
-    const update = () => setShow3d(wide.matches && motionOk.matches);
-    update();
-    wide.addEventListener('change', update);
-    motionOk.addEventListener('change', update);
-    return () => { wide.removeEventListener('change', update); motionOk.removeEventListener('change', update); };
+    const t = setTimeout(() => setShown(true), delay);
+    return () => clearTimeout(t);
+  }, [delay]);
+  return (
+    <div className={`transition-opacity ${className}`} style={{ opacity: shown ? 1 : 0, transitionDuration: `${duration}ms` }}>
+      {children}
+    </div>
+  );
+}
+
+// Character-by-character entrance: each char slides in from the left + fades in,
+// staggered by 30ms (per line and per char), starting 200ms after mount.
+// Chars are grouped per word (whitespace-nowrap) so the heading only ever breaks
+// at word boundaries — never mid-word — while keeping the per-char animation.
+function AnimatedHeading({ text, className = '', style = {} }) {
+  const [go, setGo] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setGo(true), 200);
+    return () => clearTimeout(t);
   }, []);
+  const charDelay = 30;
+  const lines = text.split('\n');
+  const charSpan = (ch, key, delay) => (
+    <span key={key} className="inline-block" style={{
+      opacity: go ? 1 : 0,
+      transform: go ? 'translateX(0)' : 'translateX(-18px)',
+      transition: 'opacity 500ms ease, transform 500ms ease',
+      transitionDelay: `${delay}ms`,
+    }}>{ch}</span>
+  );
+  return (
+    <h1 className={className} style={style}>
+      {lines.map((line, lineIndex) => {
+        const words = line.split(' ');
+        const base = lineIndex * line.length * charDelay;
+        let idx = 0; // running char index within the line (spaces included)
+        return (
+          <span key={lineIndex} className="block">
+            {words.map((word, wi) => {
+              const spans = word.split('').map((ch) => {
+                const el = charSpan(ch, `c${idx}`, base + idx * charDelay);
+                idx += 1;
+                return el;
+              });
+              const last = wi === words.length - 1;
+              const sep = last ? null : <React.Fragment key={`s${idx}`}>{(idx += 1, ' ')}</React.Fragment>;
+              return (
+                <React.Fragment key={wi}>
+                  <span className="inline-block whitespace-nowrap">{spans}</span>
+                  {sep}
+                </React.Fragment>
+              );
+            })}
+          </span>
+        );
+      })}
+    </h1>
+  );
+}
+
+function LandingPage({ onLogin, onSignup }) {
+  const scrollToExplore = () => document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' });
   const tabs = [
     { key: 'relationships', label: 'Relationships', copy: 'Every contact, full history, one click away — no more digging through email threads.', mock: <MockTable /> },
     { key: 'deals', label: 'Deals Pipeline', copy: 'Drag deals across stages. Won deals auto-trigger onboarding emails — no manual step.', mock: <MockKanban /> },
@@ -828,37 +873,69 @@ function LandingPage({ onLogin, onSignup }) {
   ];
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-white font-sans">
-      {/* NAV */}
-      <nav className="sticky top-0 z-20 bg-white/90 dark:bg-gray-950/90 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800">
-        <div className="max-w-5xl mx-auto px-6 py-3.5 flex items-center gap-4">
-          <span className="text-[15px] font-bold tracking-tight">Student CRM</span>
-          <a href="/pricing" className="ml-auto text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Pricing</a>
-          <button onClick={onLogin} className="text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Log in</button>
-          <button onClick={onSignup} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Start Free</button>
-        </div>
-      </nav>
+      {/* VEX VIDEO HERO — full-viewport raw video background, liquid-glass chrome, no overlay */}
+      <section className="relative h-screen w-full overflow-hidden bg-black text-white">
+        {/* Raw background video — no dimming/overlay layer on top */}
+        <video
+          className="absolute inset-0 w-full h-full object-cover"
+          autoPlay loop muted playsInline
+          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260403_050628_c4e32401-fab4-4a27-b7a8-6e9291cd5959.mp4"
+        />
 
-      {/* HERO — 3D campaign graph behind the headline on desktop */}
-      <section className="relative overflow-hidden">
-        {show3d
-          ? <Hero3D />
-          : <div className="absolute inset-0 -z-10 bg-gradient-to-b from-indigo-50 via-white to-white dark:from-indigo-950/30 dark:via-gray-950 dark:to-gray-950" aria-hidden />}
-        <div className="relative max-w-5xl mx-auto px-6 pt-24 sm:pt-32 pb-20 sm:pb-28 text-center min-h-[62vh] flex flex-col items-center justify-center">
-          <h1 className="text-[38px] sm:text-[56px] font-bold tracking-tight leading-[1.05] mb-5">
-            Outreach that runs itself.<br />Relationships that don’t slip through.
-          </h1>
-          <p className="text-[16px] sm:text-[17px] text-gray-500 dark:text-gray-400 max-w-xl mx-auto mb-8">
-            A CRM built for people who’d rather be talking to prospects than clicking “send” 100 times.
-          </p>
-          <div className="flex items-center justify-center gap-3">
-            <button onClick={onSignup} className="px-6 py-3 text-[14px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Start Free</button>
-            <a href="/pricing" className="px-6 py-3 text-[14px] font-semibold border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-900 bg-white/70 dark:bg-gray-950/70 backdrop-blur-sm">See Pricing</a>
+        {/* Foreground: navbar top, hero content pinned to bottom */}
+        <div className="relative z-10 flex flex-col h-full px-6 md:px-12 lg:px-16">
+          {/* Navbar */}
+          <div className="pt-6">
+            <nav className="liquid-glass rounded-xl px-4 py-2 flex items-center justify-between">
+              <span className="text-2xl font-semibold tracking-tight">VEX</span>
+              <div className="hidden md:flex items-center gap-8 text-sm">
+                <button onClick={scrollToExplore} className="hover:text-gray-300 transition-colors">Story</button>
+                <button onClick={scrollToExplore} className="hover:text-gray-300 transition-colors">Investing</button>
+                <button onClick={scrollToExplore} className="hover:text-gray-300 transition-colors">Building</button>
+                <button onClick={scrollToExplore} className="hover:text-gray-300 transition-colors">Advisory</button>
+              </div>
+              <button onClick={onSignup} className="bg-white text-black px-6 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors">Start a Chat</button>
+            </nav>
+          </div>
+
+          {/* Hero content — pushed to the bottom of the viewport */}
+          <div className="flex-1 flex flex-col justify-end pb-12 lg:pb-16">
+            <div className="lg:grid lg:grid-cols-2 lg:items-end">
+              {/* Left — headline, subheading, CTAs */}
+              <div>
+                <AnimatedHeading
+                  text={'Shaping tomorrow\nwith vision and action.'}
+                  className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-normal mb-4"
+                  style={{ letterSpacing: '-0.04em' }}
+                />
+                <FadeIn delay={800} duration={1000}>
+                  <p className="text-base md:text-lg text-gray-300 mb-5">
+                    We back visionaries and craft ventures that define what comes next.
+                  </p>
+                </FadeIn>
+                <FadeIn delay={1200} duration={1000}>
+                  <div className="flex flex-wrap gap-4">
+                    <button onClick={onSignup} className="bg-white text-black px-8 py-3 rounded-lg font-medium">Start a Chat</button>
+                    <button onClick={scrollToExplore} className="liquid-glass border border-white/20 text-white px-8 py-3 rounded-lg font-medium hover:bg-white hover:text-black transition-colors">Explore Now</button>
+                  </div>
+                </FadeIn>
+              </div>
+
+              {/* Right — glass tag, bottom-right aligned */}
+              <div className="flex items-end justify-start lg:justify-end mt-8 lg:mt-0">
+                <FadeIn delay={1400} duration={1000}>
+                  <div className="liquid-glass border border-white/20 px-6 py-3 rounded-xl">
+                    <span className="text-lg md:text-xl lg:text-2xl font-light">Investing. Building. Advisory.</span>
+                  </div>
+                </FadeIn>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       {/* PRODUCT SHOT */}
-      <section className="max-w-5xl mx-auto px-6 pb-16 -mt-6">
+      <section id="explore" className="max-w-5xl mx-auto px-6 pt-16 pb-16 scroll-mt-6">
         <MockWindow><MockCanvas /></MockWindow>
       </section>
 
