@@ -205,3 +205,9 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - `buildMime` honors the new `email_sequences.from_name` (RFC 2047-encoded display name) and `reply_to` headers.
 - **Deployed as sequence-runner v8** (no secrets in source; Vault-based cron auth unchanged).
 - **Manual test:** set a step's `is_draft=true` via SQL, invoke the runner with a due enrollment → no send row for that step; enrollment advances past it.
+
+## Part B — React duplicate-key fix
+- Root cause was `showToast`'s `id = Date.now()` (page.js:8674 is the `toasts.map` render) — NOT builder nodes: `handleAddNode`/`handleCreateFromTemplate` already insert to the DB first and key off returned real ids, and no other `Date.now()` identity exists in the file (audited; the remaining hits are time math, a random-suffixed token fallback, and a storage path).
+- Fix: module-scope collision-proof `uid(prefix)` (crypto.randomUUID with fallback); `showToast` now uses `uid('toast')`.
+- Defense-in-depth: `seqNodesFor`/`seqEdgesFor` now dedupe by id before render (dev-console error on drop), so a double-fetch race or optimistic echo can never resurface duplicate keys in the builder.
+- **Manual test:** trigger two toasts in one handler pass (bulk enroll with an auto-enroll trigger active) → zero console key warnings.

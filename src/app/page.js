@@ -341,6 +341,16 @@ const AUTOMATION_RECIPES = [
 ];
 
 // G17 — company logo via Google's public favicon endpoint (builds on Part F's company_url)
+// V5 Part B — collision-proof id generator. Never use Date.now() as an identity:
+// two calls in the same millisecond produce duplicate React keys (seen live as
+// "Encountered two children with the same key, 1783834934195" on the toast list).
+function uid(prefix = 'tmp') {
+  const rand = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${rand}`;
+}
+
 function companyFaviconUrl(companyUrl, size = 64) {
   if (!companyUrl) return null;
   try {
@@ -1066,8 +1076,11 @@ export default function App() {
   const [dashboardExplored, setDashboardExplored] = useState(false);
 
   // HELPER: Show Toast Notification
+  // V5 Part B — id was Date.now(): two toasts fired in the same millisecond (easy in
+  // bulk handlers that toast twice) collided and triggered React's duplicate-key
+  // warning at the toasts.map render. uid() is collision-proof.
   function showToast(message, type = 'success') {
-    const id = Date.now();
+    const id = uid('toast');
     setToasts(prev => [...prev, { id, type, message }]);
   }
 
@@ -2389,8 +2402,23 @@ export default function App() {
   // V2 — CANVAS + TEMPLATES (Parts 6-8)
   // ==========================================
 
-  const seqNodesFor = (seqId) => sequenceSteps.filter(s => s.sequence_id === seqId).sort((a, b) => (a.step_order - b.step_order) || (a.id - b.id));
-  const seqEdgesFor = (seqId) => sequenceEdges.filter(e => e.sequence_id === seqId);
+  // V5 Part B — dev-time duplicate-id guard: a row that somehow enters state twice
+  // (double-fetch race, optimistic + realtime echo) is dropped before render so this
+  // class of React key bug can never silently return.
+  const dedupeById = (rows, label) => {
+    const seen = new Set();
+    return rows.filter(r => {
+      const k = String(r.id);
+      if (seen.has(k)) {
+        if (process.env.NODE_ENV !== 'production') console.error(`[builder] duplicate ${label} id dropped:`, k, r);
+        return false;
+      }
+      seen.add(k);
+      return true;
+    });
+  };
+  const seqNodesFor = (seqId) => dedupeById(sequenceSteps.filter(s => s.sequence_id === seqId), 'node').sort((a, b) => (a.step_order - b.step_order) || (a.id - b.id));
+  const seqEdgesFor = (seqId) => dedupeById(sequenceEdges.filter(e => e.sequence_id === seqId), 'edge');
   // Canvas coordinates: stored pos, or a vertical auto-layout for pre-canvas rows
   const nodePos = (node, idx) => ({ x: node.pos_x ?? 300, y: node.pos_y ?? (30 + idx * 130) });
 
