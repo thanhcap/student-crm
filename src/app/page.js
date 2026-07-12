@@ -975,6 +975,8 @@ export default function App() {
   // V4 Part 3 — "Who Has Replied?" cross-campaign view (null seq filter = all campaigns)
   const [showWhoRepliedView, setShowWhoRepliedView] = useState(false);
   const [whoRepliedSeqFilter, setWhoRepliedSeqFilter] = useState(null);
+  // V5 Part C — engagement inbox filter: replied | opened | clicked | all
+  const [inboxFilter, setInboxFilter] = useState('replied');
   // V4 Part 4 — CRM-connected enroll panel
   const [showEnrollPanel, setShowEnrollPanel] = useState(null); // sequence id or null
   const [enrollFilterStatus, setEnrollFilterStatus] = useState('All');
@@ -2371,6 +2373,46 @@ export default function App() {
       setUnsubscribesList(prev => prev.filter(u => u.id !== row.id));
       showToast(`${row.email} removed from the unsubscribe list.`, 'success');
     }
+  }
+
+  // V5 Part C — the payoff action for cold outreach: promote a cold contact into a
+  // real Relationship. The existing enrollment keeps running on the cold-contact track
+  // (the one-contact-ref CHECK constraint forbids re-pointing it, and rewriting a live
+  // enrollment would corrupt its send history).
+  async function convertColdToRelationship(coldId) {
+    const cc = coldContacts.find(c => c.id === coldId);
+    if (!cc) return;
+    if (clients.some(c => (c.email || '').toLowerCase() === (cc.email || '').toLowerCase())) {
+      showToast('A relationship with this email already exists.', 'error');
+      return;
+    }
+    const { data: created, error } = await supabase.from('clients').insert([{
+      user_id: user.id,
+      name: `${cc.first_name || ''} ${cc.last_name || ''}`.trim() || cc.email,
+      email: cc.email,
+      phone_number: cc.phone || null,
+      company_name: cc.company || null,
+      linkedin_url: cc.linkedin_url || null,
+      source: 'Cold Outreach',
+      status: 'Contacted',
+      relationship: 'Medium',
+    }]).select().single();
+    if (error) { showToast(`Convert failed: ${error.message}`, 'error'); return; }
+
+    await supabase.from('cold_contacts').update({ status: 'converted' }).eq('id', coldId);
+    // Log the conversion — activities has NO outcome column; description is NOT NULL.
+    const { data: act } = await supabase.from('activities').insert([{
+      client_id: created.id, user_id: user.id,
+      activity_type: 'Note',
+      activity_date: new Date().toISOString().split('T')[0],
+      description: `Converted from cold outreach${cc.company ? ` (${cc.company})` : ''}.`,
+    }]).select();
+    if (act) setActivities(prev => [act[0], ...prev]);
+
+    setClients(prev => [created, ...prev]);
+    setColdContacts(prev => prev.map(c => c.id === coldId ? { ...c, status: 'converted' } : c));
+    showToast(`${created.name} is now a Relationship.`, 'success');
+    return created;
   }
 
   async function enrollColdContactsInSequence(seq, ids) {
@@ -3992,10 +4034,16 @@ export default function App() {
 
   // V4 Part 3 — every reply across every campaign, straight from sequence_sends
   // (already loaded client-side; replied_at is stamped by gmail-sync / the runner).
+  // V5 Part C — engagement inbox: replied | opened | clicked | all, cross-campaign
   const repliesWithContact = useMemo(() => {
+    const passes = s => inboxFilter === 'all' ? true
+      : inboxFilter === 'replied' ? !!s.replied_at
+      : inboxFilter === 'opened' ? !!s.opened_at
+      : !!s.clicked_at;
+    const sortKey = s => new Date(s.replied_at || s.clicked_at || s.opened_at || s.sent_at || 0);
     return (sequenceSends || [])
-      .filter(s => s.replied_at && (!whoRepliedSeqFilter || s.sequence_id === whoRepliedSeqFilter))
-      .sort((a, b) => new Date(b.replied_at) - new Date(a.replied_at))
+      .filter(s => passes(s) && (!whoRepliedSeqFilter || s.sequence_id === whoRepliedSeqFilter))
+      .sort((a, b) => sortKey(b) - sortKey(a))
       .map(r => {
         const contact = r.client_id != null
           ? clients.find(c => c.id === r.client_id)
@@ -4007,7 +4055,7 @@ export default function App() {
         };
       })
       .filter(r => r.contact);
-  }, [sequenceSends, whoRepliedSeqFilter, clients, coldContacts, sequences, sequenceSteps]);
+  }, [sequenceSends, whoRepliedSeqFilter, inboxFilter, clients, coldContacts, sequences, sequenceSteps]);
   const allRepliesCount = useMemo(() => (sequenceSends || []).filter(s => s.replied_at).length, [sequenceSends]);
 
   // V4 Part 4 — enroll panel: SAME predicate as the main table (matchesClientFilters)
@@ -6832,8 +6880,11 @@ export default function App() {
                                   <td className="px-2 py-2.5 hidden md:table-cell text-gray-600 dark:text-gray-300">{c.company ? <CompanyLink client={c} /> : '—'}</td>
                                   <td className="px-2 py-2.5"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${statusCls}`}>{c.status}</span></td>
                                   <td className="px-2 py-2.5 hidden sm:table-cell text-[11px] text-gray-400">{activeIn.length > 0 ? `${activeIn.length} active sequence${activeIn.length === 1 ? '' : 's'}` : enr.length > 0 ? 'finished' : '—'}</td>
-                                  <td className="px-4 py-2.5 text-right">
-                                    {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-indigo-500 hover:underline">LinkedIn ↗</a>}
+                                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                                    {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-indigo-500 hover:underline mr-2">LinkedIn ↗</a>}
+                                    {c.status !== 'converted'
+                                      ? <button onClick={() => convertColdToRelationship(c.id)} className="text-[11px] font-semibold text-green-600 hover:underline">Convert →</button>
+                                      : <span className="text-[10px] font-bold uppercase text-green-600">Converted</span>}
                                   </td>
                                 </tr>
                               );
@@ -8534,14 +8585,23 @@ export default function App() {
         <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[95] overflow-y-auto animate-in fade-in duration-200">
           <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between gap-3">
             <button onClick={() => { setShowWhoRepliedView(false); setWhoRepliedSeqFilter(null); }} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 shrink-0"><span aria-hidden>←</span> Back to Email Automation</button>
-            <h1 className="text-[15px] font-bold text-gray-900 dark:text-white">Who Has Replied?{whoRepliedSeqFilter ? ` — ${sequences.find(q => q.id === whoRepliedSeqFilter)?.name || ''}` : ''}</h1>
+            <h1 className="text-[15px] font-bold text-gray-900 dark:text-white">Engagement{whoRepliedSeqFilter ? ` — ${sequences.find(q => q.id === whoRepliedSeqFilter)?.name || ''}` : ''}</h1>
             {whoRepliedSeqFilter
               ? <button onClick={() => setWhoRepliedSeqFilter(null)} className="text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0">Show all campaigns</button>
               : <div className="w-40" />}
           </div>
           <div className="max-w-4xl mx-auto px-4 sm:px-8 py-8 space-y-3">
+            {/* V5 Part C — engagement filter chips */}
+            <div className="flex flex-wrap gap-1.5 pb-2">
+              {[['replied', 'Replied'], ['opened', 'Opened'], ['clicked', 'Clicked'], ['all', 'All sends']].map(([k, label]) => (
+                <button key={k} onClick={() => setInboxFilter(k)}
+                  className={`px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all ${inboxFilter === k ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
             {repliesWithContact.length === 0 && (
-              <p className="text-[13px] text-gray-400 text-center py-12">No replies yet{whoRepliedSeqFilter ? ' in this campaign' : ' across any campaign'}. Replies are detected by Gmail sync and stop the sequence automatically.</p>
+              <p className="text-[13px] text-gray-400 text-center py-12">Nothing here yet{whoRepliedSeqFilter ? ' for this campaign' : ''}. Opens and clicks come from the tracking pixel; replies are detected by Gmail sync and stop the sequence automatically.</p>
             )}
             {repliesWithContact.map(r => (
               <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800">
@@ -8555,11 +8615,21 @@ export default function App() {
                       {r.isColdContact && <span className="ml-2 text-[10px] font-bold uppercase text-gray-400">Cold Contact</span>}
                     </p>
                     <CompanyLink client={r.contact} className="text-[12px]" />
-                    <p className="text-[11px] text-gray-400 mt-0.5">Replied to {r.stepSubject ? `“${r.stepSubject}”` : 'an email'} in {r.seqName} · {new Date(r.replied_at).toLocaleDateString()}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      {r.replied_at ? `Replied ${new Date(r.replied_at).toLocaleDateString()}` : r.clicked_at ? `Clicked ${new Date(r.clicked_at).toLocaleDateString()}` : r.opened_at ? `Opened ${new Date(r.opened_at).toLocaleDateString()}` : `Sent ${r.sent_at ? new Date(r.sent_at).toLocaleDateString() : ''}`}
+                      {' · '}{r.stepSubject ? `“${r.stepSubject}”` : 'an email'} in {r.seqName}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {!r.isColdContact && r.contact && <button onClick={() => { setShowWhoRepliedView(false); setViewingClient(clients.find(c => c.id === r.contact.id) || r.contact); }} className="px-3 py-1.5 text-[12px] font-semibold border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800">View Relationship</button>}
+                  {/* V5 Part C — the payoff: promote a replying cold contact into the CRM */}
+                  {r.isColdContact && r.contact && r.contact.status !== 'converted' && (
+                    <button onClick={() => convertColdToRelationship(r.contact.id)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-green-600 rounded-lg hover:opacity-90">Convert to Relationship</button>
+                  )}
+                  {r.isColdContact && r.contact && r.contact.status === 'converted' && (
+                    <span className="text-[11px] font-bold uppercase text-green-600">Converted ✓</span>
+                  )}
                   {(() => {
                     const enr = sequenceEnrollments.find(e2 => e2.id === r.enrollment_id);
                     return enr && enr.status === 'active'

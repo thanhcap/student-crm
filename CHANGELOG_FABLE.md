@@ -211,3 +211,11 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - Fix: module-scope collision-proof `uid(prefix)` (crypto.randomUUID with fallback); `showToast` now uses `uid('toast')`.
 - Defense-in-depth: `seqNodesFor`/`seqEdgesFor` now dedupe by id before render (dev-console error on drop), so a double-fetch race or optimistic echo can never resurface duplicate keys in the builder.
 - **Manual test:** trigger two toasts in one handler pass (bulk enroll with an auto-enroll trigger active) → zero console key warnings.
+
+## Part C — Cold↔CRM bridge
+- Insert conformance audit: all 4 `sequence_enrollments`/`sequence_sends` insert sites already set exactly one contact ref (cold paths pass `client_id: null` explicitly) — the new CHECK constraints accept them unchanged.
+- **`convertColdToRelationship(coldId)`** — the missing payoff action: creates a `clients` row (source "Cold Outreach", stage Contacted, priority Medium, preserving name/email/phone/company/linkedin), flips `cold_contacts.status → 'converted'`, and logs an activity (`activity_date`, non-null `description`, no `outcome`). Duplicate-email guard. The live enrollment intentionally stays on the cold-contact track (one-ref CHECK; rewriting mid-flight would corrupt send history).
+- Convert is available from BOTH the Engagement inbox rows (green "Convert to Relationship" for un-converted cold contacts) and the Cold Contacts table row actions.
+- The Who-Replied view is now the **Engagement inbox**: filter chips Replied / Opened / Clicked / All sends (drives the memo; rows show the strongest signal + date), still per-campaign filterable from the builder's Replied stat.
+- Bulk "Enroll in campaign" from the Relationships side already exists (v4's bulk-bar dropdown → same batched insert) — verified, not duplicated.
+- **Manual test:** filter Engagement to Opened → rows show opened dates; click Convert on a cold contact → clients row appears, status flips, activity logged, button becomes "Converted ✓".
