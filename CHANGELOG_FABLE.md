@@ -230,3 +230,10 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **Create Campaign** is a full-screen 2-step flow: basics (name*, description, from_name, reply_to) → template cards with tiny node-shape previews + Blank canvas (creates the sequence + a trigger node). The hub's old template grid + inline form are replaced by one "+ New Campaign" button; campaign cards now show the description and a green replied count.
 - `resolveMergeTags` extended (not replaced): first_name/last_name/title/linkedin_url/sender_name + cold-contact field shapes, `{{sender_name}}` from `from_name` → profile username.
 - **Manual test:** create a campaign via the flow → lands in a populated builder; double-click an email node → studio; clear the subject → amber dot + "Draft — won't send"; activate → warning; preview shows blank-tag warning for a contact with no company.
+
+## Part E — 3D landing hero + logout → landing
+- `three` + `@react-three/fiber` + `@react-three/drei` installed. `src/app/Hero3D.js`: a slowly rotating campaign-graph constellation (trigger→email→wait→condition→yes/no spheres in the node-type colors) with white light pulses traveling the edges — thematically "the sequence is running", not decorative geometry.
+- Guards, all three: lazy `next/dynamic({ ssr: false })` so three.js never enters the initial bundle; rendered only ≥1024px; only under `prefers-reduced-motion: no-preference` (live matchMedia listeners). Fallback everywhere: the static indigo gradient.
+- Hero restructured: 3D (or gradient) behind the headline/CTAs in a 62vh centered band; the CSS product mock moved to its own section below.
+- `handleLogout` now resets all per-session state (clients/activities/tasks/deals/sequences/steps/enrollments/sends/edges/triggers/cold contacts/unsubscribes + open views) and lands on the marketing page (`LANDING`), not a bare login form.
+- **Manual test:** desktop logged-out `/` shows the animated graph behind the headline; narrow viewport or reduced-motion shows the gradient; logout from the app lands on the marketing page; console clean.

@@ -2,8 +2,16 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Papa from 'papaparse';
+import dynamic from 'next/dynamic';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
+
+// V5 Part E — 3D hero is lazy-loaded so three.js never enters the initial bundle;
+// ssr:false is required (three touches `window`). Fallback = the static gradient.
+const Hero3D = dynamic(() => import('./Hero3D').then(m => m.Hero3D), {
+  ssr: false,
+  loading: () => null,
+});
 
 // ==========================================
 // REUSABLE CONFIRM DIALOG COMPONENT
@@ -791,6 +799,18 @@ function MockReplies() {
 }
 
 function LandingPage({ onLogin, onSignup }) {
+  // V5 Part E — 3D only on desktop, never under prefers-reduced-motion.
+  // A 3D hero that janks mobile actively costs signups.
+  const [show3d, setShow3d] = useState(false);
+  useEffect(() => {
+    const wide = window.matchMedia('(min-width: 1024px)');
+    const motionOk = window.matchMedia('(prefers-reduced-motion: no-preference)');
+    const update = () => setShow3d(wide.matches && motionOk.matches);
+    update();
+    wide.addEventListener('change', update);
+    motionOk.addEventListener('change', update);
+    return () => { wide.removeEventListener('change', update); motionOk.removeEventListener('change', update); };
+  }, []);
   const tabs = [
     { key: 'relationships', label: 'Relationships', copy: 'Every contact, full history, one click away — no more digging through email threads.', mock: <MockTable /> },
     { key: 'deals', label: 'Deals Pipeline', copy: 'Drag deals across stages. Won deals auto-trigger onboarding emails — no manual step.', mock: <MockKanban /> },
@@ -818,18 +838,27 @@ function LandingPage({ onLogin, onSignup }) {
         </div>
       </nav>
 
-      {/* HERO */}
-      <section className="max-w-5xl mx-auto px-6 pt-20 sm:pt-24 pb-16 text-center">
-        <h1 className="text-[38px] sm:text-[56px] font-bold tracking-tight leading-[1.05] mb-5">
-          Outreach that runs itself.<br />Relationships that don’t slip through.
-        </h1>
-        <p className="text-[16px] sm:text-[17px] text-gray-500 dark:text-gray-400 max-w-xl mx-auto mb-8">
-          A CRM built for people who’d rather be talking to prospects than clicking “send” 100 times.
-        </p>
-        <div className="flex items-center justify-center gap-3 mb-14">
-          <button onClick={onSignup} className="px-6 py-3 text-[14px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Start Free</button>
-          <a href="/pricing" className="px-6 py-3 text-[14px] font-semibold border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-900">See Pricing</a>
+      {/* HERO — 3D campaign graph behind the headline on desktop */}
+      <section className="relative overflow-hidden">
+        {show3d
+          ? <Hero3D />
+          : <div className="absolute inset-0 -z-10 bg-gradient-to-b from-indigo-50 via-white to-white dark:from-indigo-950/30 dark:via-gray-950 dark:to-gray-950" aria-hidden />}
+        <div className="relative max-w-5xl mx-auto px-6 pt-24 sm:pt-32 pb-20 sm:pb-28 text-center min-h-[62vh] flex flex-col items-center justify-center">
+          <h1 className="text-[38px] sm:text-[56px] font-bold tracking-tight leading-[1.05] mb-5">
+            Outreach that runs itself.<br />Relationships that don’t slip through.
+          </h1>
+          <p className="text-[16px] sm:text-[17px] text-gray-500 dark:text-gray-400 max-w-xl mx-auto mb-8">
+            A CRM built for people who’d rather be talking to prospects than clicking “send” 100 times.
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <button onClick={onSignup} className="px-6 py-3 text-[14px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Start Free</button>
+            <a href="/pricing" className="px-6 py-3 text-[14px] font-semibold border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-900 bg-white/70 dark:bg-gray-950/70 backdrop-blur-sm">See Pricing</a>
+          </div>
         </div>
+      </section>
+
+      {/* PRODUCT SHOT */}
+      <section className="max-w-5xl mx-auto px-6 pb-16 -mt-6">
         <MockWindow><MockCanvas /></MockWindow>
       </section>
 
@@ -3546,8 +3575,14 @@ export default function App() {
 
   async function handleLogout() {
     await supabase.auth.signOut();
+    // V5 Part E — reset per-session state so nothing leaks between accounts,
+    // then land on the marketing page (not a bare login form).
     setUser(null);
-    setAppStep('LOG_IN');
+    setClients([]); setActivities([]); setTasks([]); setDeals([]);
+    setSequences([]); setSequenceSteps([]); setSequenceEnrollments([]); setSequenceSends([]);
+    setSequenceEdges([]); setSequenceTriggers([]); setColdContacts([]); setUnsubscribesList([]);
+    setViewingClient(null); setEditingClient(null); setEditingSeqId(null); setComposerNodeId(null);
+    setAppStep('LANDING');
   }
 
   async function handleForgotPassword(e) {
