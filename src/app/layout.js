@@ -1,4 +1,4 @@
-import { Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google';
+import { Inter, Space_Grotesk, JetBrains_Mono, Urbanist } from 'next/font/google';
 import Script from 'next/script';
 import './globals.css';
 
@@ -15,6 +15,13 @@ const spaceGrotesk = Space_Grotesk({
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
   variable: '--font-jetbrains-mono'
+});
+
+// V7 marketing site — Urbanist display font
+const urbanist = Urbanist({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+  variable: '--font-urbanist'
 });
 
 export const metadata = {
@@ -35,7 +42,7 @@ const themeScript = `
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className="h-full antialiased" suppressHydrationWarning>
-      <body className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} h-full font-sans`}>
+      <body className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} ${urbanist.variable} h-full font-sans`}>
         <Script id="theme-init" strategy="beforeInteractive">
           {themeScript}
         </Script>

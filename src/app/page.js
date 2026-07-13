@@ -2,9 +2,15 @@
 
 import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react';
 import Papa from 'papaparse';
-import dynamic from 'next/dynamic';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
+// V7 marketing home — shared dark cinematic system (root page is outside the (marketing)
+// route group but reuses the same header/footer/primitives so it looks identical).
+import './(marketing)/marketing.css';
+import MarketingHeader from '@/components/marketing/MarketingHeader';
+import MarketingFooter from '@/components/marketing/MarketingFooter';
+import OrbitVisual from '@/components/marketing/OrbitVisual';
+import { TypewriterHeading, LogoTicker, GradientBorderButton } from '@/components/marketing/ui';
 
 // ==========================================
 // V6 PART 1 — DESIGN SYSTEM (single source of truth; every screen consumes this)
@@ -116,7 +122,7 @@ function usePrefersReducedMotion() {
 }
 
 // V6 Part 6 — 3D hero, lazy-loaded so three.js never enters the initial bundle (ssr:false required)
-const HeroScene = dynamic(() => import('./HeroScene'), { ssr: false, loading: () => null });
+// (V6 HeroScene now lives only on /solutions — one live WebGL canvas across the whole site.)
 
 // ==========================================
 // REUSABLE CONFIRM DIALOG COMPONENT
@@ -969,124 +975,107 @@ function AnimatedHeading({ text, className = '', style = {} }) {
 }
 
 function LandingPage({ onLogin, onSignup }) {
-  const scrollToExplore = () => document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' });
-  // V6 Part 6 — WebGL only on desktop, never under reduced-motion (perf/accessibility guard)
-  const isDesktop = useMediaQuery('(min-width: 1024px)');
-  const reduced = usePrefersReducedMotion();
-  const show3d = isDesktop && !reduced;
-  const tabs = [
-    { key: 'relationships', label: 'Relationships', copy: 'Every contact, full history, one click away — no more digging through email threads.', mock: <MockTable /> },
-    { key: 'deals', label: 'Deals Pipeline', copy: 'Drag deals across stages. Won deals auto-trigger onboarding emails — no manual step.', mock: <MockKanban /> },
-    { key: 'automation', label: 'Email Automation', copy: 'Multi-step, multichannel campaigns that send themselves and stop the moment someone replies.', mock: <MockCanvas /> },
-    { key: 'replies', label: 'Who Replied', copy: 'Every reply across every campaign in one list — jump straight to the relationship and close.', mock: <MockReplies /> },
-    { key: 'reports', label: 'Reports', copy: 'Pipeline value, win rate, activity trends — the numbers that actually matter, at a glance.', mock: <MockReport /> },
+  // V7 — dark cinematic marketing home. Typewriter hero + CSS OrbitVisual (the single
+  // live WebGL canvas lives on /solutions). Reuses the shared MarketingHeader/Footer.
+  const STEPS = [
+    { n: '01', t: 'Import your contacts', d: 'Bring people in from a CSV, Gmail, or add them by hand.' },
+    { n: '02', t: 'Build a sequence', d: 'Drag email, wait, condition and LinkedIn steps onto a canvas.' },
+    { n: '03', t: 'It runs itself', d: 'Sends on your schedule, inside your caps, stopping the moment someone replies.' },
+    { n: '04', t: 'See who\u2019s engaging', d: 'Opens, clicks and replies land in one inbox \u2014 you just follow up.' },
   ];
-  const [activeTab, setActiveTab] = useState(tabs[0].key);
-  const tab = tabs.find(t => t.key === activeTab);
-  const capabilities = [
-    { label: 'Automatic Outreach', headline: 'Set it up once. It runs while you sleep.', copy: 'A cron-driven engine sends every due step inside your send window, respects your daily caps, and honors unsubscribes automatically. You wake up to replies, not to a to-do list.', mock: <MockCanvas />, reverse: false },
-    { label: 'Relationship Intelligence', headline: 'Know exactly who needs attention today.', copy: 'Lead scores from real engagement signals, health tracking, and smart follow-up suggestions surface the handful of people worth your next hour.', mock: <MockTable />, reverse: true },
-    { label: 'Deals that trigger action', headline: 'Won isn’t the end — it’s a trigger.', copy: 'Drag a deal to Won and the onboarding sequence starts itself. Stage changes, new relationships, and tags can all fire campaigns automatically.', mock: <MockKanban />, reverse: false },
-    { label: 'Reporting', headline: 'Every number a founder actually checks, in one place.', copy: 'Pipeline value, win rate, source breakdowns, and campaign funnels — no spreadsheet gymnastics, no export step.', mock: <MockReport />, reverse: true },
+  const FEATURES = [
+    { t: 'Relationship Pipeline', d: 'Every contact, deal and custom field in one scored pipeline.', href: '/solutions#pipeline' },
+    { t: 'Automated Outreach', d: 'Multichannel sequences that send themselves and stop on reply.', href: '/solutions#outreach' },
+    { t: 'AI Assist', d: 'Relationship summaries and smart follow-up suggestions on tap.', href: '/solutions#ai' },
   ];
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-white font-sans">
-      {/* V6 Part 6 — clean nav (design tokens) */}
-      <nav className={`sticky top-0 z-30 backdrop-blur-md border-b ${S.hairline} bg-white/70 dark:bg-[#08080A]/70`}>
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center gap-4">
-          <span className="text-[15px] font-semibold tracking-[-0.01em]">Relationship CRM</span>
-          <a href="/pricing" className={`ml-auto ${T.small} font-medium text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white transition-colors`}>Pricing</a>
-          <button onClick={onLogin} className={`${T.small} font-medium text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white transition-colors`}>Log in</button>
-          <UIButton onClick={onSignup}>Start Free</UIButton>
-        </div>
-      </nav>
+    <div className="cinematic-bg min-h-screen flex flex-col">
+      <MarketingHeader />
 
-      {/* V6 Part 6 — 3D campaign-graph hero (the video is deleted; the scene IS the hero) */}
-      <section className="relative overflow-hidden">
-        {show3d
-          ? <div className="absolute inset-0 opacity-90" aria-hidden><HeroScene /></div>
-          : <div className="absolute inset-0 bg-[radial-gradient(60%_55%_at_50%_40%,rgba(139,92,246,0.14),transparent)] dark:bg-[radial-gradient(60%_55%_at_50%_40%,rgba(139,92,246,0.20),transparent)]" aria-hidden />}
-        {/* soft legibility scrim: whiten the center behind the copy, let the outer nodes show */}
-        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(46%_42%_at_50%_52%,rgba(251,251,253,0.88),transparent)] dark:bg-[radial-gradient(46%_42%_at_50%_52%,rgba(8,8,10,0.82),transparent)]" aria-hidden />
-        {/* content */}
-        <div className="relative max-w-3xl mx-auto px-6 pt-24 sm:pt-28 pb-24 text-center min-h-[74vh] flex flex-col items-center justify-center pointer-events-none">
-          <h1 className={`${T.display} max-w-2xl mb-5`}>Outreach that runs itself.</h1>
-          <p className={`${T.body} text-black/55 dark:text-white/55 max-w-lg mx-auto mb-8`}>
-            Build a multichannel sequence once. It sends on its own schedule, stops the moment someone replies, and shows you exactly who’s engaging.
-          </p>
-          <div className="flex items-center justify-center gap-3 pointer-events-auto">
-            <UIButton onClick={onSignup} className="h-11 px-6">Start Free</UIButton>
-            <a href="/pricing" className={`${R.ctl} h-11 px-6 inline-flex items-center ${T.small} font-semibold ${S.panel} hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors`}>See Pricing</a>
+      <main className="relative z-10 flex-1">
+        {/* HERO */}
+        <section className="max-w-[1200px] mx-auto px-6 pt-10 lg:pt-16 grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+          <div className="anim-fade-up">
+            <TypewriterHeading
+              className="text-white text-[36px] md:text-[52px] lg:text-[60px] font-semibold leading-[1.04]"
+              style={{ letterSpacing: '-1.5px' }}
+              speed={35}
+              startDelay={400}
+              parts={[
+                { text: 'You have 200 people to follow up with and no system for it \u2014 ', className: 'text-white' },
+                { text: 'now it runs on autopilot.', className: 'text-[#A068FF]' },
+              ]}
+            />
+            <div className="mt-8 anim-fade-up" style={{ animationDelay: '3.2s' }}>
+              <GradientBorderButton href="/?signup=1" size="lg" dir="right">
+                Start Free
+                <span aria-hidden>›</span>
+              </GradientBorderButton>
+            </div>
+            {/* one live-activity badge */}
+            <div className="mt-6 inline-flex items-center gap-2 anim-fade-up" style={{ animationDelay: '3.6s' }}>
+              <span className="inline-block w-3 h-4" style={{ background: 'transparent' }} aria-hidden>
+                <svg width="14" height="18" viewBox="0 0 14 18" fill="none"><path d="M1 1l11 6.5-4.7 1.2L5 16 1 1z" fill="#A068FF"/></svg>
+              </span>
+              <span className="px-3 py-1.5 rounded-full text-[12.5px] text-white/80 border border-white/10 bg-white/[0.05]">Jordan — just booked 3 calls this week</span>
+            </div>
           </div>
-        </div>
-      </section>
 
-      {/* PRODUCT SHOT */}
-      <section id="explore" className="max-w-5xl mx-auto px-6 pt-16 pb-16 scroll-mt-6">
-        <MockWindow><MockCanvas /></MockWindow>
-      </section>
-
-      {/* PROOF STRIP */}
-      <section className="border-y border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
-        <div className="max-w-5xl mx-auto px-6 py-10 grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
-          {[['100+', 'contacts auto-emailed while you sleep'], ['LinkedIn + Email', 'multichannel steps in one canvas'], ['0 manual clicks', 'once a campaign is active']].map(([v, s]) => (
-            <div key={v}>
-              <p className="text-[22px] font-bold">{v}</p>
-              <p className="text-[13px] text-gray-500">{s}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* TABBED FEATURE SHOWCASE */}
-      <section className="max-w-5xl mx-auto px-6 py-20">
-        <h2 className="text-center text-[28px] sm:text-[32px] font-bold tracking-tight mb-8">One tool. The whole outreach loop.</h2>
-        <div className="flex flex-wrap justify-center gap-2 mb-6">
-          {tabs.map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)}
-              className={`px-4 py-2 text-[13px] font-semibold rounded-full transition-colors ${activeTab === t.key ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <p className="text-center text-[15px] text-gray-500 max-w-md mx-auto mb-6">{tab.copy}</p>
-        <MockWindow>{tab.mock}</MockWindow>
-      </section>
-
-      {/* CAPABILITY SECTIONS */}
-      {capabilities.map(c => (
-        <section key={c.label} className="max-w-5xl mx-auto px-6 py-14">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
-            <div className={c.reverse ? 'lg:order-2' : ''}>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-500 mb-2">{c.label}</p>
-              <h2 className="text-[26px] sm:text-[28px] font-bold mb-3">{c.headline}</h2>
-              <p className="text-[15px] text-gray-500 dark:text-gray-400">{c.copy}</p>
-            </div>
-            <div className={c.reverse ? 'lg:order-1' : ''}>
-              <MockWindow className="shadow-lg">{c.mock}</MockWindow>
-            </div>
+          <div className="anim-scale-in hidden md:block">
+            <OrbitVisual scale={0.8} />
           </div>
         </section>
-      ))}
 
-      {/* FINAL CTA */}
-      <section className="bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-20 text-center mt-8">
-        <h2 className="text-[28px] sm:text-[32px] font-bold mb-6 px-6">Stop clicking “send” 100 times a day.</h2>
-        <div className="flex items-center justify-center gap-3">
-          <button onClick={onSignup} className="px-6 py-3 text-[14px] font-semibold bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-xl hover:opacity-90">Start Free</button>
-          <a href="/pricing" className="px-6 py-3 text-[14px] font-semibold border border-white/30 dark:border-gray-900/30 rounded-xl hover:bg-white/10 dark:hover:bg-gray-900/10">See Pricing</a>
-        </div>
-      </section>
+        {/* LOGO TICKER */}
+        <div className="max-w-[1200px] mx-auto px-6 mt-8"><LogoTicker /></div>
 
-      {/* FOOTER */}
-      <footer className="border-t border-gray-100 dark:border-gray-800">
-        <div className="max-w-5xl mx-auto px-6 py-8 flex flex-wrap items-center gap-4 text-[12px] text-gray-400">
-          <span className="font-semibold text-gray-500 dark:text-gray-400">Student CRM</span>
-          <a href="/pricing" className="hover:text-gray-900 dark:hover:text-gray-100">Pricing</a>
-          <button onClick={onLogin} className="hover:text-gray-900 dark:hover:text-gray-100">Log in</button>
-          <span className="ml-auto">© {new Date().getFullYear()} Student CRM</span>
-        </div>
-      </footer>
+        {/* HOW IT WORKS */}
+        <section className="max-w-[1100px] mx-auto px-6 py-20 anim-fade-up anim-delay-6">
+          <h2 className="font-display text-white text-[28px] md:text-[36px] font-semibold tracking-[-0.02em] text-center mb-12">How it works</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            {STEPS.map(s => (
+              <div key={s.n} className="rounded-[20px] border border-white/10 bg-white/[0.03] p-6">
+                <p className="font-display text-[#A068FF] text-[13px] font-bold mb-3">{s.n}</p>
+                <h3 className="font-display text-white text-[17px] font-semibold mb-2">{s.t}</h3>
+                <p className="text-white/50 text-[14px] leading-relaxed">{s.d}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* FEATURE HIGHLIGHTS */}
+        <section className="max-w-[1100px] mx-auto px-6 pb-20">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {FEATURES.map(f => (
+              <a key={f.t} href={f.href} className="group rounded-[20px] border border-white/10 bg-white/[0.03] p-7 hover:border-[#A068FF]/40 transition-colors">
+                <h3 className="font-display text-white text-[19px] font-semibold mb-2 group-hover:text-[#A068FF] transition-colors">{f.t}</h3>
+                <p className="text-white/55 text-[14.5px] leading-relaxed mb-4">{f.d}</p>
+                <span className="text-[13px] font-semibold text-[#A068FF]">Learn more →</span>
+              </a>
+            ))}
+          </div>
+        </section>
+
+        {/* SOCIAL PROOF */}
+        <section className="max-w-[820px] mx-auto px-6 py-16 text-center">
+          {/* TODO: replace with a real quote */}
+          <p className="font-display text-white text-[24px] md:text-[30px] font-semibold leading-snug tracking-[-0.01em]">
+            “I stopped losing track of people. The follow-ups just happen now.”
+          </p>
+          <p className="text-white/40 text-[13px] mt-5">Placeholder testimonial — replace before launch</p>
+        </section>
+
+        {/* FINAL CTA */}
+        <section className="py-24 text-center">
+          <h2 className="font-display text-white text-[30px] md:text-[44px] font-semibold tracking-[-0.02em] mb-8 px-6">Stop clicking “send” 100 times a day.</h2>
+          <div className="flex items-center justify-center gap-5">
+            <GradientBorderButton href="/?signup=1" size="lg" dir="right">Start Free</GradientBorderButton>
+            <a href="/pricing" className="text-[14px] font-semibold text-white/70 hover:text-white transition-colors">See pricing →</a>
+          </div>
+        </section>
+      </main>
+
+      <MarketingFooter />
     </div>
   );
 }

@@ -278,3 +278,22 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - Lazy-loaded `dynamic(() => import('./HeroScene'), { ssr:false })` — three.js stays out of the initial bundle. Rendered **only** on `≥1024px` and **not** under `prefers-reduced-motion`; otherwise a static radial-gradient fallback (no WebGL, no layout shift).
 - Hero rebuilt with design tokens (clean token-based nav + `T.display` headline + soft radial legibility scrim), Student-CRM copy — resolving the two-identity problem the VEX video created (hero + product sections now one brand).
 - **Browser-verified** at 1280px (colored 3D graph renders, headline crisp over the scrim, console clean) and confirmed the fallback path below 1024px.
+
+# ============ v7 — Marketing site (5 pages, dark cinematic) ============
+
+## Foundation — fonts, theme tokens, shared design system
+- `layout.js`: added `Urbanist` (weights 500/600/700) via `next/font/google` as `--font-urbanist`, wired onto `<body>`. Inter stays the body face.
+- `globals.css` `@theme`: added `--color-ink #060218`, `--color-ink-2 #070319`, `--color-accent #A068FF`, and `--font-urbanist`.
+- New `src/app/(marketing)/marketing.css`: CSS-only cinematic background (`.cinematic-bg` — base ink + two radial accent glows + `feTurbulence` grain via `::before`, no photographic asset), `.font-display`, the GradientBorderButton (`@property --border-angle` + `border-spin` conic-gradient border + slide-in `::after`), typewriter caret, orbit rings, logo-ticker scroll, entrance animations, and a full `prefers-reduced-motion` block that freezes every animation.
+- New `src/components/marketing/ui.js`: `usePrefersReducedMotion`, `GradientBorderButton` (renders `<a>` or `<button>`), `TypewriterHeading` (per-clause colored parts, reduced-motion aware), `useCountUp` (easeOutCubic), `LogoTicker`.
+- New `src/components/marketing/OrbitVisual.js` (4 concentric rings of role avatars orbiting a live count-up), `MarketingHeader.js` (wordmark + nav Your Team/Solutions/Blog/Pricing, Log In → `/?login=1`, "Start Free" → `/?signup=1`, mobile menu), `MarketingFooter.js`.
+- New `src/app/(marketing)/layout.js`: imports marketing.css + shared header/footer, wraps children in `.cinematic-bg`.
+
+## Pages
+- **Home** (`src/app/page.js`, edited): the logged-out `LandingPage` is now the dark cinematic home — `TypewriterHeading`, `GradientBorderButton`, `OrbitVisual`, `LogoTicker`, how-it-works, feature cards linking to `/solutions#anchors`, testimonial placeholder (TODO), final CTA. **Auth branching preserved** (`?login=1` / `?signup=1` modal routing, logged-in dashboard untouched). No `<video>`; HeroScene removed from Home.
+- **Solutions** (`src/app/(marketing)/solutions/page.js`, new): hosts the site's **single** live WebGL canvas (`HeroScene`, lazy `dynamic({ssr:false})`), gated to desktop (≥1024px) + no-reduced-motion with a static fallback. Four feature sections anchored to pricing's `COMPARISON_ROWS` categories; feature mocks are static glass (only the hero canvas is live → one WebGL context total).
+- **Your Team** (`src/app/(marketing)/team/page.js`, new): mission/about page — values grid + **placeholder** people (marked TODO, no fabricated names).
+- **Blog** (`src/app/(marketing)/blog/page.js`, new): static demo cards + category filter chips (TODO: real CMS/MDX + `/blog/[slug]`).
+- **Pricing** (`git mv` from `src/app/pricing/` into `(marketing)`, restyled dark): **all logic preserved verbatim** — `PRICING_TIERS`, `COMPARISON_ROWS`, `PRICING_FAQ`, annual toggle, accordions. Recolored to ink + `#A068FF`, CTAs wrapped in GradientBorderButton; inline nav/footer removed (the group layout provides them).
+- Colors `#A068FF` accent on `#060218`/`#070319` ink throughout; Inter body + Urbanist display; reduced-motion fallbacks site-wide.
+- **Verified:** `next build` clean (all 5 routes prerender); browser-checked Home, Pricing (dark restyle intact), Solutions (exactly one live WebGL canvas, `gl.isContextLost()===false`); console clean.

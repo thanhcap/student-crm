@@ -23,6 +23,12 @@
   --font-sans: var(--font-inter), system-ui, sans-serif;
   --font-display: var(--font-space-grotesk), sans-serif;
   --font-mono: var(--font-jetbrains-mono), monospace;
+
+  /* V7 — dark cinematic marketing tokens */
+  --color-ink: #060218;
+  --color-ink-2: #070319;
+  --color-accent: #A068FF;
+  --font-urbanist: var(--font-urbanist), sans-serif;
 }
 
 /* Base DOM Configuration — light by default, dark when the .dark class is set.

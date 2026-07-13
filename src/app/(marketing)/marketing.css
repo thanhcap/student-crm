@@ -1,0 +1,140 @@
+/* V7 marketing site — CSS that Tailwind can't express (keyframes, conic border,
+   orbit transforms, ticker, grain). Imported by the (marketing) route-group layout
+   and by the root page's LandingPage. */
+
+/* ---- Cinematic background: base ink + two off-center accent glows + grain ---- */
+.cinematic-bg {
+  position: relative;
+  background-color: #060218;
+  background-image:
+    radial-gradient(50% 40% at 18% 12%, rgba(160, 104, 255, 0.16), transparent 70%),
+    radial-gradient(45% 45% at 85% 78%, rgba(160, 104, 255, 0.12), transparent 72%);
+  color: #ffffff;
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+.cinematic-bg::before {
+  /* SVG feTurbulence grain, ~3% opacity, fixed so it doesn't scroll */
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.font-display { font-family: var(--font-urbanist), sans-serif; }
+
+/* ---- GradientBorderButton: rotating conic-gradient border via mask ---- */
+@property --border-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.grad-btn-wrap {
+  position: relative;
+  display: inline-block;
+  border-radius: 50px;
+  padding: 3px;
+  isolation: isolate;
+}
+.grad-btn-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50px;
+  padding: 3px;
+  background: conic-gradient(from var(--border-angle), #A068FF, #070319, #A068FF, #070319, #A068FF);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: border-spin 3s linear infinite;
+  pointer-events: none;
+}
+@keyframes border-spin { to { --border-angle: 360deg; } }
+.grad-btn {
+  position: relative;
+  overflow: hidden;
+  border-radius: 50px;
+  background: #070319;
+  color: #ffffff;
+  z-index: 1;
+}
+.grad-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #A068FF;
+  z-index: -1;
+  transform: translateX(-101%);
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.grad-btn.dir-right::after { transform: translateX(101%); }
+.grad-btn:hover::after { transform: translateX(0); }
+.grad-btn:hover { color: #ffffff; }
+
+/* ---- Typewriter caret ---- */
+.tw-caret {
+  display: inline-block;
+  width: 2px;
+  margin-left: 2px;
+  background: #A068FF;
+  animation: tw-blink 0.9s step-end infinite;
+}
+@keyframes tw-blink { 50% { opacity: 0; } }
+
+/* ---- Orbit rings ---- */
+.orbit-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  /* 1px gradient border via mask */
+  padding: 1px;
+  background: linear-gradient(180deg, rgba(217,161,255,0) 0%, rgba(217,161,255,1) 43%, rgba(217,161,255,0) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+@keyframes orbit-left  { to { transform: translate(-50%, -50%) rotate(-360deg); } }
+@keyframes orbit-right { to { transform: translate(-50%, -50%) rotate(360deg); } }
+.spin-left-30  { animation: orbit-left  30s linear infinite; }
+.spin-right-40 { animation: orbit-right 40s linear infinite; }
+.spin-right-50 { animation: orbit-right 50s linear infinite; }
+.spin-left-60  { animation: orbit-left  60s linear infinite; }
+
+/* Avatar fly-in */
+@keyframes avatar-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(-180deg); filter: blur(8px); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg);      filter: blur(0); }
+}
+.avatar-in { animation: avatar-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* ---- Logo ticker ---- */
+@keyframes ticker-scroll { to { transform: translateX(-50%); } }
+.ticker-track { display: flex; width: max-content; animation: ticker-scroll 20s linear infinite; }
+.ticker-mask {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+
+/* ---- Entrance animations ---- */
+@keyframes fade-down { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fade-up   { from { opacity: 0; transform: translateY(40px); }  to { opacity: 1; transform: translateY(0); } }
+@keyframes scale-in  { from { opacity: 0; transform: scale(0.85); }        to { opacity: 1; transform: scale(1); } }
+.anim-fade-down { animation: fade-down 0.8s cubic-bezier(0.22,1,0.36,1) both; }
+.anim-fade-up   { animation: fade-up 1s cubic-bezier(0.22,1,0.36,1) both; }
+.anim-scale-in  { animation: scale-in 1.2s cubic-bezier(0.22,1,0.36,1) 0.3s both; }
+.anim-delay-6   { animation-delay: 0.6s; }
+
+/* ---- Reduced motion: freeze everything to its end state ---- */
+@media (prefers-reduced-motion: reduce) {
+  .grad-btn-wrap::before,
+  .spin-left-30, .spin-right-40, .spin-right-50, .spin-left-60,
+  .avatar-in, .ticker-track, .tw-caret,
+  .anim-fade-down, .anim-fade-up, .anim-scale-in {
+    animation: none !important;
+  }
+  .avatar-in { opacity: 1; }
+  .anim-fade-down, .anim-fade-up, .anim-scale-in { opacity: 1; transform: none; }
+}
