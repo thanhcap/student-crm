@@ -5639,22 +5639,25 @@ export default function App() {
             )}
 
             {/* BULK ACTIONS BAR (Table mode only) */}
+            {/* Floating bulk-action bar — anchored to the bottom of the viewport (Part 4.3) */}
             {viewMode === 'table' && selectedClientIds.length > 0 && (
-              <div className="bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-center justify-between animate-in fade-in">
-                <span className="text-[13px] font-medium text-blue-800">{selectedClientIds.length} relationships selected</span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select onChange={e => {if(e.target.value) handleBulkStatusUpdate(e.target.value); e.target.value='';}} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 px-3 py-1.5 bg-white border border-gray-200 dark:border-gray-700 text-gray-700 rounded-md text-[12px] font-medium hover:bg-gray-50 outline-none">
-                    <option value="">Change Status...</option>
-                    {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+              <div className="fixed bottom-6 left-1/2 md:left-[calc(50%+120px)] -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                <div className={`flex flex-wrap items-center gap-2 px-3 py-2.5 ${R.card} bg-gray-900/95 dark:bg-white/95 backdrop-blur-md shadow-2xl border border-white/10`}>
+                  <span className="text-[13px] font-semibold text-white dark:text-gray-900 px-2">{selectedClientIds.length} selected</span>
+                  <button onClick={() => setSelectedClientIds([])} className="text-[12px] font-medium text-white/50 dark:text-gray-900/50 hover:text-white dark:hover:text-gray-900 px-1">Clear</button>
+                  <span className="w-px h-5 bg-white/15 dark:bg-gray-900/15" />
+                  <select onChange={e => {if(e.target.value) handleBulkStatusUpdate(e.target.value); e.target.value='';}} className={`px-3 h-8 ${R.ctl} bg-white/10 dark:bg-gray-900/10 text-white dark:text-gray-900 text-[12px] font-medium outline-none border-none`}>
+                    <option value="" className="text-gray-900">Change status…</option>
+                    {PIPELINE_STAGES.map(s => <option key={s} value={s} className="text-gray-900">{s}</option>)}
                   </select>
-                  <button onClick={() => setShowBulkEmailModal(true)} className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-[12px] font-medium hover:bg-indigo-700 shadow-sm">Bulk Email</button>
+                  <button onClick={() => setShowBulkEmailModal(true)} className={`px-3 h-8 ${R.ctl} bg-white/10 dark:bg-gray-900/10 text-white dark:text-gray-900 text-[12px] font-semibold hover:bg-white/20 dark:hover:bg-gray-900/20 transition-colors`}>Bulk Email</button>
                   {sequences.length > 0 && (
-                    <select onChange={e => { if (e.target.value) handleBulkEnrollInSequence(e.target.value); e.target.value = ''; }} className="dark:bg-gray-800 dark:text-gray-100 px-3 py-1.5 bg-white border border-gray-200 dark:border-gray-700 text-gray-700 rounded-md text-[12px] font-medium hover:bg-gray-50 outline-none">
-                      <option value="">Enroll in sequence...</option>
-                      {sequences.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    <select onChange={e => { if (e.target.value) handleBulkEnrollInSequence(e.target.value); e.target.value = ''; }} className={`px-3 h-8 ${R.ctl} bg-white/10 dark:bg-gray-900/10 text-white dark:text-gray-900 text-[12px] font-medium outline-none border-none`}>
+                      <option value="" className="text-gray-900">Enroll in sequence…</option>
+                      {sequences.map(s => <option key={s.id} value={s.id} className="text-gray-900">{s.name}</option>)}
                     </select>
                   )}
-                  <button onClick={handleBulkDelete} className="px-3 py-1.5 bg-red-600 text-white rounded-md text-[12px] font-medium hover:bg-red-700 shadow-sm">Delete Selected</button>
+                  <button onClick={handleBulkDelete} className={`px-3 h-8 ${R.ctl} bg-red-600 text-white text-[12px] font-semibold hover:bg-red-700 transition-colors`}>Delete</button>
                 </div>
               </div>
             )}
@@ -5939,9 +5942,11 @@ export default function App() {
                   const stageDeals = deals.filter(d => d.stage === stage);
                   const stageValue = stageDeals.reduce((s, d) => s + toUSD(d.value, d.currency), 0);
                   return (
-                    <div key={stage} className="flex-shrink-0 w-[280px] bg-gray-200/50 dark:bg-gray-800/60 rounded-2xl flex flex-col border border-gray-100 dark:border-gray-800"
+                    <div key={stage} className="flex-shrink-0 w-[300px] bg-gray-200/50 dark:bg-gray-800/60 rounded-2xl flex flex-col border border-gray-100 dark:border-gray-800 transition-colors [&.drag-over]:bg-indigo-100/60 dark:[&.drag-over]:bg-indigo-500/10"
                       style={{ scrollSnapAlign: 'start' }}
-                      onDragOver={handleDragOver} onDrop={e => handleDealDrop(e, stage)}>
+                      onDragOver={e => { handleDragOver(e); e.currentTarget.classList.add('drag-over'); }}
+                      onDragLeave={e => e.currentTarget.classList.remove('drag-over')}
+                      onDrop={e => { e.currentTarget.classList.remove('drag-over'); handleDealDrop(e, stage); }}>
                       <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-100/50 dark:bg-gray-800 rounded-t-2xl flex justify-between items-center">
                         <div>
                           <h4 className="text-[14px] font-bold text-gray-800 dark:text-gray-100">{stage}</h4>
@@ -5957,7 +5962,7 @@ export default function App() {
                           const dealClient = clients.find(c => c.id === deal.client_id);
                           return (
                             <div key={deal.id} draggable onDragStart={e => handleDealDragStart(e, deal.id)}
-                              className="bg-white dark:bg-gray-900 p-3.5 rounded-xl border border-gray-100 dark:border-gray-800 border-l-4 shadow-sm hover:shadow-md active:shadow-lg transition-shadow cursor-grab active:cursor-grabbing flex flex-col gap-2 group"
+                              className="bg-white dark:bg-gray-900 p-3.5 rounded-xl border border-gray-100 dark:border-gray-800 border-l-4 shadow-sm hover:shadow-md transition-all duration-200 cursor-grab active:cursor-grabbing active:scale-[1.02] active:rotate-[0.5deg] active:shadow-xl flex flex-col gap-2 group"
                               style={{ borderLeftColor: STAGE_COLORS[stage] || '#9CA3AF' }}>
                               <div className="flex justify-between items-start gap-2">
                                 <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{deal.title}</p>
