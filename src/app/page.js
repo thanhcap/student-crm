@@ -4654,10 +4654,10 @@ export default function App() {
             <div className="w-6 h-6 bg-gray-900 dark:bg-gray-100 rounded-md" />
             <span className="text-[15px] font-semibold tracking-tight">Student CRM</span>
           </div>
-          {/* Nav items */}
+          {/* Nav items — token radius + left-rail active marker (Part 4.1) */}
           <nav className="flex-1 overflow-y-auto px-3 py-4 flex flex-col gap-0.5">
             {[
-              ['DASHBOARD', 'Dashboard'],
+              ['DASHBOARD', 'Overview'],
               ['CLIENTS', 'Relationships'],
               ['DEALS', 'Deals'],
               ['N8N', 'Email Automation'],
@@ -4665,11 +4665,15 @@ export default function App() {
               ['CALENDAR', 'Calendar'],
               ['REPORTS', 'Reports'],
               ['SETTINGS', 'Settings'],
-            ].map(([step, label]) => (
-              <button key={step} onClick={() => setAppStep(step)} className={`text-left px-3 py-2 rounded-xl text-[13px] font-medium transition-all ${appStep === step ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-semibold' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>
-                {label}
-              </button>
-            ))}
+            ].map(([step, label]) => {
+              const active = appStep === step;
+              return (
+                <button key={step} onClick={() => setAppStep(step)} className={`relative text-left px-3 h-9 flex items-center ${R.ctl} ${T.small} font-medium transition-all duration-200 ${active ? 'bg-black/[0.04] dark:bg-white/[0.06] text-gray-900 dark:text-gray-100 font-semibold' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.03]'}`}>
+                  {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-gray-900 dark:bg-gray-100" />}
+                  {label}
+                </button>
+              );
+            })}
           </nav>
           {/* Utilities + user block */}
           <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-800 space-y-0.5">
@@ -4739,7 +4743,7 @@ export default function App() {
               {user && (
                 <div className="hidden md:flex items-center gap-1">
                   {[
-                    ['DASHBOARD', 'Dashboard'],
+                    ['DASHBOARD', 'Overview'],
                     ['CLIENTS', 'Relationships'],
                     ['DEALS', 'Deals'],
                     ['GLOBAL_TASKS', 'Tasks'],
@@ -4830,7 +4834,7 @@ export default function App() {
           <div className="md:hidden border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 animate-in slide-in-from-top-2 fade-in duration-200">
             <div className="px-4 py-3 flex flex-col gap-1">
               {[
-                ['DASHBOARD', 'Dashboard'],
+                ['DASHBOARD', 'Overview'],
                 ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
                 ['N8N', 'Email Automation'],
@@ -5028,10 +5032,26 @@ export default function App() {
         {/* VIEW: DASHBOARD */}
         {appStep === 'DASHBOARD' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Overview</h1>
-              <p className="text-[13px] text-gray-500">Monitor your workspace activity and relationship directory.</p>
-            </div>
+            {/* EDITORIAL GREETING (Part 4.2) — a real sentence, computed live */}
+            {(() => {
+              const hour = new Date().getHours();
+              const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+              const firstName = (profile.username || user.email || '').split(/[@ .]/)[0];
+              const nice = firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1) : 'there';
+              const followUps = tasks.filter(t => t.status === 'pending' && t.due_date && t.due_date <= todayStr).length;
+              const weekAhead = new Date(Date.now() + 7 * 864e5).toISOString().split('T')[0];
+              const closing = deals.filter(d => d.close_date && d.close_date >= todayStr && d.close_date <= weekAhead && !['Won', 'Lost'].includes(d.stage)).length;
+              const parts = [];
+              if (followUps) parts.push(`${followUps} follow-up${followUps === 1 ? '' : 's'} due`);
+              if (closing) parts.push(`${closing} deal${closing === 1 ? '' : 's'} closing this week`);
+              const sub = parts.length ? `You have ${parts.join(' and ')}.` : 'Nothing overdue — a good day to reach out to someone new.';
+              return (
+                <div>
+                  <h1 className={`${T.h1} text-gray-900 dark:text-gray-100`}>{greet}, {nice}.</h1>
+                  <p className={`${T.body} text-black/50 dark:text-white/50 mt-1`}>{sub}</p>
+                </div>
+              );
+            })()}
 
             {/* ONBOARDING CHECKLIST (Feature 30) */}
             {!onboardingComplete && !onboardingDismissed && (
