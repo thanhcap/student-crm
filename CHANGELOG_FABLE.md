@@ -248,3 +248,21 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 
 ## Final — push
 - Backup of prior origin/main taken; branch `fable/builder-fullscreen-3d` (Parts A–E + VEX hero) merged to main and pushed. Vercel auto-deploys.
+
+# ============ v6 — Redesign pass (branch redesign/total-layout-v2) ============
+
+## Step 0 — Reconnaissance (reality vs prompt)
+- Still one file: `src/app/page.js` (~9.1k lines).
+- **No icon library is installed** (no `lucide-react`/`react-icons`/heroicons). Every "icon" in the app is an **emoji used as UI** — ~50 instances across ~20 glyphs (✉ ⚡ 🎉 🤝 🔗 🔁 🎯 ▶ 🔥 🔀 📞 📝 💡 ✅ ⏱ 📥 💬 💗 ⭐ …). So Part 2's "remove icon packages" is moot; icon removal = emoji removal.
+- **Mail code (Part 5):** `buildGmailUrl` + `buildMailtoUrl` at module scope; `emailProvider` state ('gmail'|'mailto') persisted to localStorage; call sites in `handleSendEmail`, `handleBulkSendEmail`, `handleSendSequenceStep`, and the EmailStudio test-send. Confirmed the mailto fallback is the iCloud culprit.
+- **Landing video (Part 6):** the `<video>` at page.js:880 is the **VEX CloudFront hero I built LAST TURN at the user's explicit "recreate this hero exactly" request.** Part 6 says delete it — a direct conflict with just-delivered, explicitly-requested work. Flagged for the user rather than silently deleted.
+- `three`/`@react-three/fiber`/`@react-three/drei` already installed; **`framer-motion` is NOT** (Parts 6/7 need it).
+- Tabs: the profile tabs and Email Automation hub tabs use bespoke underline/pill markup; the canvas config + enroll panels use ad-hoc buttons.
+
+## Part 5 — Send Email fixed (Gmail web compose only; mailto/iCloud fallback removed)
+- New `buildGmailComposeUrl({to,subject,body,from})` → `https://mail.google.com/mail/u/0/?view=cm…` (pins `authuser` when a connected address is known). **`buildGmailUrl` + `buildMailtoUrl` deleted.**
+- `emailProvider` state + `setEmailProviderPersist` + the localStorage persistence + the "Gmail / Default Mail App" toggle UI all **removed**. Added `blockedComposeUrl` state.
+- All four send paths (manual composer, bulk email, manual sequence-step send, EmailStudio test-send) now open Gmail only. On a blocked popup they surface an explicit **"Open Gmail"** link and toast — they **never** fall back to `mailto:`. Verified: zero `mailto:` URLs remain in `src/` (only a code comment).
+- Draft activity still logged (`activity_date`, non-null `description`, no `outcome`).
+- Part 5.3: honest **"Gmail isn't connected / needs reconnecting"** banner at the top of Email Automation (gmail_connections is empty live), linking to Connect Gmail; Settings already carries the Gmail Sync card. Note (reality wins): I did **not** hard-block campaign activation, because the runner also has a **Resend** auto-send path (`email_settings.resend_from_email` is set) — hard-blocking on "no Gmail" would break a working capability. The banner states both paths.
+- **Manual test:** open a relationship → Send Email → composes in a Gmail tab (not Apple Mail); block popups → "Open Gmail" link appears; no iCloud handoff anywhere.

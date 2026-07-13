@@ -112,12 +112,13 @@ const DEFAULT_ACTIVITY_TEMPLATES = [
   { name: 'Voicemail', type: 'Note', desc: 'Left voicemail. Will try again next week.' },
 ];
 
-// PART B — email compose URLs (opens the user's own mail client in a new tab)
-function buildGmailUrl(to, subject, body) {
-  return `https://mail.google.com/mail/?${new URLSearchParams({ view: 'cm', fs: '1', to, su: subject, body })}`;
-}
-function buildMailtoUrl(to, subject, body) {
-  return `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+// V6 Part 5 — Gmail web compose ONLY. Never mailto: — on macOS mailto hands off to
+// the OS default client (Apple Mail / iCloud), which is exactly the reported bug.
+// This always opens a real browser tab composing from the user's Gmail.
+function buildGmailComposeUrl({ to, subject, body, from }) {
+  const p = new URLSearchParams({ view: 'cm', fs: '1', tf: '1', to: to || '', su: subject || '', body: body || '' });
+  if (from) p.set('authuser', from); // pin the sending account when we know it
+  return `https://mail.google.com/mail/u/0/?${p.toString()}`;
 }
 
 // Lead score: 0-100, computed client-side (Feature 6)
@@ -1163,8 +1164,9 @@ export default function App() {
   const [emailTo, setEmailTo] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
-  // PART B — 'gmail' opens a Gmail compose tab, 'mailto' hands off to the default mail app
-  const [emailProvider, setEmailProvider] = useState('gmail');
+  // V6 Part 5 — Gmail web compose is the only path. When the browser blocks the
+  // popup we surface an explicit "Open Gmail" link instead of falling back to mailto.
+  const [blockedComposeUrl, setBlockedComposeUrl] = useState(null);
   const [emailTemplates, setEmailTemplates] = useState([]);
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [templateName, setTemplateName] = useState('');
@@ -1417,17 +1419,6 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  // PART B — email provider preference
-  useEffect(() => {
-    const saved = localStorage.getItem('crm_email_provider');
-    if (saved === 'gmail' || saved === 'mailto') setEmailProvider(saved);
-  }, []);
-
-  function setEmailProviderPersist(p) {
-    setEmailProvider(p);
-    localStorage.setItem('crm_email_provider', p);
-  }
 
   // FEATURE 13 — Dark mode: init from localStorage, toggle root class
   useEffect(() => {
@@ -2051,12 +2042,15 @@ export default function App() {
     const subject = resolveMergeTags(emailSubject, viewingClient);
     const body = resolveMergeTags(emailBody, viewingClient);
 
-    if (emailProvider === 'mailto') {
-      window.location.href = buildMailtoUrl(emailTo, subject, body);
-    } else {
-      const tab = window.open(buildGmailUrl(emailTo, subject, body), '_blank', 'noopener,noreferrer');
-      if (!tab) window.location.href = buildMailtoUrl(emailTo, subject, body);
+    const url = buildGmailComposeUrl({ to: emailTo, subject, body, from: gmailConn?.email_address });
+    const tab = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!tab) {
+      // Popup blocked — do NOT fall back to mailto (that opens iCloud/Apple Mail).
+      setBlockedComposeUrl(url);
+      showToast('Your browser blocked the popup. Click "Open Gmail" to continue.', 'error');
+      return;
     }
+    setBlockedComposeUrl(null);
 
     if (viewingClient) {
       const { data } = await supabase.from('activities').insert([{
@@ -2114,7 +2108,7 @@ export default function App() {
       setBulkEmailProgress(`Opening tab ${i + 1} of ${targets.length}...`);
       const subject = resolveMergeTags(bulkEmailSubject, c);
       const body = resolveMergeTags(bulkEmailBody, c);
-      const url = emailProvider === 'mailto' ? buildMailtoUrl(c.email, subject, body) : buildGmailUrl(c.email, subject, body);
+      const url = buildGmailComposeUrl({ to: c.email, subject, body, from: gmailConn?.email_address });
       const tab = window.open(url, '_blank', 'noopener,noreferrer');
       if (tab) {
         opened++;
@@ -2971,9 +2965,9 @@ export default function App() {
       variant = pick.variant;
       const subject = resolveMergeTags(pick.subject, c);
       const body = resolveMergeTags(step.body, c);
-      const url = emailProvider === 'mailto' ? buildMailtoUrl(c.email, subject, body) : buildGmailUrl(c.email, subject, body);
+      const url = buildGmailComposeUrl({ to: c.email, subject, body, from: gmailConn?.email_address });
       const tab = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!tab && emailProvider !== 'mailto') window.location.href = buildMailtoUrl(c.email, subject, body);
+      if (!tab) { setBlockedComposeUrl(url); showToast('Popup blocked — allow popups, then use the Outbox link.', 'error'); }
       description = `Sequence "${seq.name}" — step ${index + 1}${variant ? ` (variant ${variant})` : ''}: ${subject}`;
     }
 
@@ -7032,6 +7026,16 @@ export default function App() {
           const coldSelectedIds = Object.entries(coldSelected).filter(([, v]) => v).map(([k]) => parseInt(k, 10));
           return (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              {/* V6 Part 5.3 — honest banner when there's no valid Gmail sending identity */}
+              {(!gmailConn || gmailConn.needs_reauth || !gmailConn.email_address) && (
+                <div className="p-5 rounded-[20px] border border-amber-500/30 bg-amber-500/[0.05]">
+                  <p className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 mb-1">{gmailConn ? 'Gmail needs reconnecting' : 'Gmail isn’t connected'}</p>
+                  <p className="text-[12.5px] text-black/50 dark:text-white/50 mb-4 max-w-2xl">
+                    Campaigns can’t auto-send from Gmail until a valid account is connected. You can still draft emails manually — they open in Gmail for you to send. (A configured Resend sender can also auto-send; see Settings → Email Automation.)
+                  </p>
+                  <button onClick={handleConnectGmail} className="px-4 h-9 rounded-[10px] bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[12.5px] font-semibold hover:opacity-85 transition-opacity">{gmailConn ? 'Reconnect Gmail' : 'Connect Gmail'}</button>
+                </div>
+              )}
               <div className="flex flex-wrap items-end gap-4">
                 <div>
                   <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Email Automation</h1>
@@ -8702,13 +8706,12 @@ export default function App() {
                 <textarea rows={6} required value={emailBody} onChange={e => setEmailBody(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                 <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} {'{{phone}}'} {'{{stage}}'}</p>
               </div>
-              {/* PART B — provider toggle (persisted to localStorage) */}
-              <div className="flex items-center gap-2 pt-3 border-t border-gray-100">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Open with:</span>
-                <div className="bg-gray-100 p-0.5 rounded-lg flex items-center gap-0.5">
-                  <button type="button" onClick={() => setEmailProviderPersist('gmail')} className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all ${emailProvider === 'gmail' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gmail</button>
-                  <button type="button" onClick={() => setEmailProviderPersist('mailto')} className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all ${emailProvider === 'mailto' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Default Mail App</button>
-                </div>
+              {/* V6 Part 5 — Gmail web compose only (no default-mail-app option; that opened iCloud) */}
+              <div className="flex items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-800">
+                <span className="text-[11px] text-gray-400">Opens a Gmail compose tab — send from there.</span>
+                {blockedComposeUrl && (
+                  <a href={blockedComposeUrl} target="_blank" rel="noopener noreferrer" className="ml-auto px-3 h-8 inline-flex items-center rounded-[10px] bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[12px] font-semibold">Open Gmail</a>
+                )}
               </div>
               <div className="flex flex-wrap justify-end gap-3 pt-3 border-t border-gray-100">
                 <button type="button" onClick={() => { setEditingTemplate(null); setTemplateName(''); setTemplateSubject(emailSubject); setTemplateBody(emailBody); setAppStep('SETTINGS'); setShowEmailComposer(false); showToast('Finish saving the template in Settings → Email Templates.', 'success'); }} className="px-3 py-2 text-[12px] font-medium text-gray-500 hover:text-gray-800 mr-auto">Save as template</button>
@@ -8749,7 +8752,7 @@ export default function App() {
                 </p>
               </div>
               <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-[12px] text-yellow-800">
-                ⚠️ This will open {selectedClientIds.length} compose tab{selectedClientIds.length === 1 ? '' : 's'} ({emailProvider === 'mailto' ? 'default mail app' : 'Gmail'}) — you send each one yourself. Allow popups for this site.
+                ⚠️ This will open {selectedClientIds.length} Gmail compose tab{selectedClientIds.length === 1 ? '' : 's'} — you send each one yourself. Allow popups for this site.
               </div>
               {bulkEmailProgress && <p className="text-[12px] font-medium text-indigo-600">{bulkEmailProgress}</p>}
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
@@ -9083,9 +9086,9 @@ export default function App() {
               const me = gmailConn?.email_address || user?.email;
               if (!me) { showToast('Connect Gmail in Settings first so we know your address.', 'error'); return; }
               if (gmailConn?.needs_reauth) { showToast('Your Gmail connection needs a reconnect (Settings → Gmail Sync).', 'error'); return; }
-              const url = emailProvider === 'mailto' ? buildMailtoUrl(me, `[TEST] ${resolvedSubject}`, resolvedBody) : buildGmailUrl(me, `[TEST] ${resolvedSubject}`, resolvedBody);
+              const url = buildGmailComposeUrl({ to: me, subject: `[TEST] ${resolvedSubject}`, body: resolvedBody, from: me });
               const tab = window.open(url, '_blank', 'noopener,noreferrer');
-              if (!tab && emailProvider !== 'mailto') window.location.href = buildMailtoUrl(me, `[TEST] ${resolvedSubject}`, resolvedBody);
+              if (!tab) { showToast('Popup blocked — allow popups for this site and retry.', 'error'); return; }
               showToast(`Test compose opened, addressed to ${me}.`, 'success');
             }}
             onClose={() => setComposerNodeId(null)}
