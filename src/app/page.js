@@ -7122,11 +7122,16 @@ export default function App() {
                     💬 Who Has Replied?
                     {allRepliesCount > 0 && <span className="px-1.5 py-0.5 rounded-full bg-green-600 text-white text-[10px] font-bold">{allRepliesCount}</span>}
                   </button>
-                  <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
-                    {[['sequences', 'Sequences'], ['contacts', `Cold Contacts${coldContacts.length ? ` (${coldContacts.length})` : ''}`], ['unsubs', 'Unsubscribes']].map(([k, label]) => (
-                      <button key={k} onClick={() => setSeqView(k)} className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all ${seqView === k ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'}`}>{label}</button>
-                    ))}
-                  </div>
+                  {/* Unified Tabs component (Part 3) */}
+                  <Tabs
+                    value={seqView}
+                    onChange={setSeqView}
+                    tabs={[
+                      { key: 'sequences', label: 'Sequences' },
+                      { key: 'contacts', label: 'Cold Contacts', count: coldContacts.length },
+                      { key: 'unsubs', label: 'Unsubscribes' },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -8282,12 +8287,18 @@ export default function App() {
 
             {/* RIGHT: tab bar + content — the extra horizontal room is the point of this view */}
             <div className="min-w-0 text-[13px]">
-              {/* FEATURE 7 — PROFILE TAB BAR */}
-              <div className="flex gap-1 mb-6 border-b border-gray-100 dark:border-gray-800">
-                {[['activity', 'Activity'], ['tasks', 'Tasks'], ['files', 'Files'], ['deals', 'Deals']].map(([key, label]) => (
-                  <button key={key} onClick={() => setActiveProfileTab(key)} className={`px-4 py-2.5 text-[13px] font-semibold border-b-2 -mb-px transition-colors ${activeProfileTab === key ? 'border-gray-900 dark:border-white text-gray-900 dark:text-white' : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}>{label}</button>
-                ))}
-              </div>
+              {/* FEATURE 7 — PROFILE TAB BAR (unified Tabs component, Part 3) */}
+              <Tabs
+                className="mb-6"
+                value={activeProfileTab}
+                onChange={setActiveProfileTab}
+                tabs={[
+                  { key: 'activity', label: 'Activity' },
+                  { key: 'tasks', label: 'Tasks', count: tasks.filter(t => t.client_id === viewingClient.id).length },
+                  { key: 'files', label: 'Files' },
+                  { key: 'deals', label: 'Deals', count: deals.filter(d => d.client_id === viewingClient.id).length },
+                ]}
+              />
               <div className="space-y-6">
 
               {/* TAB: FILES (Feature 7) */}

@@ -318,3 +318,10 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - Feature rows **stagger in** (`.feat-in`, 50ms step) once the card enters view. Recommended badge gets a continuous **shimmer sweep** (`.badge-shimmer`, 4s loop) — new keyframes in marketing.css, all frozen under `prefers-reduced-motion`.
 - All existing logic untouched: `PRICING_TIERS`, `COMPARISON_ROWS`, `PRICING_FAQ`, the annual math (`Math.round(price*0.9)`), both accordions.
 - **Browser-verified** at 1280px: count-up climbs 0→$19/$39 on load, toggle slides right and prices re-animate to $17/$35, badge shimmers, feature rows stagger, console clean, `next build` green.
+
+## Part 3 — Unified Tabs component wired into the app's tab bars
+- The `Tabs` component (page.js:78, sliding cubic-bezier underline indicator, optional monospace count) previously had **0 usages**. Now consumed by:
+  - **Relationship profile** tab bar (Activity / Tasks / Files / Deals) — replaced the ad-hoc `border-b-2` buttons; Tasks & Deals show live counts (`tasks.filter(client_id)`, `deals.filter(client_id)`).
+  - **Email Automation** section switcher (Sequences / Cold Contacts / Unsubscribes) — replaced the pill-in-a-tray buttons; Cold Contacts shows its count.
+- One implementation, one motion curve, no icons — consistent with the design system.
+- `next build` green. (Both bars are behind auth; verified by build + review — not browser-shot, as I don't log in with the user's password.)
