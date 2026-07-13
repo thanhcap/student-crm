@@ -266,3 +266,15 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - Draft activity still logged (`activity_date`, non-null `description`, no `outcome`).
 - Part 5.3: honest **"Gmail isn't connected / needs reconnecting"** banner at the top of Email Automation (gmail_connections is empty live), linking to Connect Gmail; Settings already carries the Gmail Sync card. Note (reality wins): I did **not** hard-block campaign activation, because the runner also has a **Resend** auto-send path (`email_settings.resend_from_email` is set) — hard-blocking on "no Gmail" would break a working capability. The banner states both paths.
 - **Manual test:** open a relationship → Send Email → composes in a Gmail tab (not Apple Mail); block popups → "Open Gmail" link appears; no iCloud handoff anywhere.
+
+## Part 1 + Part 3 — Design system + unified Tabs (foundations)
+- Module-scope design tokens in page.js: `S` (surfaces), `R` (two radii), `T` (type scale), `SP` (8pt spacing), `EASE`, `ACCENT` (per-domain color). Primitives `Panel`, `UIButton` (named UIButton to avoid the native Button), `Field`, `inputCls`. These are the single source screens will consume as they're rebuilt.
+- `Tabs` component (sliding-underline indicator via `useLayoutEffect` measuring the active tab). Not yet swapped into existing tab bars — that happens as each screen is rebuilt (per the agreed one-screen-at-a-time plan).
+- `useMediaQuery` + `usePrefersReducedMotion` hooks; `framer-motion` installed for scroll reveals.
+
+## Part 6 — Landing hero: video deleted, real 3D graph (user chose this over keeping the VEX video)
+- **Deleted the VEX CloudFront `<video>`** (confirmed zero `<video>`/cloudfront refs remain) and its liquid-glass VEX chrome.
+- `src/app/HeroScene.js`: a Three.js campaign graph — 6 nodes (trigger→email→wait→condition→goal/linkedin) in their `ACCENT` colors with white light pulses traveling the edges + slow idle rotation + cursor parallax. Self-contained: dropped drei's `<Environment>` (external HDR that would suspend forever if blocked) and used emissive materials + 3 point lights so nodes glow their colors.
+- Lazy-loaded `dynamic(() => import('./HeroScene'), { ssr:false })` — three.js stays out of the initial bundle. Rendered **only** on `≥1024px` and **not** under `prefers-reduced-motion`; otherwise a static radial-gradient fallback (no WebGL, no layout shift).
+- Hero rebuilt with design tokens (clean token-based nav + `T.display` headline + soft radial legibility scrim), Student-CRM copy — resolving the two-identity problem the VEX video created (hero + product sections now one brand).
+- **Browser-verified** at 1280px (colored 3D graph renders, headline crisp over the scrim, console clean) and confirmed the fallback path below 1024px.

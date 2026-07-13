@@ -1,9 +1,122 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from 'react';
 import Papa from 'papaparse';
+import dynamic from 'next/dynamic';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
+
+// ==========================================
+// V6 PART 1 — DESIGN SYSTEM (single source of truth; every screen consumes this)
+// ==========================================
+const S = {
+  canvas:  'bg-[#FBFBFD] dark:bg-[#08080A]',
+  panel:   'bg-white dark:bg-[#111114] border border-black/[0.06] dark:border-white/[0.06]',
+  overlay: 'bg-white dark:bg-[#08080A]',
+  hairline:'border-black/[0.06] dark:border-white/[0.06]',
+};
+const R = { card: 'rounded-[20px]', ctl: 'rounded-[10px]' };
+const T = {
+  display: 'text-[52px] leading-[1.02] tracking-[-0.03em] font-semibold',
+  h1:      'text-[28px] leading-[1.15] tracking-[-0.02em] font-semibold',
+  h2:      'text-[19px] leading-[1.3] tracking-[-0.01em] font-semibold',
+  body:    'text-[14px] leading-[1.55]',
+  small:   'text-[12.5px] leading-[1.5]',
+  label:   'text-[10.5px] uppercase tracking-[0.08em] font-semibold text-black/40 dark:text-white/40',
+  mono:    'font-mono text-[12px] tabular-nums',
+};
+const SP = { xs: 'gap-2', sm: 'gap-3', md: 'gap-5', lg: 'gap-8', xl: 'gap-12' };
+const EASE = [0.22, 1, 0.36, 1];
+const ACCENT = {
+  trigger:   { bar: 'bg-violet-500',  soft: 'bg-violet-500/10',  text: 'text-violet-600 dark:text-violet-400' },
+  email:     { bar: 'bg-blue-500',    soft: 'bg-blue-500/10',    text: 'text-blue-600 dark:text-blue-400' },
+  wait:      { bar: 'bg-zinc-400',    soft: 'bg-zinc-400/10',    text: 'text-zinc-500' },
+  condition: { bar: 'bg-amber-500',   soft: 'bg-amber-500/10',   text: 'text-amber-600 dark:text-amber-400' },
+  linkedin:  { bar: 'bg-indigo-500',  soft: 'bg-indigo-500/10',  text: 'text-indigo-600 dark:text-indigo-400' },
+  call:      { bar: 'bg-emerald-500', soft: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400' },
+  goal:      { bar: 'bg-teal-500',    soft: 'bg-teal-500/10',    text: 'text-teal-600 dark:text-teal-400' },
+};
+function Panel({ className = '', children, ...p }) {
+  return <div className={`${S.panel} ${R.card} ${className}`} {...p}>{children}</div>;
+}
+function UIButton({ variant = 'primary', className = '', children, ...p }) {
+  const v = {
+    primary: 'bg-black text-white dark:bg-white dark:text-black hover:opacity-85',
+    ghost:   `${S.panel} hover:bg-black/[0.03] dark:hover:bg-white/[0.04]`,
+    quiet:   'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white',
+    danger:  'bg-red-600 text-white hover:bg-red-700',
+  }[variant];
+  return (
+    <button className={`${R.ctl} px-4 h-9 ${T.small} font-semibold transition-all duration-200 ${v} ${className}`} {...p}>
+      {children}
+    </button>
+  );
+}
+function Field({ label, hint, children }) {
+  return (
+    <label className="block">
+      {label && <span className={`${T.label} block mb-1.5`}>{label}</span>}
+      {children}
+      {hint && <span className="block mt-1 text-[11px] text-black/35 dark:text-white/35">{hint}</span>}
+    </label>
+  );
+}
+const inputCls =
+  `w-full h-10 px-3.5 ${T.body} ${R.ctl} bg-black/[0.02] dark:bg-white/[0.03] ` +
+  `border border-black/[0.08] dark:border-white/[0.08] ` +
+  `text-black dark:text-white placeholder:text-black/30 dark:placeholder:text-white/30 ` +
+  `outline-none transition-all focus:bg-white dark:focus:bg-white/[0.06] ` +
+  `focus:border-black/25 dark:focus:border-white/25`;
+
+// V6 PART 3 — ONE tab component for the whole product (sliding underline indicator)
+function Tabs({ tabs, value, onChange, className = '' }) {
+  const wrapRef = useRef(null);
+  const [ind, setInd] = useState({ left: 0, width: 0 });
+  useLayoutEffect(() => {
+    const el = wrapRef.current?.querySelector(`[data-tab="${value}"]`);
+    if (!el) return;
+    setInd({ left: el.offsetLeft, width: el.offsetWidth });
+  }, [value, tabs]);
+  return (
+    <div ref={wrapRef} className={`relative flex ${SP.md} border-b ${S.hairline} ${className}`}>
+      {tabs.map(t => {
+        const active = t.key === value;
+        return (
+          <button key={t.key} data-tab={t.key} onClick={() => onChange(t.key)}
+            className={`relative pb-3 pt-1 ${T.small} font-semibold transition-colors duration-200 ${
+              active ? 'text-black dark:text-white' : 'text-black/35 dark:text-white/35 hover:text-black/70 dark:hover:text-white/70'
+            }`}>
+            {t.label}
+            {typeof t.count === 'number' && t.count > 0 && (
+              <span className={`ml-1.5 ${T.mono} ${active ? 'text-black/40 dark:text-white/40' : 'text-black/25 dark:text-white/25'}`}>{t.count}</span>
+            )}
+          </button>
+        );
+      })}
+      <span className="absolute -bottom-px h-[2px] bg-black dark:bg-white transition-all duration-300"
+        style={{ left: ind.left, width: ind.width, transitionTimingFunction: 'cubic-bezier(0.22,1,0.36,1)' }} />
+    </div>
+  );
+}
+
+// V6 — media-query + reduced-motion hooks (Part 6 guards)
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const update = () => setMatches(m.matches);
+    update();
+    m.addEventListener('change', update);
+    return () => m.removeEventListener('change', update);
+  }, [query]);
+  return matches;
+}
+function usePrefersReducedMotion() {
+  return useMediaQuery('(prefers-reduced-motion: reduce)');
+}
+
+// V6 Part 6 — 3D hero, lazy-loaded so three.js never enters the initial bundle (ssr:false required)
+const HeroScene = dynamic(() => import('./HeroScene'), { ssr: false, loading: () => null });
 
 // ==========================================
 // REUSABLE CONFIRM DIALOG COMPONENT
@@ -857,6 +970,10 @@ function AnimatedHeading({ text, className = '', style = {} }) {
 
 function LandingPage({ onLogin, onSignup }) {
   const scrollToExplore = () => document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' });
+  // V6 Part 6 — WebGL only on desktop, never under reduced-motion (perf/accessibility guard)
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const reduced = usePrefersReducedMotion();
+  const show3d = isDesktop && !reduced;
   const tabs = [
     { key: 'relationships', label: 'Relationships', copy: 'Every contact, full history, one click away — no more digging through email threads.', mock: <MockTable /> },
     { key: 'deals', label: 'Deals Pipeline', copy: 'Drag deals across stages. Won deals auto-trigger onboarding emails — no manual step.', mock: <MockKanban /> },
@@ -874,63 +991,32 @@ function LandingPage({ onLogin, onSignup }) {
   ];
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-white font-sans">
-      {/* VEX VIDEO HERO — full-viewport raw video background, liquid-glass chrome, no overlay */}
-      <section className="relative h-screen w-full overflow-hidden bg-black text-white">
-        {/* Raw background video — no dimming/overlay layer on top */}
-        <video
-          className="absolute inset-0 w-full h-full object-cover"
-          autoPlay loop muted playsInline
-          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260403_050628_c4e32401-fab4-4a27-b7a8-6e9291cd5959.mp4"
-        />
+      {/* V6 Part 6 — clean nav (design tokens) */}
+      <nav className={`sticky top-0 z-30 backdrop-blur-md border-b ${S.hairline} bg-white/70 dark:bg-[#08080A]/70`}>
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center gap-4">
+          <span className="text-[15px] font-semibold tracking-[-0.01em]">Relationship CRM</span>
+          <a href="/pricing" className={`ml-auto ${T.small} font-medium text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white transition-colors`}>Pricing</a>
+          <button onClick={onLogin} className={`${T.small} font-medium text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white transition-colors`}>Log in</button>
+          <UIButton onClick={onSignup}>Start Free</UIButton>
+        </div>
+      </nav>
 
-        {/* Foreground: navbar top, hero content pinned to bottom */}
-        <div className="relative z-10 flex flex-col h-full px-6 md:px-12 lg:px-16">
-          {/* Navbar */}
-          <div className="pt-6">
-            <nav className="liquid-glass rounded-xl px-4 py-2 flex items-center justify-between">
-              <span className="text-2xl font-semibold tracking-tight">VEX</span>
-              <div className="hidden md:flex items-center gap-8 text-sm">
-                <button onClick={scrollToExplore} className="hover:text-gray-300 transition-colors">Story</button>
-                <button onClick={scrollToExplore} className="hover:text-gray-300 transition-colors">Investing</button>
-                <button onClick={scrollToExplore} className="hover:text-gray-300 transition-colors">Building</button>
-                <button onClick={scrollToExplore} className="hover:text-gray-300 transition-colors">Advisory</button>
-              </div>
-              <button onClick={onSignup} className="bg-white text-black px-6 py-2 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors">Start a Chat</button>
-            </nav>
-          </div>
-
-          {/* Hero content — pushed to the bottom of the viewport */}
-          <div className="flex-1 flex flex-col justify-end pb-12 lg:pb-16">
-            <div className="lg:grid lg:grid-cols-2 lg:items-end">
-              {/* Left — headline, subheading, CTAs */}
-              <div>
-                <AnimatedHeading
-                  text={'Shaping tomorrow\nwith vision and action.'}
-                  className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-normal mb-4"
-                  style={{ letterSpacing: '-0.04em' }}
-                />
-                <FadeIn delay={800} duration={1000}>
-                  <p className="text-base md:text-lg text-gray-300 mb-5">
-                    We back visionaries and craft ventures that define what comes next.
-                  </p>
-                </FadeIn>
-                <FadeIn delay={1200} duration={1000}>
-                  <div className="flex flex-wrap gap-4">
-                    <button onClick={onSignup} className="bg-white text-black px-8 py-3 rounded-lg font-medium">Start a Chat</button>
-                    <button onClick={scrollToExplore} className="liquid-glass border border-white/20 text-white px-8 py-3 rounded-lg font-medium hover:bg-white hover:text-black transition-colors">Explore Now</button>
-                  </div>
-                </FadeIn>
-              </div>
-
-              {/* Right — glass tag, bottom-right aligned */}
-              <div className="flex items-end justify-start lg:justify-end mt-8 lg:mt-0">
-                <FadeIn delay={1400} duration={1000}>
-                  <div className="liquid-glass border border-white/20 px-6 py-3 rounded-xl">
-                    <span className="text-lg md:text-xl lg:text-2xl font-light">Investing. Building. Advisory.</span>
-                  </div>
-                </FadeIn>
-              </div>
-            </div>
+      {/* V6 Part 6 — 3D campaign-graph hero (the video is deleted; the scene IS the hero) */}
+      <section className="relative overflow-hidden">
+        {show3d
+          ? <div className="absolute inset-0 opacity-90" aria-hidden><HeroScene /></div>
+          : <div className="absolute inset-0 bg-[radial-gradient(60%_55%_at_50%_40%,rgba(139,92,246,0.14),transparent)] dark:bg-[radial-gradient(60%_55%_at_50%_40%,rgba(139,92,246,0.20),transparent)]" aria-hidden />}
+        {/* soft legibility scrim: whiten the center behind the copy, let the outer nodes show */}
+        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(46%_42%_at_50%_52%,rgba(251,251,253,0.88),transparent)] dark:bg-[radial-gradient(46%_42%_at_50%_52%,rgba(8,8,10,0.82),transparent)]" aria-hidden />
+        {/* content */}
+        <div className="relative max-w-3xl mx-auto px-6 pt-24 sm:pt-28 pb-24 text-center min-h-[74vh] flex flex-col items-center justify-center pointer-events-none">
+          <h1 className={`${T.display} max-w-2xl mb-5`}>Outreach that runs itself.</h1>
+          <p className={`${T.body} text-black/55 dark:text-white/55 max-w-lg mx-auto mb-8`}>
+            Build a multichannel sequence once. It sends on its own schedule, stops the moment someone replies, and shows you exactly who’s engaging.
+          </p>
+          <div className="flex items-center justify-center gap-3 pointer-events-auto">
+            <UIButton onClick={onSignup} className="h-11 px-6">Start Free</UIButton>
+            <a href="/pricing" className={`${R.ctl} h-11 px-6 inline-flex items-center ${T.small} font-semibold ${S.panel} hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors`}>See Pricing</a>
           </div>
         </div>
       </section>
