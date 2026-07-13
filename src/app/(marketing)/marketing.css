@@ -127,14 +127,32 @@
 .anim-scale-in  { animation: scale-in 1.2s cubic-bezier(0.22,1,0.36,1) 0.3s both; }
 .anim-delay-6   { animation-delay: 0.6s; }
 
+/* ---- V8 Part 7: pricing motion ---- */
+/* shimmer sweep across the "Recommended" badge */
+@keyframes badge-shimmer {
+  0%   { background-position: -150% 0; }
+  100% { background-position: 250% 0; }
+}
+.badge-shimmer {
+  background-image: linear-gradient(100deg, #A068FF 0%, #A068FF 35%, #d3b8ff 50%, #A068FF 65%, #A068FF 100%);
+  background-size: 200% 100%;
+  animation: badge-shimmer 4s ease-in-out infinite;
+}
+/* staggered feature-row entrance (applied once the card is in view) */
+@keyframes feat-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+.feat-in { animation: feat-in 0.5s cubic-bezier(0.22,1,0.36,1) both; }
+
 /* ---- Reduced motion: freeze everything to its end state ---- */
 @media (prefers-reduced-motion: reduce) {
   .grad-btn-wrap::before,
   .spin-left-30, .spin-right-40, .spin-right-50, .spin-left-60,
   .avatar-in, .ticker-track, .tw-caret,
+  .badge-shimmer, .feat-in,
   .anim-fade-down, .anim-fade-up, .anim-scale-in {
     animation: none !important;
   }
   .avatar-in { opacity: 1; }
+  .badge-shimmer { background: #A068FF; }
+  .feat-in { opacity: 1; transform: none; }
   .anim-fade-down, .anim-fade-up, .anim-scale-in { opacity: 1; transform: none; }
 }

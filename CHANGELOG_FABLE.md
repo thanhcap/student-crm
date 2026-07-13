@@ -297,3 +297,24 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **Pricing** (`git mv` from `src/app/pricing/` into `(marketing)`, restyled dark): **all logic preserved verbatim** — `PRICING_TIERS`, `COMPARISON_ROWS`, `PRICING_FAQ`, annual toggle, accordions. Recolored to ink + `#A068FF`, CTAs wrapped in GradientBorderButton; inline nav/footer removed (the group layout provides them).
 - Colors `#A068FF` accent on `#060218`/`#070319` ink throughout; Inter body + Urbanist display; reduced-motion fallbacks site-wide.
 - **Verified:** `next build` clean (all 5 routes prerender); browser-checked Home, Pricing (dark restyle intact), Solutions (exactly one live WebGL canvas, `gl.isContextLost()===false`); console clean.
+
+# ============ v8 — Total layout redesign (branch redesign/total-layout-v2) ============
+
+## Step 0 — Reconnaissance (reality vs the master prompt)
+- `src/app/page.js` is still one file, **9313 lines**.
+- **Design system already built** (v6): `S`/`R`/`T`/`SP`/`EASE`/`ACCENT` + `Panel`/`UIButton`/`Field`/`inputCls` at page.js:18–77 → Part 1 satisfied.
+- **`Tabs` component exists** (page.js:78) but has **0 usages** → Part 3 (wire it everywhere) still open.
+- **Sidebar already exists** (`<aside>` page.js:4853, fixed left `w-60`, NAV order matches the prompt) → Part 4.1 largely satisfied; needs token retheme + de-icon.
+- **No icon libraries** (lucide/react-icons/heroicons = 0). **19 inline `<svg>`** (mostly functional: Google logo, Eye/EyeSlash, Search, Bell, logout, add) + **~119 lines carrying emoji-as-UI** (node types ⚡✉️⏱🔀🔗🤝📞✅🎯, streak 🔥, goals 🎯🎉, ☀️🌙) → Part 2 open.
+- **Mail:** `buildGmailComposeUrl` only; **no `mailto`, no `emailProvider`** → Part 5 already done (v6).
+- **No `<video>`**; `HeroScene.js` 3D graph present → Part 6 already done (v6).
+- three / @react-three/fiber / @react-three/drei / framer-motion all installed.
+- Node-type emoji live in the runner-mirrored `NODE_META`/`NODE_TYPES` config, so removing them is display-only (no data/logic change).
+
+## Part 7 — Animated pricing (marketing/pricing/page.js)
+- `TiltCard`: 3D `rotateX/rotateY` toward the cursor + `translateY(-6px) scale(1.02)` on hover, plus a radial light that follows the pointer across the surface (`--light` var). Reduced motion disables all transforms and the moving light.
+- `AnimatedPrice`: whole-dollar count-up (easeOutCubic, rAF) that re-animates whenever the target changes — so flipping Monthly⇄Annual animates $19→$17 and $39→$35, not a snap. Holds at 0 until the cards scroll into view (`useInView` IntersectionObserver); snaps straight to value under reduced motion.
+- Billing toggle is now a **sliding-pill**: a white indicator animates its `left`/`right` between Monthly and Annual (350ms, the design ease); labels cross-fade their color.
+- Feature rows **stagger in** (`.feat-in`, 50ms step) once the card enters view. Recommended badge gets a continuous **shimmer sweep** (`.badge-shimmer`, 4s loop) — new keyframes in marketing.css, all frozen under `prefers-reduced-motion`.
+- All existing logic untouched: `PRICING_TIERS`, `COMPARISON_ROWS`, `PRICING_FAQ`, the annual math (`Math.round(price*0.9)`), both accordions.
+- **Browser-verified** at 1280px: count-up climbs 0→$19/$39 on load, toggle slides right and prices re-animate to $17/$35, badge shimmers, feature rows stagger, console clean, `next build` green.

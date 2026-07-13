@@ -2,8 +2,84 @@
 // V7 — pricing restyle: dark cinematic theme, shared header/footer (from the
 // (marketing) route-group layout). ALL logic preserved: PRICING_TIERS, COMPARISON_ROWS,
 // PRICING_FAQ, the annual/monthly math, and both accordions are unchanged.
-import { useState } from 'react';
-import { GradientBorderButton } from '@/components/marketing/ui';
+import { useState, useRef, useEffect } from 'react';
+import { GradientBorderButton, usePrefersReducedMotion } from '@/components/marketing/ui';
+
+// V8 Part 7 — pricing motion helpers -----------------------------------------
+
+// Fires once when `ref` first scrolls into view (for count-up + stagger triggers).
+function useInView(ref, margin = '-60px') {
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    if (seen || !ref.current) return;
+    const io = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setSeen(true); io.disconnect(); } },
+      { rootMargin: margin }
+    );
+    io.observe(ref.current);
+    return () => io.disconnect();
+  }, [ref, seen, margin]);
+  return seen;
+}
+
+// Whole-dollar count-up that re-animates whenever `target` changes (billing toggle).
+// Holds at 0 until `active`, and snaps straight to the value under reduced motion.
+function AnimatedPrice({ target, active, reduced }) {
+  const [n, setN] = useState(0);
+  const from = useRef(0);
+  useEffect(() => {
+    if (!active) return;
+    if (reduced) { setN(target); from.current = target; return; }
+    const start = from.current, delta = target - start, t0 = performance.now(), dur = 750;
+    let raf;
+    const tick = (t) => {
+      const k = Math.min(1, (t - t0) / dur);
+      const eased = 1 - Math.pow(1 - k, 3);           // easeOutCubic
+      setN(Math.round(start + delta * eased));
+      if (k < 1) raf = requestAnimationFrame(tick); else from.current = target;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, active, reduced]);
+  return <>{n}</>;
+}
+
+// 3D tilt toward the cursor + a light that follows the pointer across the surface.
+// Reduced motion disables all transforms and the moving light.
+function TiltCard({ children, recommended, reduced }) {
+  const ref = useRef(null);
+  const [style, setStyle] = useState({});
+  function onMove(e) {
+    if (reduced) return;
+    const el = ref.current; if (!el) return;
+    const r = el.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width;
+    const py = (e.clientY - r.top) / r.height;
+    const rx = (0.5 - py) * 8;
+    const ry = (px - 0.5) * 10;
+    setStyle({
+      transform: `perspective(1000px) rotateX(${rx}deg) rotateY(${ry}deg) translateY(-6px) scale(1.02)`,
+      '--light': `radial-gradient(600px circle at ${px * 100}% ${py * 100}%, rgba(160,104,255,0.16), transparent 45%)`,
+    });
+  }
+  function onLeave() {
+    setStyle({ transform: 'perspective(1000px) rotateX(0deg) rotateY(0deg) translateY(0) scale(1)' });
+  }
+  return (
+    <div
+      ref={ref}
+      onMouseMove={onMove}
+      onMouseLeave={onLeave}
+      style={{ ...style, transition: 'transform 400ms cubic-bezier(0.22,1,0.36,1)', transformStyle: 'preserve-3d' }}
+      className={`group relative rounded-[20px] p-6 border backdrop-blur-sm will-change-transform ${recommended ? '' : 'border-white/10 bg-white/[0.03]'}`}
+    >
+      {recommended && <span className="absolute inset-0 rounded-[20px] pointer-events-none" style={{ borderColor: '#A068FF', border: '1px solid #A068FF', boxShadow: '0 0 40px rgba(160,104,255,0.25)', background: 'rgba(255,255,255,0.03)' }} aria-hidden />}
+      {/* cursor-following light */}
+      <span className="absolute inset-0 rounded-[20px] pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ background: 'var(--light, transparent)' }} aria-hidden />
+      <div className="relative">{children}</div>
+    </div>
+  );
+}
 
 const PRICING_TIERS = [
   {
@@ -111,6 +187,9 @@ export default function PricingPage() {
   const [annual, setAnnual] = useState(false);
   const [openCat, setOpenCat] = useState(COMPARISON_ROWS[0].category);
   const [openFaq, setOpenFaq] = useState(null);
+  const reduced = usePrefersReducedMotion();
+  const cardsRef = useRef(null);
+  const cardsInView = useInView(cardsRef);
 
   return (
     <div className="text-white">
@@ -118,10 +197,20 @@ export default function PricingPage() {
       <header className="max-w-5xl mx-auto px-6 pt-16 pb-10 text-center anim-fade-up">
         <h1 className="font-display text-[34px] sm:text-[48px] font-semibold tracking-[-0.02em] mb-3">Simple pricing. Serious automation.</h1>
         <p className="text-[15px] text-white/50 max-w-lg mx-auto mb-8">Start free, upgrade when your outreach outgrows your clicking finger.</p>
-        <div className="inline-flex items-center gap-1 bg-white/[0.06] rounded-xl p-1">
+        {/* animated sliding-pill toggle: the white indicator slides between options */}
+        <div className="relative inline-flex items-center bg-white/[0.06] rounded-xl p-1">
+          <span
+            className="absolute top-1 bottom-1 rounded-lg bg-white shadow-sm"
+            style={{
+              left: annual ? 'calc(50% + 2px)' : '4px',
+              right: annual ? '4px' : 'calc(50% + 2px)',
+              transition: reduced ? 'none' : 'left 350ms cubic-bezier(0.22,1,0.36,1), right 350ms cubic-bezier(0.22,1,0.36,1)',
+            }}
+            aria-hidden
+          />
           {[['Monthly', false], ['Annual — save 10%', true]].map(([label, val]) => (
             <button key={label} onClick={() => setAnnual(val)}
-              className={`px-4 py-2 text-[13px] font-semibold rounded-lg transition-all ${annual === val ? 'bg-white text-[#060218] shadow-sm' : 'text-white/55 hover:text-white'}`}>
+              className={`relative z-10 px-4 py-2 text-[13px] font-semibold rounded-lg transition-colors duration-200 ${annual === val ? 'text-[#060218]' : 'text-white/55 hover:text-white'}`}>
               {label}
             </button>
           ))}
@@ -129,20 +218,25 @@ export default function PricingPage() {
       </header>
 
       {/* TIER CARDS */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-5xl mx-auto px-6 pb-8">
-        {PRICING_TIERS.map(tier => (
-          <div key={tier.key} className={`relative rounded-[20px] p-6 border bg-white/[0.03] backdrop-blur-sm ${tier.recommended ? 'sm:scale-[1.03]' : 'border-white/10'}`}
-            style={tier.recommended ? { borderColor: '#A068FF', boxShadow: '0 0 40px rgba(160,104,255,0.25)' } : {}}>
-            {tier.recommended && <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white rounded-full whitespace-nowrap" style={{ background: '#A068FF' }}>Recommended</span>}
+      <div ref={cardsRef} className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-5xl mx-auto px-6 pb-8">
+        {PRICING_TIERS.map(tier => {
+          const price = annual ? Math.round(tier.price * 0.9) : tier.price;
+          return (
+          <TiltCard key={tier.key} recommended={tier.recommended} reduced={reduced}>
+            {tier.recommended && <span className="badge-shimmer absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white rounded-full whitespace-nowrap">Recommended</span>}
             <h3 className="font-display text-[17px] font-bold mb-1">{tier.name}</h3>
             <p className="text-[13px] text-white/45 mb-4">{tier.tagline}</p>
-            <p className="font-display text-[38px] font-semibold mb-1">
-              ${annual ? Math.round(tier.price * 0.9) : tier.price}
+            <p className="font-display text-[38px] font-semibold mb-1 tabular-nums">
+              $<AnimatedPrice target={price} active={cardsInView} reduced={reduced} />
               <span className="text-[14px] font-normal text-white/40">{tier.perSeat ? '/seat/mo' : '/mo'}</span>
             </p>
             <ul className="space-y-2 my-6">
-              {tier.features.map(f => (
-                <li key={f} className="flex items-start gap-2 text-[13px] text-white/70"><Check /> {f}</li>
+              {tier.features.map((f, i) => (
+                <li key={f}
+                  className={`flex items-start gap-2 text-[13px] text-white/70 ${cardsInView && !reduced ? 'feat-in' : ''}`}
+                  style={cardsInView && !reduced ? { animationDelay: `${0.15 + i * 0.05}s` } : undefined}>
+                  <Check /> {f}
+                </li>
               ))}
             </ul>
             <div className="flex justify-center">
@@ -150,8 +244,9 @@ export default function PricingPage() {
                 {tier.price === 0 ? 'Start Free' : 'Start Free Trial'}
               </GradientBorderButton>
             </div>
-          </div>
-        ))}
+          </TiltCard>
+          );
+        })}
       </div>
 
       {/* CINEMATIC EMAIL AUTOMATION PITCH */}
