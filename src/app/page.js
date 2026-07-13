@@ -284,11 +284,11 @@ function TagPill({ tag, onRemove }) {
 // ⚠ KEEP BEHAVIORALLY IDENTICAL to supabase/functions/sequence-runner/_shared/sequence-logic.ts
 // ==========================================
 const SEQ_CHANNELS = [
-  { value: 'email', label: '✉️ Email' },
-  { value: 'linkedin_view', label: '🔗 LinkedIn view' },
-  { value: 'linkedin_connect', label: '🤝 LinkedIn connect' },
-  { value: 'call', label: '📞 Call' },
-  { value: 'manual_task', label: '✅ Manual task' },
+  { value: 'email', label: 'Email' },
+  { value: 'linkedin_view', label: 'LinkedIn view' },
+  { value: 'linkedin_connect', label: 'LinkedIn connect' },
+  { value: 'call', label: 'Call' },
+  { value: 'manual_task', label: 'Manual task' },
 ];
 const SEQ_CONDITIONS = [
   { value: 'always', label: 'Always send' },
@@ -672,7 +672,7 @@ function EmailStudio({ node, sequence, templates, contacts, fromAddress, resolve
         <button onClick={onClose} className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white shrink-0"><span aria-hidden>←</span> Back to canvas</button>
         <h1 className="text-[14px] font-bold text-gray-900 dark:text-white hidden sm:block">Edit email step</h1>
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <span className={`text-[11px] font-semibold ${saveState === 'saving' ? 'text-amber-500' : 'text-gray-400'}`}>{saveState === 'saving' ? 'Saving…' : incomplete ? 'Draft — won’t send' : 'Saved ✓'}</span>
+          <span className={`text-[11px] font-semibold ${saveState === 'saving' ? 'text-amber-500' : 'text-gray-400'}`}>{saveState === 'saving' ? 'Saving…' : incomplete ? 'Draft — won’t send' : 'Saved'}</span>
           <button onClick={() => onTestSend(resolveTags(subject, previewContact), resolveTags(body, previewContact))} disabled={incomplete}
             className="px-3 py-1.5 text-[12px] font-semibold border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-900 disabled:opacity-40">Send test to me</button>
           <button onClick={onClose} className="px-4 py-1.5 text-[12px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-lg hover:opacity-90">Done</button>
@@ -757,7 +757,7 @@ function EmailStudio({ node, sequence, templates, contacts, fromAddress, resolve
             </div>
             {emptyTags.length > 0 && previewContact && (
               <div className="mt-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-[12px] text-amber-800 dark:text-amber-300">
-                ⚠️ {emptyTags.map(t => <code key={t} className="font-mono font-bold">{t}</code>).reduce((acc, el, i) => i === 0 ? [el] : [...acc, ', ', el], [])} {emptyTags.length === 1 ? 'is' : 'are'} empty for {previewContact.name || previewContact.email} — those spots will render blank. Check your other enrolled contacts too.
+                {emptyTags.map(t => <code key={t} className="font-mono font-bold">{t}</code>).reduce((acc, el, i) => i === 0 ? [el] : [...acc, ', ', el], [])} {emptyTags.length === 1 ? 'is' : 'are'} empty for {previewContact.name || previewContact.email} — those spots will render blank. Check your other enrolled contacts too.
               </div>
             )}
           </div>
@@ -771,209 +771,7 @@ function EmailStudio({ node, sequence, templates, contacts, fromAddress, resolve
 // V4 PART 6 — MARKETING LANDING PAGE
 // Shown to logged-out visitors at "/" (appStep === 'LANDING'). Authenticated
 // sessions never see it — checkSession routes them straight to the Dashboard.
-// Product visuals are CSS-built mockups (no /marketing/*.png assets exist yet;
-// broken images on a revenue-critical page would be worse than stylized mocks).
 // ==========================================
-
-function MockWindow({ children, className = '' }) {
-  return (
-    <div className={`rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-2xl overflow-hidden ${className}`}>
-      <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-950/60">
-        <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
-        <span className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
-        <span className="w-2.5 h-2.5 rounded-full bg-green-400" />
-      </div>
-      <div className="p-5 sm:p-6" style={{ aspectRatio: '16/9' }}>{children}</div>
-    </div>
-  );
-}
-
-// Miniature automation-canvas mock: trigger → email → wait → condition → yes/no
-function MockCanvas() {
-  const node = (emoji, label, sub, border) => (
-    <div className={`w-40 sm:w-44 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 border-l-4 ${border} shadow-sm px-2.5 py-1.5 text-left`}>
-      <p className="text-[10px] font-bold text-gray-900 dark:text-gray-100">{emoji} {label}</p>
-      <p className="text-[9px] text-gray-400 truncate">{sub}</p>
-    </div>
-  );
-  return (
-    <div className="w-full h-full rounded-lg bg-gray-50 dark:bg-gray-950 relative overflow-hidden flex items-center justify-center"
-      style={{ backgroundImage: 'radial-gradient(circle, rgba(148,163,184,0.3) 1px, transparent 1px)', backgroundSize: '18px 18px' }}>
-      <div className="flex flex-col items-center gap-0">
-        {node('⚡', 'Trigger', 'Deal marked Won', 'border-l-purple-500')}
-        <div className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
-        {node('✉️', 'Email', '“Welcome aboard, {{first_name}}!”', 'border-l-blue-500')}
-        <div className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
-        {node('⏱', 'Wait', '3 days', 'border-l-gray-400')}
-        <div className="w-px h-4 bg-gray-300 dark:bg-gray-600" />
-        {node('🔀', 'Condition', 'If no reply yet', 'border-l-amber-500')}
-        <div className="flex gap-10 mt-3">
-          <div className="flex flex-col items-center">
-            <span className="text-[8px] font-bold text-white bg-green-500 rounded-full px-1.5 py-0.5 mb-1">Yes</span>
-            {node('✉️', 'Follow-up', '“Quick follow-up…”', 'border-l-blue-500')}
-          </div>
-          <div className="flex flex-col items-center">
-            <span className="text-[8px] font-bold text-white bg-gray-400 rounded-full px-1.5 py-0.5 mb-1">No</span>
-            {node('🎯', 'Goal', 'Replied — stop', 'border-l-emerald-500')}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MockTable() {
-  const rows = [
-    ['An Nguyen', 'Meridian Labs', 'Active', 'bg-green-500', 86],
-    ['Priya Shah', 'Northwind', 'Engaged', 'bg-blue-500', 74],
-    ['Tomás Rivera', 'Atlas & Co', 'Contacted', 'bg-yellow-400', 58],
-    ['Mai Tran', 'Brightpath', 'New', 'bg-gray-400', 41],
-  ];
-  return (
-    <div className="w-full h-full flex flex-col gap-2 justify-center">
-      {rows.map(([name, co, stage, dot, score]) => (
-        <div key={name} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
-          <span className="w-7 h-7 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[9px] font-bold flex items-center justify-center shrink-0">{name.slice(0, 2).toUpperCase()}</span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold text-gray-900 dark:text-gray-100 truncate">{name}</p>
-            <p className="text-[9px] text-blue-500 truncate">{co} ↗</p>
-          </div>
-          <span className="flex items-center gap-1 text-[9px] text-gray-500"><span className={`w-1.5 h-1.5 rounded-full ${dot}`} />{stage}</span>
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900">{score}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MockKanban() {
-  const cols = [
-    ['Proposal', ['Website revamp — $4.2k', 'Retainer — $1.8k/mo']],
-    ['Negotiation', ['Brand kit — $2.5k']],
-    ['Won 🎉', ['Onboarding pack — $3.6k', 'Audit — $900']],
-  ];
-  return (
-    <div className="w-full h-full grid grid-cols-3 gap-3">
-      {cols.map(([title, cards]) => (
-        <div key={title} className="rounded-lg bg-gray-50 dark:bg-gray-950 border border-gray-100 dark:border-gray-800 p-2">
-          <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-2">{title}</p>
-          <div className="space-y-1.5">
-            {cards.map(c => (
-              <div key={c} className="px-2 py-1.5 rounded-md bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm text-[9px] font-medium text-gray-700 dark:text-gray-300">{c}</div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MockReport() {
-  const bars = [35, 55, 42, 70, 62, 88, 95];
-  return (
-    <div className="w-full h-full flex flex-col justify-center gap-4">
-      <div className="grid grid-cols-3 gap-3">
-        {[['Pipeline', '$18.4k'], ['Win rate', '38%'], ['Replies', '27']].map(([l, v]) => (
-          <div key={l} className="rounded-lg border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 px-3 py-2">
-            <p className="text-[9px] uppercase tracking-wider text-gray-400">{l}</p>
-            <p className="text-[15px] font-bold text-gray-900 dark:text-gray-100">{v}</p>
-          </div>
-        ))}
-      </div>
-      <div className="flex items-end gap-2 h-24 px-2">
-        {bars.map((h, i) => (
-          <div key={i} className="flex-1 rounded-t bg-indigo-500/80" style={{ height: `${h}%` }} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MockReplies() {
-  const rows = [
-    ['Priya Shah', 'Re: Idea for Northwind — “Yes, let’s talk Tuesday”'],
-    ['Tomás Rivera', 'Re: Quick follow-up — “Send over the deck”'],
-    ['An Nguyen', 'Re: Welcome aboard — “Thanks! Excited to start”'],
-  ];
-  return (
-    <div className="w-full h-full flex flex-col gap-2 justify-center">
-      {rows.map(([name, msg]) => (
-        <div key={name} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-green-100 dark:border-green-900/50 bg-green-50/50 dark:bg-green-950/20">
-          <span className="w-7 h-7 rounded-full bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-400 text-[9px] font-bold flex items-center justify-center shrink-0">{name.slice(0, 2).toUpperCase()}</span>
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold text-gray-900 dark:text-gray-100">{name} <span className="text-[8px] font-bold uppercase text-green-600">Replied</span></p>
-            <p className="text-[9px] text-gray-500 truncate">{msg}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Fade-in wrapper: opacity 0 → 1 after `delay`ms, over `duration`ms.
-function FadeIn({ delay = 0, duration = 1000, className = '', children }) {
-  const [shown, setShown] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setShown(true), delay);
-    return () => clearTimeout(t);
-  }, [delay]);
-  return (
-    <div className={`transition-opacity ${className}`} style={{ opacity: shown ? 1 : 0, transitionDuration: `${duration}ms` }}>
-      {children}
-    </div>
-  );
-}
-
-// Character-by-character entrance: each char slides in from the left + fades in,
-// staggered by 30ms (per line and per char), starting 200ms after mount.
-// Chars are grouped per word (whitespace-nowrap) so the heading only ever breaks
-// at word boundaries — never mid-word — while keeping the per-char animation.
-function AnimatedHeading({ text, className = '', style = {} }) {
-  const [go, setGo] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setGo(true), 200);
-    return () => clearTimeout(t);
-  }, []);
-  const charDelay = 30;
-  const lines = text.split('\n');
-  const charSpan = (ch, key, delay) => (
-    <span key={key} className="inline-block" style={{
-      opacity: go ? 1 : 0,
-      transform: go ? 'translateX(0)' : 'translateX(-18px)',
-      transition: 'opacity 500ms ease, transform 500ms ease',
-      transitionDelay: `${delay}ms`,
-    }}>{ch}</span>
-  );
-  return (
-    <h1 className={className} style={style}>
-      {lines.map((line, lineIndex) => {
-        const words = line.split(' ');
-        const base = lineIndex * line.length * charDelay;
-        let idx = 0; // running char index within the line (spaces included)
-        return (
-          <span key={lineIndex} className="block">
-            {words.map((word, wi) => {
-              const spans = word.split('').map((ch) => {
-                const el = charSpan(ch, `c${idx}`, base + idx * charDelay);
-                idx += 1;
-                return el;
-              });
-              const last = wi === words.length - 1;
-              const sep = last ? null : <React.Fragment key={`s${idx}`}>{(idx += 1, ' ')}</React.Fragment>;
-              return (
-                <React.Fragment key={wi}>
-                  <span className="inline-block whitespace-nowrap">{spans}</span>
-                  {sep}
-                </React.Fragment>
-              );
-            })}
-          </span>
-        );
-      })}
-    </h1>
-  );
-}
-
 function LandingPage({ onLogin, onSignup }) {
   // V7 — dark cinematic marketing home. Typewriter hero + CSS OrbitVisual (the single
   // live WebGL canvas lives on /solutions). Reuses the shared MarketingHeader/Footer.
@@ -4663,7 +4461,7 @@ export default function App() {
       if (c.birthday) {
         const b = new Date(c.birthday);
         const thisYear = `${yr}-${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
-        events.push({ id: `bday-${c.id}`, date: thisYear, type: 'birthday', label: `🎂 ${c.name}'s birthday`, clientId: c.id, client: c });
+        events.push({ id: `bday-${c.id}`, date: thisYear, type: 'birthday', label: `${c.name}'s birthday`, clientId: c.id, client: c });
       }
     });
     deals.forEach(d => {
@@ -4797,7 +4595,7 @@ export default function App() {
                       <div>
                         <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 px-3 mb-2">Actions</h4>
                         <button onClick={action.run} className="w-full flex items-center justify-between p-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors text-left group">
-                          <span className="text-[14px] font-semibold text-indigo-800">⚡ {action.label}</span>
+                          <span className="text-[14px] font-semibold text-indigo-800">{action.label}</span>
                           <span className="text-[11px] font-bold text-indigo-400 border border-indigo-200 px-1.5 py-0.5 rounded group-hover:bg-white">Run ↵</span>
                         </button>
                       </div>
@@ -4876,12 +4674,12 @@ export default function App() {
           {/* Utilities + user block */}
           <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-800 space-y-0.5">
             <button onClick={() => setShowGlobalSearch(true)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
-              <span className="flex items-center gap-2"><SearchIcon /> Search</span>
+              <span>Search</span>
               <span className="text-[10px] font-semibold border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 rounded text-gray-400">⌘K</span>
             </button>
             <div className="relative">
               <button onClick={() => setShowNotifications(!showNotifications)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
-                <span className="flex items-center gap-2"><BellIcon /> Notifications</span>
+                <span>Notifications</span>
                 {notifications.filter(n => !n.read).length > 0 && (
                   <span className="text-[10px] font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5">{notifications.filter(n => !n.read).length}</span>
                 )}
@@ -4910,7 +4708,7 @@ export default function App() {
               )}
             </div>
             <button onClick={toggleDarkMode} className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
-              {darkMode ? '☀️ Light mode' : '🌙 Dark mode'}
+              {darkMode ? 'Light mode' : 'Dark mode'}
             </button>
             <div className="flex items-center gap-2.5 px-3 pt-3 mt-1 border-t border-gray-100 dark:border-gray-800">
               <span className="w-8 h-8 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-bold flex items-center justify-center shrink-0">
@@ -4920,8 +4718,8 @@ export default function App() {
                 <p className="text-[12px] font-semibold text-gray-900 dark:text-gray-100 truncate">{profile.username || user.email}</p>
                 <p className="text-[10px] text-gray-400 truncate">{workspace ? workspace.name : 'Solo workspace'}</p>
               </div>
-              <button onClick={handleLogout} title="Log out" className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 p-1 transition-colors">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
+              <button onClick={handleLogout} title="Log out" className="text-[11px] font-semibold text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-1 transition-colors shrink-0">
+                Log out
               </button>
             </div>
           </div>
@@ -5357,7 +5155,7 @@ export default function App() {
               {/* Your Streak (Feature 17) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3">
-                  <span>🔥</span> Your Streak
+                  Your Streak
                 </h3>
                 <p className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{streakData.current} day{streakData.current === 1 ? '' : 's'}</p>
                 <p className="text-[12px] text-gray-500 mt-1">Longest: {streakData.longest} days</p>
@@ -5370,14 +5168,14 @@ export default function App() {
                   })}
                 </div>
                 <p className="text-[12px] font-medium text-gray-600 dark:text-gray-300 mt-3">
-                  {streakData.current === 0 ? 'Start your streak!' : streakData.current >= 30 ? 'On fire! 🔥' : streakData.current >= 7 ? 'One week! Keep it going!' : 'Keep it going!'}
+                  {streakData.current === 0 ? 'Start your streak!' : streakData.current >= 30 ? 'On fire!' : streakData.current >= 7 ? 'One week! Keep it going!' : 'Keep it going!'}
                 </p>
               </div>
 
               {/* Monthly Goals (Feature 26) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5"><span>🎯</span> Monthly Goals</h3>
+                  <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5">Monthly Goals</h3>
                   <button onClick={() => setShowGoalForm(true)} className="text-[12px] font-medium text-indigo-600 hover:underline">Set Goals</button>
                 </div>
                 {goalProgress.length === 0 ? (
@@ -5393,7 +5191,7 @@ export default function App() {
                         <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
                           <div className={`anim-grow-w h-full rounded-full transition-all duration-500 ${g.pct >= 100 ? 'bg-green-500' : g.pct >= 50 ? 'bg-blue-500' : 'bg-yellow-400'}`} style={{ width: `${g.pct}%` }} />
                         </div>
-                        {g.pct >= 100 && <span className="goal-confetti absolute -top-1 right-0 text-[14px]">🎉</span>}
+                        {g.pct >= 100 && <span className="goal-confetti absolute -top-1 right-0 w-2 h-2 rounded-full bg-emerald-500" />}
                       </div>
                     ))}
                   </div>
@@ -5402,7 +5200,7 @@ export default function App() {
 
               {/* Top Leads (Feature 6) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>⭐</span> Top Leads</h3>
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3">Top Leads</h3>
                 {topLeads.length === 0 ? (
                   <p className="text-[13px] text-gray-400 py-2">Add relationships to see lead scores.</p>
                 ) : (
@@ -5420,7 +5218,7 @@ export default function App() {
 
               {/* Relationship Health (Feature 19) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>💗</span> Relationship Health</h3>
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3">Relationship Health</h3>
                 <div className="space-y-2">
                   {[['Excellent', 'bg-green-500'], ['Good', 'bg-teal-500'], ['Fair', 'bg-yellow-400'], ['At Risk', 'bg-orange-500'], ['Critical', 'bg-red-500']].map(([label, color]) => {
                     const count = healthCounts[label] || 0;
@@ -5441,7 +5239,7 @@ export default function App() {
 
               {/* G19 — Recurring Revenue */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>🔁</span> Recurring Revenue</h3>
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3">Recurring Revenue</h3>
                 <div className="flex gap-6">
                   <div>
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">MRR</p>
@@ -5478,7 +5276,7 @@ export default function App() {
 
               {/* Top Sources (Feature 25) */}
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
-                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3"><span>📍</span> Top Sources</h3>
+                <h3 className="font-bold text-[14px] text-gray-900 dark:text-gray-100 flex items-center gap-1.5 mb-3">Top Sources</h3>
                 {(() => {
                   const top = CLIENT_SOURCES.map(s => [s, clients.filter(c => c.source === s).length]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).slice(0, 3);
                   if (top.length === 0) return <p className="text-[13px] text-gray-400 py-2">No sources recorded yet — set a source when adding relationships.</p>;
@@ -5502,7 +5300,7 @@ export default function App() {
               {/* Birthdays */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>🎂</span> Birthdays (Next 30 Days)
+                  Birthdays (Next 30 Days)
                 </h3>
                 <div className="space-y-2.5 overflow-y-auto flex-1">
                   {upcomingBirthdays.length === 0 ? (
@@ -5521,7 +5319,7 @@ export default function App() {
               {/* Recent Activity */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>⚡</span> Recently Added Profiles
+                  Recently Added Profiles
                 </h3>
                 <div className="space-y-2.5 flex-1">
                   {recentActivity.length === 0 ? (
@@ -5545,7 +5343,7 @@ export default function App() {
               {/* Stale Clients */}
               <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow space-y-4 flex flex-col">
                 <h3 className="font-bold text-[14px] text-gray-900 flex items-center gap-1.5">
-                  <span>❄️</span> Stale Relationships (&gt;30 Days)
+                  Stale Relationships (&gt;30 Days)
                 </h3>
                 <div className="space-y-2.5 flex-1">
                   {staleClients.length === 0 ? (
@@ -5574,7 +5372,7 @@ export default function App() {
             {/* FEATURE 10 — read-only banner for viewers */}
             {isViewer && (
               <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg text-[13px] font-medium text-blue-800">
-                👁️ Read-only access — you can view relationships but not edit them. Ask a workspace admin for a higher role.
+                Read-only access — you can view relationships but not edit them. Ask a workspace admin for a higher role.
               </div>
             )}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -5609,7 +5407,7 @@ export default function App() {
                   {duplicateWarning && (
                     <div className="flex items-center gap-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg mt-1">
                       <span className="text-[12px] text-yellow-800">
-                        ⚠️ A relationship with this email already exists:
+                        A relationship with this email already exists:
                         <button type="button" onClick={() => setViewingClient(duplicateWarning)} className="font-semibold ml-1 underline">{duplicateWarning.name}</button>
                       </span>
                     </div>
@@ -5869,7 +5667,7 @@ export default function App() {
                         <div key={client.id} className={`relative p-4 rounded-xl border ${isSelected ? 'border-gray-400 bg-gray-50' : 'border-gray-200 bg-white'}`}>
                           <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(client.id)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 absolute top-4 left-4 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
                           <div className="pl-8">
-                            <p className="text-[14px] font-bold text-gray-900">{client.name} {client.quick_note && <span className="text-[12px]">📝</span>}</p>
+                            <p className="text-[14px] font-bold text-gray-900">{client.name} {client.quick_note && <span className="text-[10px] font-bold uppercase tracking-wide text-amber-500">Note</span>}</p>
                             <p className="text-[12px] text-gray-500 break-all">{client.email}</p>
                             <div className="flex flex-wrap items-center gap-2 mt-2">
                               <span className="text-[11px] font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">{client.status}</span>
@@ -5927,7 +5725,7 @@ export default function App() {
                                       <img src={companyFaviconUrl(client.company_url, 32)} alt="" className="w-4 h-4 rounded shrink-0" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />
                                     )}
                                     {client.name}
-                                    {client.quick_note && <span className="ml-1.5 text-[12px]" title={client.quick_note.slice(0, 60)}>📝</span>}
+                                    {client.quick_note && <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-500" title={client.quick_note.slice(0, 60)}>Note</span>}
                                   </span>
                                   <span className="text-[11px] text-gray-400 block font-normal mt-0.5">{client.email}</span>
                                   <CompanyLink client={client} className="text-[11px] mt-0.5" />
@@ -6199,7 +5997,7 @@ export default function App() {
                 </div>
                 {/* PART C2 — period comparison toggle */}
                 <button onClick={() => setCompareReports(!compareReports)} className={`px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-all ${compareReports ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 border-gray-900 dark:border-gray-100' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
-                  Compare to previous period {compareReports ? '✓' : ''}
+                  Compare to previous period {compareReports ? '(on)' : ''}
                 </button>
               </div>
             </div>
@@ -6212,7 +6010,7 @@ export default function App() {
                   <span key={r.id} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium">
                     <button onClick={() => applyCustomReport(r)}>{r.name}</button>
                     <button onClick={() => handleCycleReportFrequency(r)} title="Cycle email schedule: off → weekly → monthly" className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${r.send_frequency ? 'bg-indigo-600 text-white' : 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-400'}`}>
-                      ✉ {r.send_frequency === 'weekly' ? 'wk' : r.send_frequency === 'monthly' ? 'mo' : 'off'}
+                      {r.send_frequency === 'weekly' ? 'wk' : r.send_frequency === 'monthly' ? 'mo' : 'off'}
                     </button>
                     <button onClick={() => handleDeleteCustomReport(r.id)} className="hover:opacity-60">×</button>
                   </span>
@@ -6607,9 +6405,9 @@ export default function App() {
           const tcFiles = clientFiles.filter(f => f.client_id === tc.id);
           const events = [
             ...tcActs.map(a => ({ id: `a-${a.id}`, date: a.activity_date, sort: a.created_at, kind: 'activity', color: { Note: 'bg-gray-400', Call: 'bg-blue-500', Email: 'bg-green-500', Meeting: 'bg-purple-500' }[a.activity_type] || 'bg-gray-400', title: `${a.activity_type}`, detail: a.description })),
-            ...tcTasks.map(t => ({ id: `t-${t.id}`, date: t.due_date, sort: t.created_at || t.due_date, kind: t.status === 'done' ? 'task-done' : 'task', color: t.status === 'done' ? 'bg-green-500' : 'bg-gray-300', title: `${t.status === 'done' ? '✓ ' : ''}Task: ${t.title}`, detail: `Due ${t.due_date}` })),
+            ...tcTasks.map(t => ({ id: `t-${t.id}`, date: t.due_date, sort: t.created_at || t.due_date, kind: t.status === 'done' ? 'task-done' : 'task', color: t.status === 'done' ? 'bg-green-500' : 'bg-gray-300', title: `Task: ${t.title}`, detail: `Due ${t.due_date}` })),
             ...tcDeals.map(d => ({ id: `d-${d.id}`, date: d.close_date || (d.created_at || '').split('T')[0], sort: d.created_at, kind: 'deal', color: 'bg-emerald-500', title: `Deal: ${d.title}`, detail: `${fmtMoney(d.value)} · ${d.stage}` })),
-            ...tcFiles.map(f => ({ id: `f-${f.id}`, date: (f.created_at || '').split('T')[0], sort: f.created_at, kind: 'file', color: 'bg-amber-500', title: `📎 ${f.file_name}`, detail: formatFileSize(f.file_size) })),
+            ...tcFiles.map(f => ({ id: `f-${f.id}`, date: (f.created_at || '').split('T')[0], sort: f.created_at, kind: 'file', color: 'bg-amber-500', title: `${f.file_name}`, detail: formatFileSize(f.file_size) })),
           ].sort((a, b) => new Date(b.sort || b.date || 0) - new Date(a.sort || a.date || 0));
           return (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -6731,7 +6529,7 @@ export default function App() {
                       <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-900 cursor-pointer" />
                       <div>
                         <div className={`text-[14px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
-                          {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>🔁 </span>}
+                          {task.recurrence && <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mr-1" title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>Repeats</span>}
                           {task.title}
                         </div>
                         <div className="text-[12px] text-gray-500 mt-0.5">
@@ -6835,7 +6633,7 @@ export default function App() {
 
                 {connectFrom && (
                   <div className="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 rounded-xl text-[12px] font-medium text-indigo-700 dark:text-indigo-300 flex items-center gap-3">
-                    🔌 Click a target node to connect the arrow{connectFrom.branch !== 'default' ? ` (${connectFrom.branch.toUpperCase()} branch)` : ''} — or
+                    Click a target node to connect the arrow{connectFrom.branch !== 'default' ? ` (${connectFrom.branch.toUpperCase()} branch)` : ''} — or
                     <button onClick={() => setConnectFrom(null)} className="underline font-semibold">cancel</button>
                   </div>
                 )}
@@ -6847,8 +6645,9 @@ export default function App() {
                   {/* node palette — compact icon rail (label on hover) */}
                   <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-1.5 flex lg:flex-col gap-1 flex-wrap lg:sticky lg:top-4">
                     {NODE_PALETTE.map(t => (
-                      <button key={t} onClick={() => handleAddNode(editingSeq.id, t)} title={`Add ${NODE_META[t].label}`} className="w-11 h-11 flex items-center justify-center text-[18px] rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label={`Add ${NODE_META[t].label}`}>
-                        {NODE_META[t].emoji}
+                      <button key={t} onClick={() => handleAddNode(editingSeq.id, t)} title={`Add ${NODE_META[t].label}`} className="w-11 h-11 flex flex-col items-center justify-center gap-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label={`Add ${NODE_META[t].label}`}>
+                        <span className={`w-2 h-2 rounded-full ${NODE_META[t].dot}`} />
+                        <span className="text-[7px] font-bold uppercase tracking-tight text-gray-400 leading-none">{NODE_META[t].label.split(':')[0].slice(0, 4)}</span>
                       </button>
                     ))}
                   </div>
@@ -6923,7 +6722,7 @@ export default function App() {
                             onClick={() => { if (connectFrom) handleAddEdge(editingSeq.id, connectFrom.nodeId, connectFrom.branch, n.id); else setSelectedNodeId(n.id); }}
                             onDoubleClick={() => { if ((n.node_type || 'email') === 'email') setComposerNodeId(n.id); }}>
                             <div className="flex items-center gap-1.5 px-3 pt-2.5">
-                              <span className="text-[13px]">{meta.emoji}</span>
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${meta.dot}`} />
                               <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100">{meta.label}</span>
                               {/* V5 Part D — completeness dot (state by dot, never color alone) */}
                               {t === 'email' && (
@@ -6932,7 +6731,7 @@ export default function App() {
                                   : <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" title="Ready" />
                               )}
                               {t !== 'trigger' && (
-                                <button onClick={() => handleDeleteNode(n)} className="ml-auto text-gray-300 hover:text-red-500 text-[13px] leading-none px-1" title="Delete node">✕</button>
+                                <button onClick={() => handleDeleteNode(n)} className="ml-auto text-gray-300 hover:text-red-500 text-[11px] font-semibold leading-none px-1" title="Delete node">Delete</button>
                               )}
                             </div>
                             <div className="px-3 pb-2 pt-1">
@@ -6968,7 +6767,7 @@ export default function App() {
                       return (
                         <>
                           <div className="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
-                            <span className="text-lg">{meta.emoji}</span>
+                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${meta.dot}`} />
                             <span className="text-[14px] font-bold text-gray-900 dark:text-gray-100">{meta.label}</span>
                           </div>
                           {t === 'trigger' && (
@@ -7012,7 +6811,7 @@ export default function App() {
                                 </div>
                                 {selNode.subject?.trim() && <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">“{selNode.subject}”</p>}
                                 {selNode.body?.trim() && <p className="text-[12px] text-gray-500 line-clamp-3 whitespace-pre-wrap">{selNode.body}</p>}
-                                <button onClick={() => setComposerNodeId(selNode.id)} className="w-full px-3 py-2.5 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">✎ Open email editor</button>
+                                <button onClick={() => setComposerNodeId(selNode.id)} className="w-full px-3 py-2.5 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Open email editor</button>
                                 <p className="text-[11px] text-gray-400 text-center">or double-click the node on the canvas</p>
                                 <label className="flex items-center gap-2 text-[12px] text-gray-600 dark:text-gray-300 pt-1">Extra delay before this email:
                                   <input type="number" min="0" value={selNode.wait_days ?? 0} onChange={e => updateNodeLocal(selNode.id, { wait_days: parseInt(e.target.value, 10) || 0 })} onBlur={e => handleUpdateNode(selNode.id, { wait_days: parseInt(e.target.value, 10) || 0 })} className="w-16 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" /> days
@@ -7059,7 +6858,7 @@ export default function App() {
                                 <textarea rows={3} placeholder="Hi {{first_name}}, ..." value={noteVal} onChange={e => updateNodeLocal(selNode.id, { config: { ...cfg, note: e.target.value } })} onBlur={e => handleUpdateNode(selNode.id, { config: { ...(selNode.config || {}), note: e.target.value } })} className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
                                 <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-400">Note B <span className="normal-case font-normal">(optional A/B test)</span></label>
                                 <textarea rows={2} placeholder="Alternate note — sent to half of enrollments" value={cfg.note_b || ''} onChange={e => updateNodeLocal(selNode.id, { config: { ...cfg, note_b: e.target.value } })} onBlur={e => handleUpdateNode(selNode.id, { config: { ...(selNode.config || {}), note_b: e.target.value || undefined } })} className="w-full px-3 py-2 text-[13px] border border-amber-200 dark:border-amber-800 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none" />
-                                <p className="text-[11px] text-gray-500">💡 Merge tags: {'{{first_name}} {{company}} {{linkedin_url}}'}. Company is auto-appended when set. Warm-up tip: put a <b>LinkedIn View → Wait 1 day → Connect</b> ahead of this for higher acceptance.</p>
+                                <p className="text-[11px] text-gray-500">Merge tags: {'{{first_name}} {{company}} {{linkedin_url}}'}. Company is auto-appended when set. Warm-up tip: put a <b>LinkedIn View → Wait 1 day → Connect</b> ahead of this for higher acceptance.</p>
                                 {liSends.length > 0 && (
                                   <div className="text-[11px] text-gray-600 dark:text-gray-300 border-t border-gray-100 dark:border-gray-800 pt-2">
                                     <p className="font-semibold mb-0.5">Acceptance {cfg.note_b ? '(A/B)' : ''}</p>
@@ -7119,7 +6918,7 @@ export default function App() {
                 <div className="ml-auto flex flex-wrap items-center gap-2">
                   {/* V4 Part 3 — cross-campaign replies entry point, badge-counted */}
                   <button onClick={() => { setWhoRepliedSeqFilter(null); setShowWhoRepliedView(true); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold border border-green-200 dark:border-green-900 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-950/60 transition-colors">
-                    💬 Who Has Replied?
+                    Who Has Replied?
                     {allRepliesCount > 0 && <span className="px-1.5 py-0.5 rounded-full bg-green-600 text-white text-[10px] font-bold">{allRepliesCount}</span>}
                   </button>
                   {/* Unified Tabs component (Part 3) */}
@@ -7183,7 +6982,7 @@ export default function App() {
                             </div>
                             {seq.description && <p className="text-[12px] text-gray-400 line-clamp-2">{seq.description}</p>}
                             <p className="text-[11px] text-gray-500">
-                              ⚡ {trig ? (TRIGGER_TYPES.find(x => x.value === trig.trigger_event)?.label || trig.trigger_event) : 'Manual'} ·
+                              {trig ? (TRIGGER_TYPES.find(x => x.value === trig.trigger_event)?.label || trig.trigger_event) : 'Manual'} ·
                               {' '}{activeEnr.length} enrolled · {sSends.length} sent
                               {' · '}{sSends.filter(s => s.replied_at).length > 0 && <span className="font-semibold text-green-600 dark:text-green-400">{sSends.filter(s => s.replied_at).length} replied · </span>}
                               Last sent: {seq.last_run_at ? new Date(seq.last_run_at).toLocaleDateString() : 'never'}
@@ -7193,7 +6992,7 @@ export default function App() {
                               <button onClick={() => { setEditingSeqId(seq.id); setSelectedNodeId(null); }} title="Enroll contacts now" className="px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">▶ Run</button>
                               <span className="ml-auto flex gap-2">
                                 <button onClick={() => handleDuplicateSequence(seq)} className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100" title="Duplicate">⧉</button>
-                                <button onClick={() => handleDeleteSequence(seq)} className="text-gray-400 hover:text-red-600" title="Delete">🗑</button>
+                                <button onClick={() => handleDeleteSequence(seq)} className="text-[11px] font-semibold text-gray-400 hover:text-red-600" title="Delete">Delete</button>
                               </span>
                             </div>
                           </div>
@@ -7203,7 +7002,7 @@ export default function App() {
                   )}
 
                   <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-[12px] text-yellow-800 dark:text-yellow-300">
-                    ⚠️ Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait in the Outbox for one-click manual sending. With Auto-send ON + Gmail connected (or a Resend sender configured), the runner sends automatically inside your send window with open/click tracking and unsubscribe handling.
+                    Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait in the Outbox for one-click manual sending. With Auto-send ON + Gmail connected (or a Resend sender configured), the runner sends automatically inside your send window with open/click tracking and unsubscribe handling.
                   </div>
                 </>
               )}
@@ -7215,7 +7014,7 @@ export default function App() {
                     <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
                       <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-2">Import prospects (CSV)</h3>
                       <label className="flex flex-col items-center justify-center gap-1 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl py-6 cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors">
-                        <span className="text-xl">📥</span>
+                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
                         <span className="text-[13px] font-semibold text-gray-700 dark:text-gray-200">Click to upload a CSV</span>
                         <span className="text-[11px] text-gray-400">Columns auto-mapped: email, first_name, last_name, company, title, linkedin_url</span>
                         <input type="file" accept=".csv" onChange={handleColdCsvFile} className="hidden" />
@@ -7319,7 +7118,7 @@ export default function App() {
                   <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-1">Unsubscribe list</h3>
                   <p className="text-[12px] text-gray-500 mb-4">Every address here is silently skipped by the auto-send runner — across all sequences.</p>
                   {unsubscribesList.length === 0 ? (
-                    <p className="text-[13px] text-gray-400 py-4">Nobody has unsubscribed. 🎉</p>
+                    <p className="text-[13px] text-gray-400 py-4">Nobody has unsubscribed.</p>
                   ) : (
                     <div className="space-y-1.5">
                       {unsubscribesList.map(u => (
@@ -7564,7 +7363,7 @@ export default function App() {
                     disabled={!gmailConn || gmailConn.needs_reauth}
                     title={!gmailConn || gmailConn.needs_reauth ? 'Connect Gmail first' : ''}
                     className={`px-4 py-2 text-[13px] font-semibold rounded-xl shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${emailSettings?.auto_send_enabled ? 'bg-green-600 text-white' : 'bg-gray-900 text-white hover:opacity-90'}`}>
-                    {emailSettings?.auto_send_enabled ? 'Auto-send: ON ✓' : 'Auto-send: OFF — enable'}
+                    {emailSettings?.auto_send_enabled ? 'Auto-send: ON' : 'Auto-send: OFF — enable'}
                   </button>
                 </div>
                 {gmailConn?.needs_reauth && (
@@ -7825,7 +7624,7 @@ export default function App() {
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] text-gray-400">{r.note}</span>
                           <button onClick={() => handleEnableRecipe(r)} disabled={enabled} className={`px-2.5 py-1 text-[11px] font-semibold rounded-full ${enabled ? 'bg-green-100 text-green-700' : 'bg-gray-900 text-white hover:opacity-90'}`}>
-                            {enabled ? 'Enabled ✓' : 'Enable'}
+                            {enabled ? 'Enabled' : 'Enable'}
                           </button>
                         </div>
                       </div>
@@ -8168,7 +7967,7 @@ export default function App() {
               {followUpLoading && <div className="h-10 bg-green-50 dark:bg-green-950/30 border border-green-100 dark:border-green-900 rounded-xl animate-pulse" />}
               {!followUpLoading && followUpSuggestion && (
                 <div className="bg-green-50 dark:bg-green-950/30 rounded-xl p-3 border border-green-100 dark:border-green-900">
-                  <p className="text-[13px] text-green-900 dark:text-green-300">💡 <span className="font-semibold">Suggested:</span> {followUpSuggestion}</p>
+                  <p className="text-[13px] text-green-900 dark:text-green-300"><span className="font-semibold">Suggested:</span> {followUpSuggestion}</p>
                   <div className="flex gap-3 mt-2 text-[12px] font-medium">
                     <button onClick={() => { setActivityType('Note'); setActivityDesc(followUpSuggestion); setActiveProfileTab('activity'); }} className="text-green-700 hover:underline">Log this as a note</button>
                     <button onClick={() => { setNewTaskTitle(followUpSuggestion.slice(0, 100)); setActiveProfileTab('tasks'); }} className="text-green-700 hover:underline">Create task</button>
@@ -8276,7 +8075,7 @@ export default function App() {
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400">Quick Note</h4>
                   <span className="text-[11px] font-medium text-gray-400">
-                    {quickNoteSaving ? 'Saving...' : quickNoteSaved ? <span className="text-green-600">Saved ✓</span> : ''}
+                    {quickNoteSaving ? 'Saving...' : quickNoteSaved ? <span className="text-green-600">Saved</span> : ''}
                   </span>
                 </div>
                 <textarea rows={3} value={quickNoteValue} onChange={e => setQuickNoteValue(e.target.value)} placeholder="Pinned scratch pad for this relationship — auto-saves as you type..." disabled={!canEdit} className="dark:text-gray-100 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-xl bg-yellow-50/50 dark:bg-yellow-900/10 focus:outline-none focus:border-gray-400 disabled:opacity-60" />
@@ -8322,7 +8121,7 @@ export default function App() {
                     clientFiles.filter(f => f.client_id === viewingClient.id).map(f => (
                       <div key={f.id} className="flex items-center gap-3 p-3 border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl">
                         <span className="text-lg shrink-0">
-                          {(f.file_type || '').includes('pdf') ? '📄' : (f.file_type || '').startsWith('image') ? '🖼️' : '📎'}
+                          {(f.file_type || '').includes('pdf') ? 'PDF' : (f.file_type || '').startsWith('image') ? 'IMG' : 'FILE'}
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{f.file_name}</p>
@@ -8392,7 +8191,7 @@ export default function App() {
                           <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0 cursor-pointer" />
                           <div>
                             <span className={`text-[13px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 dark:text-gray-100 font-medium'}`}>
-                              {task.recurrence && <span title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>🔁 </span>}
+                              {task.recurrence && <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mr-1" title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>Repeats</span>}
                               {task.title}
                             </span>
                             <span className="text-[11px] text-gray-400 block mt-0.5">Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span>{task.recurrence ? ` · ${task.recurrence}` : ''}</span>
@@ -8506,7 +8305,7 @@ export default function App() {
                     <textarea placeholder={voiceListening ? 'Listening... speak your note' : 'Record details, meeting minutes, or email content...'} value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className={`flex-1 px-3 py-2 text-[13px] border rounded-lg focus:outline-none dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 ${voiceListening ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200 dark:border-gray-700 focus:border-gray-400'}`} />
                     {/* G3 — voice memo mic */}
                     <button type="button" onClick={toggleVoiceMemo} title={voiceListening ? 'Stop dictation' : 'Dictate with your voice'} className={`self-end sm:self-stretch px-3 min-h-[38px] rounded-xl border text-[16px] transition-all ${voiceListening ? 'bg-red-50 border-red-300 animate-pulse' : 'bg-white border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:bg-gray-800/40'}`}>
-                      {voiceListening ? '🔴' : '🎤'}
+                      {voiceListening ? 'Stop' : 'Voice'}
                     </button>
                     <button type="submit" className="sm:w-24 font-medium text-[12px] text-white bg-gray-900 rounded-xl hover:opacity-90 transition-colors shadow-sm self-end sm:self-stretch min-h-[38px]">Log Entry</button>
                   </div>
@@ -8838,7 +8637,7 @@ export default function App() {
                 </p>
               </div>
               <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-[12px] text-yellow-800">
-                ⚠️ This will open {selectedClientIds.length} Gmail compose tab{selectedClientIds.length === 1 ? '' : 's'} — you send each one yourself. Allow popups for this site.
+                This will open {selectedClientIds.length} Gmail compose tab{selectedClientIds.length === 1 ? '' : 's'} — you send each one yourself. Allow popups for this site.
               </div>
               {bulkEmailProgress && <p className="text-[12px] font-medium text-indigo-600">{bulkEmailProgress}</p>}
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
@@ -8934,7 +8733,7 @@ export default function App() {
               {mergeStep === 2 && mergeTarget && (
                 <>
                   <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-[12px] text-red-800">
-                    ⚠️ All activities, tasks, deals, and files from <strong>{mergeSource.name}</strong> ({activities.filter(a => a.client_id === mergeSource.id).length} activities) will move to <strong>{mergeTarget.name}</strong> ({activities.filter(a => a.client_id === mergeTarget.id).length} activities). <strong>{mergeSource.name} will be permanently deleted.</strong>
+                    All activities, tasks, deals, and files from <strong>{mergeSource.name}</strong> ({activities.filter(a => a.client_id === mergeSource.id).length} activities) will move to <strong>{mergeTarget.name}</strong> ({activities.filter(a => a.client_id === mergeTarget.id).length} activities). <strong>{mergeSource.name} will be permanently deleted.</strong>
                   </div>
                   <div className="space-y-2">
                     {['name', 'email', 'phone_number', 'country', 'status', 'relationship', 'linkedin_url', 'birthday', 'source'].filter(f => (mergeSource[f] || '') !== (mergeTarget[f] || '') && (mergeSource[f] || mergeTarget[f])).map(field => (
@@ -9050,7 +8849,7 @@ export default function App() {
                     <button onClick={() => convertColdToRelationship(r.contact.id)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-green-600 rounded-lg hover:opacity-90">Convert to Relationship</button>
                   )}
                   {r.isColdContact && r.contact && r.contact.status === 'converted' && (
-                    <span className="text-[11px] font-bold uppercase text-green-600">Converted ✓</span>
+                    <span className="text-[11px] font-bold uppercase text-green-600">Converted</span>
                   )}
                   {(() => {
                     const enr = sequenceEnrollments.find(e2 => e2.id === r.enrollment_id);
@@ -9230,13 +9029,13 @@ export default function App() {
                 {SEQ_TEMPLATES.map(tpl => (
                   <button key={tpl.key} onClick={async () => { setShowCreateFlow(false); setCreateStep(1); await handleCreateFromTemplate(tpl, createMeta); setCreateMeta({ name: '', description: '', from_name: '', reply_to: '' }); }}
                     className="text-left p-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all group">
-                    <p className="text-[14px] font-bold text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400">{tpl.emoji} {tpl.name}</p>
+                    <p className="text-[14px] font-bold text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400">{tpl.name}</p>
                     <p className="text-[12px] text-gray-500 mt-1 mb-3">{tpl.desc}</p>
                     {/* tiny shape preview so users see what they're choosing */}
                     <div className="flex items-center gap-1 flex-wrap">
                       {tpl.nodes.slice(0, 9).map((n, i) => (
                         <span key={i} className="flex items-center gap-1">
-                          <span className="w-6 h-6 grid place-items-center rounded-md bg-gray-100 dark:bg-gray-800 text-[11px]">{NODE_META[n.node_type]?.emoji || '✉'}</span>
+                          <span className="w-6 h-6 grid place-items-center rounded-md bg-gray-100 dark:bg-gray-800"><span className={`w-2 h-2 rounded-full ${NODE_META[n.node_type]?.dot || 'bg-blue-500'}`} /></span>
                           {i < Math.min(tpl.nodes.length, 9) - 1 && <span className="text-gray-300 dark:text-gray-600 text-[10px]">→</span>}
                         </span>
                       ))}

@@ -325,3 +325,11 @@ from cold_contacts cc where cc.status='prospect' limit 1;
   - **Email Automation** section switcher (Sequences / Cold Contacts / Unsubscribes) — replaced the pill-in-a-tray buttons; Cold Contacts shows its count.
 - One implementation, one motion curve, no icons — consistent with the design system.
 - `next build` green. (Both bars are behind auth; verified by build + review — not browser-shot, as I don't log in with the user's password.)
+
+## Part 2 — Remove emoji-as-UI + de-icon sidebar
+- **Sidebar de-iconed:** the Search / Bell / logout inline `<svg>` icons and the ☀️/🌙 emoji became plain text labels ("Search", "Notifications", "Log out", "Light/Dark mode"). (SearchIcon/BellIcon defs kept — still used by the mobile top bar.)
+- **Node-type emoji → colored dots:** the automation node palette, node cards, node inspector, and template shape-previews now use the existing `NODE_META.dot` accent color (a `w-2 h-2 rounded-full` dot) + the type label instead of ⚡✉️⏱🔀🔗🤝📞✅🎯. Meaning now comes from color + type name, per the design system.
+- **Dead code removed (~200 lines):** `MockWindow/MockCanvas/MockTable/MockKanban/MockReport/MockReplies`, `FadeIn`, `AnimatedHeading` — all unreferenced since the v7 landing rebuild (`LandingPage` at :775 is live and untouched). This also erased a large emoji cluster. File dropped from 9,313 → ~9,120 lines.
+- **~45 emoji-as-UI sites stripped** across dashboard widget headings (🔥🎯⭐💗🔁📍🎂⚡❄️), status text (✓ on Saved/Enabled/Converted/Auto-send), action buttons (✎/🗑/✕ → "Open email editor"/"Delete"), quick-note 📝 → an uppercase "Note" tag, recurrence 🔁 → "Repeats" tag, file-type 📄🖼️📎 → PDF/IMG/FILE, voice 🎤/🔴 → "Voice/Stop", inbox 📥 → dot, and inline ⚠️/💡/🔌/💬 prefixes removed.
+- **Kept deliberately:** email *content* emoji (e.g. the "Welcome aboard 🎉" template body the user actually sends — that's copy, not chrome), flow arrows (→), the external-link ↗ and disclosure chevrons (permitted affordances), the ⌘K shortcut chip, the ✓ inside the onboarding step-completion circle, and the `// ⚠ KEEP…` code comment.
+- Zero UI-emoji residual in a full grep (excluding those kept-by-design cases). `next build` green.
