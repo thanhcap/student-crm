@@ -343,3 +343,27 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **Relationships (Part 4.3):** the bulk-select action bar is now a **floating pill anchored to the bottom of the viewport** (`fixed bottom-6`, centered accounting for the 240px sidebar, `bg-gray-900/95` glass, token radius/controls) instead of an inline blue banner. Added a "Clear" affordance and "N selected" count; all bulk actions (status, Bulk Email, enroll, delete) preserved.
 - **Deals (Part 4.4):** columns widened to the spec `w-[300px]`; drag feedback now **lifts the card** (`active:scale-[1.02] active:rotate-[0.5deg] active:shadow-xl`) and the **target column softly tints indigo** on drag-over (`drag-over` class toggled in `onDragOver`/`onDragLeave`/`onDrop`). Existing stage left-rails, drag-drop, hover Edit/Delete, and per-column count+value headers kept.
 - `next build` green.
+
+# ============ v9 — 3D Earth marketing site (branch redesign/landing-earth-3d) ============
+
+## Step 0 — Recon (reality vs prompt)
+- App still one `src/app/page.js` (~9.1k lines) at `/` with auth branching; `(marketing)` group exists (blog/pricing/solutions/team). Per the prompt's fallback: app stays at `/`, marketing landing = the `LandingPage` component (rebuilt), subpages in `(marketing)`.
+- three/fiber/drei/framer-motion installed. **Space Grotesk already wired** as `--font-space-grotesk`. Logout already lands on `LANDING` (checklist #10 pre-satisfied). No `/signup` route — live flow is `/?login=1` & `/?signup=1` modals; nav uses those (reality wins).
+- v7 theme (Urbanist/#060218, nav Your Team/Solutions/Blog/Pricing, single-canvas rule, Team $39 tier) **superseded** by v9 (space theme #06060F, nav Home/Features/Pricing/Blog, globe reused across pages, Max $49 tier). Solutions/Team pages remain reachable from the footer.
+- Pillow unavailable → favicon PNG rendered from SVG via macOS `qlmanage` (worked, verified visually).
+
+## Part 2 — Logo system + favicon
+- `src/components/Logo.js`: `LogoMark` (conic-gradient glow ring around a #0A0A1A disc, **placeholder "RC" initials — structured for a face-photo `<img>` swap later**) + `LogoFull` wordmark "Relationship CRM".
+- `public/favicon.png` (256×256) generated from the same design; wired via `metadata.icons` in the root layout. **Manual step later:** when the founder photo lands, regenerate favicon from the same source.
+- Root metadata → "Relationship CRM — Your Network, Supercharged".
+
+## Part 3 — Space theme shell
+- `SpaceBackground.js`: fixed `#06060F` backdrop, two CSS star layers, violet/cyan/gold nebula radials — theme lands with zero WebGL.
+- `MarketingNav.js`: floating glass bar (blur + violet glow shadow), LogoFull, Home/Features/Pricing/Blog with active state, Log in (`/?login=1`), white Start Free pill (`/?signup=1`), mobile menu.
+- `MarketingFooter.js` rethemed to the space palette + LogoFull + Features link. `(marketing)/layout.js` now renders SpaceBackground + MarketingNav (+`pt-24` clearance). `shimmer` keyframes added to globals.css.
+
+## Part 4 — The Earth landing
+- `GlobeScene.js`: stylized dark Earth (base sphere + violet wireframe overlay + cyan BackSide atmosphere), **10 orbiting person-nodes** (metallic emissive spheres, hover = glow + name tooltip via drei `Html`), **12 curved connection arcs** (QuadraticBezier lifted off the surface, tracking node positions per frame), 3-point lighting, OrbitControls (drag-to-spin + autoRotate, zoom/pan locked, polar clamps). Props: `interactive`, `small` (CTA reprise).
+- `LandingPage` (page.js) fully rebuilt: hero **Earth left / copy right** ("Your network. / Supercharged." violet→cyan→amber gradient, Space Grotesk), trust-signal strip; FeaturesStrip (horizontal snap-scroll cards sliding in from the right); HowItWorks (deliberately asymmetric offset grid); AutomationShowcase (`py-32`, node-rail mock placeholder for a real canvas screenshot); Testimonials (placeholder quotes, TODO); FinalCTA (gradient bleed + non-interactive small globe reprise).
+- Guards: `dynamic({ ssr:false })`, desktop-only (`useMediaQuery ≥1024px`), `prefers-reduced-motion` → static CSS globe silhouette. Old v7 hero components (OrbitVisual/Typewriter/LogoTicker imports) removed from page.js.
+- **Browser-verified at 1280px:** Earth + nodes + arcs render, nav glass bar correct, gradient headline correct, tab title/metadata correct, console clean. `next build` green.

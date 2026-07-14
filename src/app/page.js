@@ -4,13 +4,25 @@ import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from 're
 import Papa from 'papaparse';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
-// V7 marketing home — shared dark cinematic system (root page is outside the (marketing)
-// route group but reuses the same header/footer/primitives so it looks identical).
+import dynamic from 'next/dynamic';
+import { motion } from 'framer-motion';
+// V9 marketing home — outer-space system (root page is outside the (marketing)
+// route group but composes the same SpaceBackground/Nav/Footer pieces).
 import './(marketing)/marketing.css';
-import MarketingHeader from '@/components/marketing/MarketingHeader';
+import SpaceBackground from '@/components/marketing/SpaceBackground';
+import MarketingNav from '@/components/marketing/MarketingNav';
 import MarketingFooter from '@/components/marketing/MarketingFooter';
-import OrbitVisual from '@/components/marketing/OrbitVisual';
-import { TypewriterHeading, LogoTicker, GradientBorderButton } from '@/components/marketing/ui';
+
+// Three.js touches `window` — must never SSR. Fallback keeps the footprint.
+const GlobeScene = dynamic(() => import('@/components/marketing/GlobeScene'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center">
+      <div className="w-[70%] max-w-[480px] aspect-square rounded-full opacity-40"
+           style={{ background: 'radial-gradient(circle at 30% 30%, #1a1a4e, #06060F 70%)', boxShadow: '0 0 120px 40px rgba(139,92,246,0.08)' }} />
+    </div>
+  ),
+});
 
 // ==========================================
 // V6 PART 1 — DESIGN SYSTEM (single source of truth; every screen consumes this)
@@ -773,102 +785,187 @@ function EmailStudio({ node, sequence, templates, contacts, fromAddress, resolve
 // sessions never see it — checkSession routes them straight to the Dashboard.
 // ==========================================
 function LandingPage({ onLogin, onSignup }) {
-  // V7 — dark cinematic marketing home. Typewriter hero + CSS OrbitVisual (the single
-  // live WebGL canvas lives on /solutions). Reuses the shared MarketingHeader/Footer.
-  const STEPS = [
-    { n: '01', t: 'Import your contacts', d: 'Bring people in from a CSV, Gmail, or add them by hand.' },
-    { n: '02', t: 'Build a sequence', d: 'Drag email, wait, condition and LinkedIn steps onto a canvas.' },
-    { n: '03', t: 'It runs itself', d: 'Sends on your schedule, inside your caps, stopping the moment someone replies.' },
-    { n: '04', t: 'See who\u2019s engaging', d: 'Opens, clicks and replies land in one inbox \u2014 you just follow up.' },
+  // V9 — outer-space marketing home. The 3D Earth (GlobeScene) is the hero:
+  // Earth LEFT, copy RIGHT. WebGL only on desktop + no-reduced-motion; the
+  // CSS GlobeFallback holds the same footprint everywhere else.
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const reducedMotion = usePrefersReducedMotion();
+  const show3d = isDesktop && !reducedMotion;
+  const fadeUp = {
+    hidden: { opacity: 0, y: 28 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.8, ease: EASE } },
+  };
+
+  const FEATURES_STRIP = [
+    { label: 'Relationships', desc: 'Full contact history, company links, and engagement scores in one view.' },
+    { label: 'Deals Pipeline', desc: 'Drag deals across stages. Won deals trigger onboarding emails automatically.' },
+    { label: 'Email Automation', desc: 'Build multichannel sequences that send themselves and stop on reply.' },
+    { label: 'AI Summaries', desc: 'One click to understand any relationship — powered by Claude.' },
+    { label: 'Lead Scoring', desc: 'Know who to call today, ranked by real engagement signals.' },
   ];
-  const FEATURES = [
-    { t: 'Relationship Pipeline', d: 'Every contact, deal and custom field in one scored pipeline.', href: '/solutions#pipeline' },
-    { t: 'Automated Outreach', d: 'Multichannel sequences that send themselves and stop on reply.', href: '/solutions#outreach' },
-    { t: 'AI Assist', d: 'Relationship summaries and smart follow-up suggestions on tap.', href: '/solutions#ai' },
+  const HOW_STEPS = [
+    { n: '01', t: 'Import your people', d: 'CSV, Gmail, or one at a time — every contact lands in a scored pipeline.' },
+    { n: '02', t: 'Draw the sequence', d: 'Email, wait, condition, LinkedIn — drag the steps onto a canvas and connect the arrows.' },
+    { n: '03', t: 'Turn it on', d: 'It sends on your schedule, inside your caps, and stops the second someone replies.' },
+    { n: '04', t: 'Follow up like a human', d: 'Opens, clicks and replies surface in one inbox. You show up exactly when it matters.' },
   ];
+
   return (
-    <div className="cinematic-bg min-h-screen flex flex-col">
-      <MarketingHeader />
+    <div className="min-h-screen flex flex-col text-white">
+      <SpaceBackground />
+      <MarketingNav />
 
       <main className="relative z-10 flex-1">
-        {/* HERO */}
-        <section className="max-w-[1200px] mx-auto px-6 pt-10 lg:pt-16 grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
-          <div className="anim-fade-up">
-            <TypewriterHeading
-              className="text-white text-[36px] md:text-[52px] lg:text-[60px] font-semibold leading-[1.04]"
-              style={{ letterSpacing: '-1.5px' }}
-              speed={35}
-              startDelay={400}
-              parts={[
-                { text: 'You have 200 people to follow up with and no system for it \u2014 ', className: 'text-white' },
-                { text: 'now it runs on autopilot.', className: 'text-[#A068FF]' },
-              ]}
-            />
-            <div className="mt-8 anim-fade-up" style={{ animationDelay: '3.2s' }}>
-              <GradientBorderButton href="/?signup=1" size="lg" dir="right">
-                Start Free
-                <span aria-hidden>›</span>
-              </GradientBorderButton>
+        {/* HERO — Earth left, copy right */}
+        <section className="relative min-h-screen flex items-center pt-24 pb-16">
+          <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-8 items-center w-full">
+            {/* LEFT — the globe */}
+            <div className="relative h-[380px] lg:h-[640px] order-2 lg:order-1">
+              {show3d ? <GlobeScene /> : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="w-[70%] max-w-[480px] aspect-square rounded-full opacity-40"
+                       style={{ background: 'radial-gradient(circle at 30% 30%, #1a1a4e, #06060F 70%)', boxShadow: '0 0 120px 40px rgba(139,92,246,0.08)' }} />
+                </div>
+              )}
             </div>
-            {/* one live-activity badge */}
-            <div className="mt-6 inline-flex items-center gap-2 anim-fade-up" style={{ animationDelay: '3.6s' }}>
-              <span className="inline-block w-3 h-4" style={{ background: 'transparent' }} aria-hidden>
-                <svg width="14" height="18" viewBox="0 0 14 18" fill="none"><path d="M1 1l11 6.5-4.7 1.2L5 16 1 1z" fill="#A068FF"/></svg>
-              </span>
-              <span className="px-3 py-1.5 rounded-full text-[12.5px] text-white/80 border border-white/10 bg-white/[0.05]">Jordan — just booked 3 calls this week</span>
-            </div>
-          </div>
 
-          <div className="anim-scale-in hidden md:block">
-            <OrbitVisual scale={0.8} />
-          </div>
-        </section>
-
-        {/* LOGO TICKER */}
-        <div className="max-w-[1200px] mx-auto px-6 mt-8"><LogoTicker /></div>
-
-        {/* HOW IT WORKS */}
-        <section className="max-w-[1100px] mx-auto px-6 py-20 anim-fade-up anim-delay-6">
-          <h2 className="font-display text-white text-[28px] md:text-[36px] font-semibold tracking-[-0.02em] text-center mb-12">How it works</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {STEPS.map(s => (
-              <div key={s.n} className="rounded-[20px] border border-white/10 bg-white/[0.03] p-6">
-                <p className="font-display text-[#A068FF] text-[13px] font-bold mb-3">{s.n}</p>
-                <h3 className="font-display text-white text-[17px] font-semibold mb-2">{s.t}</h3>
-                <p className="text-white/50 text-[14px] leading-relaxed">{s.d}</p>
+            {/* RIGHT — copy */}
+            <motion.div variants={fadeUp} initial="hidden" animate="show" className="max-w-lg lg:ml-auto order-1 lg:order-2">
+              <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-violet-400 mb-4">AI-Powered Networking</p>
+              <h1 className="text-[40px] lg:text-[56px] font-semibold leading-[1.05] tracking-[-0.03em] mb-5" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
+                Your network.<br />
+                <span className="bg-gradient-to-r from-violet-400 via-cyan-400 to-amber-300 bg-clip-text text-transparent">Supercharged.</span>
+              </h1>
+              <p className="text-[16px] leading-relaxed text-white/55 mb-8 max-w-md">
+                Build relationships that compound. Track every connection, automate your outreach,
+                and let AI tell you exactly who needs your attention today.
+              </p>
+              <div className="flex items-center gap-3">
+                <a href="/?signup=1" className="px-6 py-3 text-[14px] font-semibold text-black bg-white rounded-xl hover:shadow-[0_0_30px_-4px_rgba(255,255,255,0.35)] transition-all">Start Free</a>
+                <a href="/features" className="px-6 py-3 text-[14px] font-semibold text-white/70 border border-white/10 rounded-xl hover:text-white hover:border-white/25 transition-all">See Features</a>
               </div>
+              {/* trust signals — quiet, factual */}
+              <div className="flex items-center gap-6 mt-10 pt-6 border-t border-white/[0.06]">
+                <div><p className="text-[22px] font-bold text-white" style={{ fontFamily: 'var(--font-space-grotesk)' }}>100+</p><p className="text-[11px] text-white/35">auto-sends per day</p></div>
+                <div><p className="text-[22px] font-bold text-white" style={{ fontFamily: 'var(--font-space-grotesk)' }}>0</p><p className="text-[11px] text-white/35">manual clicks after setup</p></div>
+                <div><p className="text-[22px] font-bold text-white" style={{ fontFamily: 'var(--font-space-grotesk)' }}>AI</p><p className="text-[11px] text-white/35">tells you who to call</p></div>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+
+        {/* FEATURES STRIP — horizontal scroll, slides in from the right */}
+        <section className="py-24 overflow-hidden">
+          <div className="max-w-6xl mx-auto px-6 mb-10">
+            <motion.p variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
+              className="text-[11px] font-bold uppercase tracking-[0.15em] text-cyan-400 mb-3">Everything you need</motion.p>
+            <motion.h2 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
+              className="text-[32px] font-semibold tracking-[-0.02em]" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
+              Not just a CRM. A networking engine.
+            </motion.h2>
+          </div>
+          <div className="flex gap-5 px-6 overflow-x-auto pb-4 snap-x snap-mandatory">
+            {FEATURES_STRIP.map((f, i) => (
+              <motion.div key={f.label}
+                initial={{ opacity: 0, x: 40 }} whileInView={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.08, duration: 0.6, ease: EASE }} viewport={{ once: true }}
+                className="min-w-[280px] snap-start p-6 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12] transition-all group">
+                <p className="text-[13px] font-bold text-white mb-2 group-hover:text-violet-400 transition-colors">{f.label}</p>
+                <p className="text-[13px] leading-relaxed text-white/40">{f.desc}</p>
+              </motion.div>
             ))}
           </div>
         </section>
 
-        {/* FEATURE HIGHLIGHTS */}
-        <section className="max-w-[1100px] mx-auto px-6 pb-20">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {FEATURES.map(f => (
-              <a key={f.t} href={f.href} className="group rounded-[20px] border border-white/10 bg-white/[0.03] p-7 hover:border-[#A068FF]/40 transition-colors">
-                <h3 className="font-display text-white text-[19px] font-semibold mb-2 group-hover:text-[#A068FF] transition-colors">{f.t}</h3>
-                <p className="text-white/55 text-[14.5px] leading-relaxed mb-4">{f.d}</p>
-                <span className="text-[13px] font-semibold text-[#A068FF]">Learn more →</span>
-              </a>
-            ))}
+        {/* HOW IT WORKS — deliberately asymmetric two-column rhythm */}
+        <section className="py-24">
+          <div className="max-w-6xl mx-auto px-6">
+            <motion.h2 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
+              className="text-[32px] font-semibold tracking-[-0.02em] mb-14 max-w-md" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
+              From cold list to warm pipeline in four moves.
+            </motion.h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-16 gap-y-12">
+              {HOW_STEPS.map((s, i) => (
+                <motion.div key={s.n} variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
+                  className={i % 2 === 1 ? 'md:mt-12' : ''}>
+                  <p className="text-[13px] font-bold text-amber-300/80 mb-2" style={{ fontFamily: 'var(--font-space-grotesk)' }}>{s.n}</p>
+                  <h3 className="text-[19px] font-semibold text-white mb-2">{s.t}</h3>
+                  <p className="text-[14px] leading-relaxed text-white/45 max-w-sm">{s.d}</p>
+                </motion.div>
+              ))}
+            </div>
           </div>
         </section>
 
-        {/* SOCIAL PROOF */}
-        <section className="max-w-[820px] mx-auto px-6 py-16 text-center">
-          {/* TODO: replace with a real quote */}
-          <p className="font-display text-white text-[24px] md:text-[30px] font-semibold leading-snug tracking-[-0.01em]">
-            “I stopped losing track of people. The follow-ups just happen now.”
-          </p>
-          <p className="text-white/40 text-[13px] mt-5">Placeholder testimonial — replace before launch</p>
+        {/* AUTOMATION SHOWCASE — the differentiator, cinematic space */}
+        <section className="py-32 relative overflow-hidden">
+          <div className="absolute inset-0 -z-[1]" style={{ background: 'radial-gradient(50% 60% at 50% 40%, rgba(139,92,246,0.08), transparent)' }} aria-hidden />
+          <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[0.8fr_1.2fr] gap-12 items-center">
+            <motion.div variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}>
+              <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-violet-400 mb-3">Email Automation</p>
+              <h2 className="text-[32px] font-semibold tracking-[-0.02em] mb-4" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
+                Build the sequence once. Never click “send” again.
+              </h2>
+              <p className="text-[14.5px] leading-relaxed text-white/50 mb-6">
+                Drag nodes onto a canvas — email, wait, condition, LinkedIn — connect them with arrows,
+                and turn it on. It runs on its own schedule, stops the moment someone replies, and shows
+                you exactly who’s engaging.
+              </p>
+              <a href="/features" className="text-[13px] font-semibold text-cyan-400 hover:text-cyan-300 transition-colors">Explore the canvas →</a>
+            </motion.div>
+            {/* PLACEHOLDER: swap for a real campaign-canvas screenshot/video */}
+            <motion.div initial={{ opacity: 0, scale: 0.96 }} whileInView={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.9, ease: EASE }} viewport={{ once: true, margin: '-80px' }}
+              className="rounded-[24px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-sm p-6 h-[380px] flex flex-col justify-center gap-3">
+              {['Trigger — Deal marked Won', 'Email — “Welcome aboard”', 'Wait — 3 days', 'Condition — replied?', 'Goal — stop on reply'].map((row, i) => (
+                <div key={row} className="rounded-xl border-l-2 bg-white/[0.03] px-4 py-3"
+                     style={{ borderLeftColor: ['#8B5CF6', '#06B6D4', '#71717A', '#F59E0B', '#10B981'][i] }}>
+                  <p className="text-[12.5px] font-semibold text-white/75">{row}</p>
+                </div>
+              ))}
+            </motion.div>
+          </div>
         </section>
 
-        {/* FINAL CTA */}
-        <section className="py-24 text-center">
-          <h2 className="font-display text-white text-[30px] md:text-[44px] font-semibold tracking-[-0.02em] mb-8 px-6">Stop clicking “send” 100 times a day.</h2>
-          <div className="flex items-center justify-center gap-5">
-            <GradientBorderButton href="/?signup=1" size="lg" dir="right">Start Free</GradientBorderButton>
-            <a href="/pricing" className="text-[14px] font-semibold text-white/70 hover:text-white transition-colors">See pricing →</a>
+        {/* TESTIMONIALS — placeholder structure, populate with real quotes later */}
+        <section className="py-24">
+          <div className="max-w-6xl mx-auto px-6">
+            <motion.h2 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
+              className="text-[32px] font-semibold tracking-[-0.02em] mb-12" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
+              People who network for a living.
+            </motion.h2>
+            {/* TODO: replace placeholder quotes with real user testimonials before launch */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {[
+                { q: 'Placeholder quote — how the pipeline changed a job search.', a: 'Student, placeholder' },
+                { q: 'Placeholder quote — an agency running cold outreach on autopilot.', a: 'Founder, placeholder' },
+                { q: 'Placeholder quote — a consultant who stopped losing follow-ups.', a: 'Consultant, placeholder' },
+              ].map((t, i) => (
+                <motion.blockquote key={i} variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
+                  className={`p-6 rounded-2xl bg-white/[0.03] border border-white/[0.06] ${i === 1 ? 'md:-mt-6' : ''}`}>
+                  <p className="text-[14px] leading-relaxed text-white/60 mb-4">“{t.q}”</p>
+                  <footer className="text-[12px] font-semibold text-white/35">{t.a}</footer>
+                </motion.blockquote>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* FINAL CTA — gradient bleed + small globe reprise (non-interactive) */}
+        <section className="relative py-32 overflow-hidden">
+          <div className="absolute inset-0 -z-[1]" style={{ background: 'linear-gradient(180deg, transparent, rgba(139,92,246,0.10) 40%, rgba(6,182,212,0.08))' }} aria-hidden />
+          <div className="max-w-4xl mx-auto px-6 text-center">
+            <div className="relative h-[220px] mb-4 pointer-events-none">
+              {show3d ? <GlobeScene interactive={false} small /> : null}
+            </div>
+            <motion.h2 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
+              className="text-[36px] lg:text-[44px] font-semibold tracking-[-0.03em] mb-6" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
+              The people you know are the career you get.
+            </motion.h2>
+            <div className="flex items-center justify-center gap-3">
+              <a href="/?signup=1" className="px-7 py-3.5 text-[14px] font-semibold text-black bg-white rounded-xl hover:shadow-[0_0_30px_-4px_rgba(255,255,255,0.35)] transition-all">Start Free</a>
+              <a href="/pricing" className="px-7 py-3.5 text-[14px] font-semibold text-white/70 border border-white/10 rounded-xl hover:text-white hover:border-white/25 transition-all">See Pricing</a>
+            </div>
           </div>
         </section>
       </main>

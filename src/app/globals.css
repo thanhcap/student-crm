@@ -187,3 +187,9 @@ html.dark ::-webkit-scrollbar-thumb:hover {
     transform: none;
   }
 }
+
+/* V9 — pricing badge shimmer (background-position sweep on a gradient) */
+@keyframes shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
