@@ -392,3 +392,31 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - `next build` green: `/`, `/features`, `/pricing`, `/blog`, `/blog/welcome` (SSG), plus existing `/solutions`, `/team` all prerender.
 - Browser-verified at 1280px: landing (Earth + nodes + arcs + drag), pricing (toggle math), features, blog index + post. Console clean throughout.
 - **Manual steps for the founder:** drop `public/logo-face.png` into `LogoMark` + regenerate `public/favicon.png` from it; replace screenshot placeholders on /features and the automation mocks; write real blog posts as `.mdx` files; replace testimonial placeholder quotes.
+
+# ============ v10 — Realistic Earth landing (branch redesign/earth-landing-v2) ============
+
+## Step 0 — Textures + recon
+- NASA Blue Marble satellite textures committed to `public/textures/` (no runtime external deps): `earth-day.jpg` (4096×2048 Blue Marble), `earth-bump.jpg` (topology), `earth-night.jpg` (city lights, 4096×2048), `earth-specular.jpg` (water mask → ocean shine). The prompt's "clouds" URL was actually a water mask — per its own escape hatch, fetched a real photographic cloud layer (`fair_clouds_4k.png`, 4096×2048) instead. Day map visually verified as genuine satellite imagery before building.
+- Structure/deps/routes already confirmed in v9 (three/fiber/drei/framer-motion installed; Earth-left hero exists; logout → LANDING).
+
+## Part 1 — RealisticEarth (Google Earth quality)
+- 128-segment sphere + meshPhong: Blue Marble day map, bump relief (0.06), night-lights emissive on the dark hemisphere, water-mask specular (shininess 20 — the ocean highlight), 16× anisotropy + proper SRGB color spaces.
+- Independent cloud sphere (radius ×1.006, opacity 0.35, faster drift) + **two BackSide shader atmosphere layers**: tight pale-blue limb haze (#93c5fd, pow 4) and a wider faint outer glow (#60a5fa, pow 5).
+
+## Parts 2–3 — Connection circles + arcs
+- `ConnectionNode.js`: each person is a **flat, billboarded avatar circle** (drei Billboard + Ring frame + dark Circle interior + Html initials) — NOT a sphere. Orbits the Earth (farther = slower, gentle bob). Hover = brighter ring + expanded glow + name/title tooltip. **The interior is a documented emoji/icon/photo swap slot** (marked block: swap `{initials}` for an emoji `<span>`, an icon `<img>`, or a headshot — frame stays).
+- `ConnectionLines.js`: `ConnectionArc` (QuadraticBezier arcing outward from the Earth like flight paths, tracking orbiting endpoints per frame) + `PulseDot` (a bright dot traveling each arc, sine-faded at the ends).
+
+## Part 4 — GlobeScene rewrite
+- drei `<Stars>` space field, camera-keyed key light (visible hemisphere bright + vivid), violet fill; 10 PLACEHOLDER people (name · role) with a story-shaped network (the founder hubs to key people, who connect onward — 12 arcs + pulses); OrbitControls grab-and-spin + slow autoRotate, zoom/pan locked, polar clamps. `interactive`/`small` props kept for the pricing/features reprises. Same ssr:false + desktop + reduced-motion gates.
+- **Debugging story (real):** after the initial wire-up every drei-rendering scene drew a black, unconfigured canvas with zero console errors — bisected via a temp `/globe-test` page (raw-fiber box worked; any drei component died). Root cause: a **corrupted `.next` Turbopack cache** (deps were npm-installed while the old dev server was running, across branch switches). `rm -rf .next` + clean restart fixed it; the temp test page was deleted after.
+
+## Part 5 — Hero layout
+- Grid → `[1.1fr_0.9fr]`, globe `h-[680px]` pulled `-ml-16` (Earth bleeds left, per spec), headline → "Your network, **visualized.**", fallbacks recolored to the blue-earth palette.
+
+## Part 6 — Logo
+- Unchanged from v9 — already the same glow-ringed-circle language as the connection nodes, already documented for the face-photo swap.
+
+## Verified
+- **Browser (1280px):** photorealistic Earth left (real continents/clouds/night-lights/limb glow, bright ocean specular as it rotates), ring-framed initial circles orbiting with curved arcs + a pulse dot caught mid-flight, copy right, stars behind. Console clean. `next build` green.
+- **Founder manual steps:** swap node interiors for emoji/icons/photos (documented in ConnectionNode.js), replace placeholder names, drop the logo face photo.

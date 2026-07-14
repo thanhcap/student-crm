@@ -18,8 +18,8 @@ const GlobeScene = dynamic(() => import('@/components/marketing/GlobeScene'), {
   ssr: false,
   loading: () => (
     <div className="w-full h-full flex items-center justify-center">
-      <div className="w-[70%] max-w-[480px] aspect-square rounded-full opacity-40"
-           style={{ background: 'radial-gradient(circle at 30% 30%, #1a1a4e, #06060F 70%)', boxShadow: '0 0 120px 40px rgba(139,92,246,0.08)' }} />
+      <div className="w-[70%] max-w-[400px] aspect-square rounded-full"
+           style={{ background: 'radial-gradient(circle at 35% 35%, #1a4a8a, #0a1628 70%)', boxShadow: '0 0 100px 30px rgba(77,166,255,0.08)' }} />
     </div>
   ),
 });
@@ -818,13 +818,13 @@ function LandingPage({ onLogin, onSignup }) {
       <main className="relative z-10 flex-1">
         {/* HERO — Earth left, copy right */}
         <section className="relative min-h-screen flex items-center pt-24 pb-16">
-          <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-8 items-center w-full">
-            {/* LEFT — the globe */}
-            <div className="relative h-[380px] lg:h-[640px] order-2 lg:order-1">
+          <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-4 items-center w-full">
+            {/* LEFT — the Earth (real space; this is the hero, not a decoration) */}
+            <div className="relative h-[420px] lg:h-[680px] lg:-ml-16 order-2 lg:order-1">
               {show3d ? <GlobeScene /> : (
                 <div className="w-full h-full flex items-center justify-center">
-                  <div className="w-[70%] max-w-[480px] aspect-square rounded-full opacity-40"
-                       style={{ background: 'radial-gradient(circle at 30% 30%, #1a1a4e, #06060F 70%)', boxShadow: '0 0 120px 40px rgba(139,92,246,0.08)' }} />
+                  <div className="w-[70%] max-w-[400px] aspect-square rounded-full"
+                       style={{ background: 'radial-gradient(circle at 35% 35%, #1a4a8a, #0a1628 70%)', boxShadow: '0 0 100px 30px rgba(77,166,255,0.08), inset 0 0 60px rgba(77,166,255,0.05)' }} />
                 </div>
               )}
             </div>
@@ -833,12 +833,12 @@ function LandingPage({ onLogin, onSignup }) {
             <motion.div variants={fadeUp} initial="hidden" animate="show" className="max-w-lg lg:ml-auto order-1 lg:order-2">
               <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-violet-400 mb-4">AI-Powered Networking</p>
               <h1 className="text-[40px] lg:text-[56px] font-semibold leading-[1.05] tracking-[-0.03em] mb-5" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
-                Your network.<br />
-                <span className="bg-gradient-to-r from-violet-400 via-cyan-400 to-amber-300 bg-clip-text text-transparent">Supercharged.</span>
+                Your network,<br />
+                <span className="bg-gradient-to-r from-violet-400 via-cyan-400 to-amber-300 bg-clip-text text-transparent">visualized.</span>
               </h1>
               <p className="text-[16px] leading-relaxed text-white/55 mb-8 max-w-md">
                 Build relationships that compound. Track every connection, automate your outreach,
-                and let AI tell you exactly who needs your attention today.
+                and let AI tell you exactly who needs your attention — all in one place.
               </p>
               <div className="flex items-center gap-3">
                 <a href="/?signup=1" className="px-6 py-3 text-[14px] font-semibold text-black bg-white rounded-xl hover:shadow-[0_0_30px_-4px_rgba(255,255,255,0.35)] transition-all">Start Free</a>
