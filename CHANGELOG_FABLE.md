@@ -367,3 +367,28 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - `LandingPage` (page.js) fully rebuilt: hero **Earth left / copy right** ("Your network. / Supercharged." violet→cyan→amber gradient, Space Grotesk), trust-signal strip; FeaturesStrip (horizontal snap-scroll cards sliding in from the right); HowItWorks (deliberately asymmetric offset grid); AutomationShowcase (`py-32`, node-rail mock placeholder for a real canvas screenshot); Testimonials (placeholder quotes, TODO); FinalCTA (gradient bleed + non-interactive small globe reprise).
 - Guards: `dynamic({ ssr:false })`, desktop-only (`useMediaQuery ≥1024px`), `prefers-reduced-motion` → static CSS globe silhouette. Old v7 hero components (OrbitVisual/Typewriter/LogoTicker imports) removed from page.js.
 - **Browser-verified at 1280px:** Earth + nodes + arcs render, nav glass bar correct, gradient headline correct, tab title/metadata correct, console clean. `next build` green.
+
+## Part 5 — Pricing: Free / Pro $19 / Max $49
+- Rewritten as server `page.js` (metadata) + `PricingClient.js`. New `TIERS` per spec (Free/Pro/Max, Pro recommended, 14-day-trial CTAs). Annual = **−15%** with "Save $N/year" line; prices cross-fade/slide on toggle (framer-motion `key` swap).
+- `PricingCard`: 3D tilt toward cursor (rotateX/Y up to 12°/14°) + cursor-following light; the Recommended card wears a violet→cyan→amber **gradient border** (p-[1px] wrapper) and a shimmering badge (`shimmer` keyframes). Feature rows stagger in on scroll.
+- `BillingToggle`: spring-animated sliding knob (stiffness 500 / damping 30).
+- Comparison table: 3 expandable category groups; **hovered tier column tints** across header+cells; rows highlight. FAQ: 6 questions, animated `height` accordion (AnimatePresence), staggered entry.
+- Cinematic Email Automation section (`py-32`): small auto-rotating globe reprise (desktop + no-reduced-motion only) + node-rail canvas mock (screenshot placeholder), gradient sweep animates across the background on scroll.
+- **Browser-verified:** toggle flips → $16/"Save $36/yr" and $42/"Save $84/yr" animate in; badge/border/tilt render.
+- Note: this supersedes the v7/v8 pricing (Team $39 tier + COMPARISON_ROWS/PRICING_FAQ + count-up) per the v9 prompt's explicit new TIERS.
+
+## Part 6 — Features page (/features, new)
+- 8 alternating deep-dive sections (Relationships, Deals, **Email Automation at 2× space**, AI Summaries, Lead Scoring, Calendar, Reporting, Team Workspace) — colored label, Space Grotesk headline, benefit copy, and a structured **screenshot placeholder** slot (accent-glow frame) per section; all `whileInView` scroll-revealed.
+- One **3D breather** between sections 4 and 5: small auto-rotating globe, non-interactive, desktop-gated with a CSS fallback. Server wrapper exports metadata.
+
+## Part 7 — Blog structure (MDX, content later)
+- Installed `gray-matter` + `next-mdx-remote`. Posts are `.mdx` files in `(marketing)/blog/posts/`.
+- Index (`/blog`, server): reads frontmatter, computes read-time (words/200), masonry columns; `BlogCard` reuses the pricing 3D tilt + cursor-light treatment. Old v7 static-array blog replaced.
+- `[slug]/page.js` (server, SSG via `generateStaticParams`): centered `max-w-2xl` reading column, Space Grotesk headings / Inter body / JetBrains Mono code via MDX component map, "← All posts" back link, per-post `generateMetadata`. A leading `# H1` in the post is stripped (the header already renders the title — caught live as a duplicate and fixed).
+- Starter post `welcome.mdx` ("Why we built Relationship CRM") with placeholder body for the founder.
+- **Browser-verified:** /blog card grid + /blog/welcome render (title, date, tag, prose styles).
+
+## Final — verification
+- `next build` green: `/`, `/features`, `/pricing`, `/blog`, `/blog/welcome` (SSG), plus existing `/solutions`, `/team` all prerender.
+- Browser-verified at 1280px: landing (Earth + nodes + arcs + drag), pricing (toggle math), features, blog index + post. Console clean throughout.
+- **Manual steps for the founder:** drop `public/logo-face.png` into `LogoMark` + regenerate `public/favicon.png` from it; replace screenshot placeholders on /features and the automation mocks; write real blog posts as `.mdx` files; replace testimonial placeholder quotes.
