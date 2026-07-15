@@ -1375,6 +1375,9 @@ export default function App() {
   const [relationshipLists, setRelationshipLists] = useState([]); // V2.0 F14
   const [listMembers, setListMembers] = useState({}); // list_id -> [client_id]
   const [filterListId, setFilterListId] = useState(null);
+  const [dealEvents, setDealEvents] = useState([]); // V2.0 F16 — auto-logged deal history
+  const [winLossPrompt, setWinLossPrompt] = useState(null); // V2.0 F19 — { deal, stage } pending reason capture
+  const [dealQuickFilter, setDealQuickFilter] = useState('all'); // V2.0 F20
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState({ clients: [], activities: [] });
 
@@ -1915,6 +1918,7 @@ export default function App() {
       fetchAutomationRules(session.user.id),
       fetchTags(session.user.id),
       fetchLists(session.user.id),
+      fetchDealEvents(session.user.id),
       fetchWebhooks(session.user.id),
       fetchGoals(session.user.id),
       fetchSavedViews(session.user.id),
@@ -1954,6 +1958,25 @@ export default function App() {
   async function fetchAutomationRules(userId) {
     const { data } = await supabase.from('automation_rules').select('*').eq('user_id', userId).order('created_at', { ascending: false });
     if (data) setAutomationRules(data);
+  }
+
+  // V2.0 F16 — deal event history (auto-logged on create/stage/value changes)
+  async function fetchDealEvents(userId) {
+    const { data } = await supabase.from('deal_events').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(500);
+    if (data) setDealEvents(data);
+  }
+
+  async function logDealEvent(dealId, event_type, old_value = null, new_value = null, note = null) {
+    const { data } = await supabase.from('deal_events')
+      .insert([{ deal_id: dealId, user_id: user.id, event_type, old_value, new_value, note }]).select();
+    if (data) setDealEvents(prev => [data[0], ...prev]);
+  }
+
+  // V2.0 F17 — days a deal has sat in its current stage (latest stage_changed, else created_at)
+  function stageAgeDays(deal) {
+    const lastChange = dealEvents.find(ev => ev.deal_id === deal.id && ev.event_type === 'stage_changed');
+    const since = lastChange ? lastChange.created_at : deal.created_at;
+    return since ? Math.floor((Date.now() - new Date(since).getTime()) / 864e5) : null;
   }
 
   // V2.0 F14 — relationship lists (curated collections; a client can be in many)
@@ -2242,6 +2265,10 @@ export default function App() {
     if (editingDeal) {
       const { data, error } = await supabase.from('deals').update(payload).eq('id', editingDeal.id).select();
       if (!error && data) {
+        // V2.0 F16 — auto-log meaningful field changes
+        if ((parseFloat(editingDeal.value) || 0) !== payload.value) logDealEvent(editingDeal.id, 'value_changed', String(editingDeal.value ?? 0), String(payload.value));
+        if (editingDeal.stage !== payload.stage) logDealEvent(editingDeal.id, 'stage_changed', editingDeal.stage, payload.stage);
+        if ((editingDeal.probability ?? 50) !== payload.probability) logDealEvent(editingDeal.id, 'probability_changed', String(editingDeal.probability ?? 50), String(payload.probability));
         setDeals(prev => prev.map(d => d.id === editingDeal.id ? data[0] : d));
         dispatchWebhook('deal.updated', data[0]);
         showToast('Deal updated.', 'success');
@@ -2250,6 +2277,7 @@ export default function App() {
     } else {
       const { data, error } = await supabase.from('deals').insert([payload]).select();
       if (!error && data) {
+        logDealEvent(data[0].id, 'created', null, payload.stage); // V2.0 F16
         setDeals(prev => [data[0], ...prev]);
         dispatchWebhook('deal.created', data[0]);
         showToast('Deal created.', 'success');
@@ -2273,6 +2301,8 @@ export default function App() {
     const { error } = await supabase.from('deals').update({ stage: newStage }).eq('id', deal.id);
     if (!error) {
       setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, stage: newStage } : d));
+      logDealEvent(deal.id, 'stage_changed', deal.stage, newStage); // V2.0 F16
+      if (newStage === 'Won' || newStage === 'Lost') setWinLossPrompt({ deal, stage: newStage }); // V2.0 F19
       if (newStage === 'Won') dispatchWebhook('deal.won', { ...deal, stage: newStage });
       if (newStage === 'Lost') dispatchWebhook('deal.lost', { ...deal, stage: newStage });
       executeAutomations('deal_stage_change', newStage, deal.client_id);
@@ -6620,10 +6650,12 @@ export default function App() {
             {/* V2.0 F4 — deal quick-add (lands in Prospect) */}
             {canEdit && <QuickAddBar placeholder="Add deal… type a title and press Enter" onAdd={handleQuickAddDeal} />}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
               {[
                 ['Total Pipeline', fmtMoney(pipelineValue)],
                 ['Weighted Forecast', fmtMoney(weightedForecast)],
+                // V2.0 F18 — open deals whose close_date falls within 7 days
+                ['Closing This Week', fmtMoney(deals.filter(d => !['Won', 'Lost'].includes(d.stage) && d.close_date && d.close_date >= todayStr && d.close_date <= new Date(Date.now() + 7 * 864e5).toISOString().split('T')[0]).reduce((s, d) => s + toUSD(d.value, d.currency), 0))],
                 ['Won', fmtMoney(wonValue)],
                 ['Deal Count', deals.length],
               ].map(([label, value]) => (
@@ -6631,6 +6663,42 @@ export default function App() {
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
                   <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{value}</p>
                 </div>
+              ))}
+            </div>
+
+            {/* V2.0 F15 — pipeline forecast chart: one bar per stage, pure Tailwind */}
+            {deals.length > 0 && (() => {
+              const stageTotals = DEAL_STAGES.map(s => ({ stage: s, total: deals.filter(d => d.stage === s).reduce((sum, d) => sum + toUSD(d.value, d.currency), 0) }));
+              const max = Math.max(...stageTotals.map(t => t.total), 1);
+              return (
+                <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-4">Pipeline by Stage</p>
+                  <div className="flex items-end gap-3 h-28">
+                    {stageTotals.map(({ stage, total }) => (
+                      <div key={stage} className="flex-1 flex flex-col items-center gap-1.5 group cursor-pointer" onClick={() => setDealsStageFilter(dealsStageFilter === stage ? '' : stage)}>
+                        <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">{fmtMoney(total)}</span>
+                        <div className="w-full rounded-t-md transition-all duration-500 group-hover:opacity-80" style={{ height: `${Math.max((total / max) * 100, 3)}%`, background: STAGE_COLORS[stage] || '#9CA3AF' }} />
+                        <span className="text-[10px] font-semibold text-gray-400 truncate max-w-full">{stage}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* V2.0 F20 — quick filter pills (filters cards, keeps columns) */}
+            <div className="flex flex-wrap gap-2">
+              {[
+                ['all', 'All'],
+                ['closing', 'Closing This Week'],
+                ['high', 'High Value ($10k+)'],
+                ['overdue', 'Overdue'],
+                ...(workspace ? [['mine', 'Mine']] : []),
+              ].map(([key, label]) => (
+                <button key={key} onClick={() => setDealQuickFilter(key)}
+                  className={`px-3 h-7 rounded-full text-[12px] font-semibold transition-colors ${dealQuickFilter === key ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}>
+                  {label}
+                </button>
               ))}
             </div>
 
@@ -6654,7 +6722,15 @@ export default function App() {
             ) : (
               <div className="flex gap-4 overflow-x-auto pb-4 animate-in fade-in" style={{ scrollSnapType: 'x mandatory' }}>
                 {(dealsStageFilter ? DEAL_STAGES.filter(s => s === dealsStageFilter) : DEAL_STAGES).map(stage => {
-                  const stageDeals = deals.filter(d => d.stage === stage);
+                  // V2.0 F20 — quick filters narrow cards without changing columns
+                  const weekAhead = new Date(Date.now() + 7 * 864e5).toISOString().split('T')[0];
+                  const stageDeals = deals.filter(d => d.stage === stage).filter(d => {
+                    if (dealQuickFilter === 'closing') return d.close_date && d.close_date >= todayStr && d.close_date <= weekAhead && !['Won', 'Lost'].includes(d.stage);
+                    if (dealQuickFilter === 'high') return toUSD(d.value, d.currency) >= 10000;
+                    if (dealQuickFilter === 'overdue') return d.close_date && d.close_date < todayStr && !['Won', 'Lost'].includes(d.stage);
+                    if (dealQuickFilter === 'mine') return d.user_id === user.id;
+                    return true;
+                  });
                   const stageValue = stageDeals.reduce((s, d) => s + toUSD(d.value, d.currency), 0);
                   return (
                     <div key={stage} className="flex-shrink-0 w-[300px] bg-gray-200/50 dark:bg-gray-800/60 rounded-2xl flex flex-col border border-gray-100 dark:border-gray-800 transition-colors [&.drag-over]:bg-indigo-100/60 dark:[&.drag-over]:bg-indigo-500/10"
@@ -6692,6 +6768,16 @@ export default function App() {
                                 <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 ring-1 ring-inset ring-indigo-600/20 dark:ring-indigo-400/30">{deal.probability}%</span>
                               </div>
                               <div className="text-[11px] text-gray-500 truncate">{dealClient?.name || 'Unknown relationship'}</div>
+                              {/* V2.0 F17 — stage aging warning (amber ≥7d, red ≥14d) */}
+                              {!['Won', 'Lost'].includes(deal.stage) && (() => {
+                                const age = stageAgeDays(deal);
+                                if (age == null || age < 7) return null;
+                                return (
+                                  <span className={`inline-flex w-fit text-[10px] font-bold px-1.5 py-0.5 rounded ${age >= 14 ? 'text-red-700 bg-red-50 dark:bg-red-950/40' : 'text-amber-700 bg-amber-50 dark:bg-amber-950/40'}`}>
+                                    {age}d in {deal.stage}
+                                  </span>
+                                );
+                              })()}
                               <div className="flex items-center justify-between">
                                 <span className="text-[13px] font-bold text-gray-900 dark:text-gray-100">
                                   {fmtCurrency(deal.value, deal.currency)}
@@ -6699,7 +6785,15 @@ export default function App() {
                                     <span className="ml-1 text-[10px] font-medium text-gray-400" title="Approximate USD (static rate)">≈ {fmtMoney(toUSD(deal.value, deal.currency))} USD</span>
                                   )}
                                 </span>
-                                {deal.close_date && <span className="text-[10px] text-gray-400">Close: {deal.close_date}</span>}
+                                {/* V2.0 F18 — close-date countdown */}
+                                {deal.close_date && (() => {
+                                  const diff = Math.round((new Date(deal.close_date) - new Date(todayStr)) / 864e5);
+                                  const closed = ['Won', 'Lost'].includes(deal.stage);
+                                  if (closed) return <span className="text-[10px] text-gray-400">Closed {deal.close_date}</span>;
+                                  const label = diff < 0 ? `${-diff}d overdue` : diff === 0 ? 'Closes today' : diff === 1 ? 'Closes tomorrow' : `Closes in ${diff}d`;
+                                  const tone = diff < 0 ? 'text-red-600 bg-red-50 dark:bg-red-950/40' : diff <= 1 ? 'text-amber-700 bg-amber-50 dark:bg-amber-950/40' : 'text-green-700 bg-green-50 dark:bg-green-950/40';
+                                  return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${tone}`}>{label}</span>;
+                                })()}
                               </div>
                               {canEdit && (
                                 <div className="flex gap-2 text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity">
@@ -9402,6 +9496,33 @@ export default function App() {
                 </button>
               </div>
             </form>
+
+            {/* V2.0 F16 — deal activity feed (auto-logged events) */}
+            {editingDeal && (() => {
+              const events = dealEvents.filter(ev => ev.deal_id === editingDeal.id);
+              if (!events.length) return null;
+              const LABELS = {
+                created: (ev) => `Created in ${ev.new_value}`,
+                stage_changed: (ev) => `Moved ${ev.old_value} → ${ev.new_value}`,
+                value_changed: (ev) => `Value ${fmtMoney(parseFloat(ev.old_value) || 0)} → ${fmtMoney(parseFloat(ev.new_value) || 0)}`,
+                probability_changed: (ev) => `Probability ${ev.old_value}% → ${ev.new_value}%`,
+                closed: (ev) => `Closed as ${ev.new_value}${ev.note ? ` — “${ev.note}”` : ''}`,
+              };
+              return (
+                <div className="max-w-2xl mx-auto w-full px-4 sm:px-6 pb-10">
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Deal History</p>
+                  <div className="space-y-2">
+                    {events.slice(0, 12).map(ev => (
+                      <div key={ev.id} className="flex items-center gap-3 text-[12.5px]">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ev.event_type === 'closed' ? 'bg-emerald-500' : ev.event_type === 'stage_changed' ? 'bg-indigo-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                        <span className="text-gray-700 dark:text-gray-300">{(LABELS[ev.event_type] || (() => ev.event_type))(ev)}</span>
+                        <span className="text-gray-400 ml-auto shrink-0">{timeAgo(ev.created_at)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -9987,6 +10108,41 @@ export default function App() {
       {/* V2.0 F3 — CONTEXT MENU */}
       {contextMenu && (
         <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />
+      )}
+
+      {/* V2.0 F19 — WIN/LOSS REASON CAPTURE (after a deal moves to Won/Lost) */}
+      {winLossPrompt && (
+        <div className="fixed inset-0 z-[205] bg-black/40 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-[16px] font-bold text-gray-900 dark:text-gray-100 mb-1">
+              {winLossPrompt.stage === 'Won' ? 'Deal won — what clinched it?' : 'Deal lost — what happened?'}
+            </h3>
+            <p className="text-[12.5px] text-gray-500 mb-4">"{winLossPrompt.deal.title}" · these aggregate in Reports.</p>
+            <form onSubmit={async e => {
+              e.preventDefault();
+              const reason = e.target.elements.reason.value.trim() || null;
+              const competitor = e.target.elements.competitor.value.trim() || null;
+              if (reason || competitor) {
+                const { error } = await supabase.from('deals').update({ close_reason: reason, competitor }).eq('id', winLossPrompt.deal.id);
+                if (!error) {
+                  setDeals(prev => prev.map(d => d.id === winLossPrompt.deal.id ? { ...d, close_reason: reason, competitor } : d));
+                  logDealEvent(winLossPrompt.deal.id, 'closed', winLossPrompt.deal.stage, winLossPrompt.stage, reason);
+                }
+              }
+              setWinLossPrompt(null);
+            }}>
+              <textarea name="reason" rows={2} autoFocus
+                placeholder={winLossPrompt.stage === 'Won' ? 'e.g. Strong referral, fast turnaround…' : 'e.g. Price too high, bad timing…'}
+                className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-gray-400 resize-none mb-2" />
+              <input name="competitor" placeholder="Competitor (optional)"
+                className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-gray-400 mb-4" />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setWinLossPrompt(null)} className="px-4 py-2 text-[13px] font-medium text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Skip</button>
+                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Save reason</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* TOAST NOTIFICATIONS — bottom-right stack, countdown bar, Undo (F6) */}

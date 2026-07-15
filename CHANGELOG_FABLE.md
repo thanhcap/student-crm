@@ -451,3 +451,12 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **F13 Notes tab:** new profile tab on relationship_notes — add/pin/delete, pinned float to top (amber), relative timestamps, **undoable delete** (deferred DB delete pattern from F6).
 - **F14 Lists:** relationship_lists as filter pills above the table (color dot + live member count + inline "+ New list" creator + delete w/ undo), bulk-bar "Add to list…" action, list filter wired into the filter memo. Enroll-list-into-sequence = filter by list → select all → existing bulk enroll.
 - `next build` green.
+
+## Cluster C — Deal flow (F15–F20)
+- **F15 Forecast chart:** pure-Tailwind bar chart above the kanban — one bar per stage in its `STAGE_COLORS` accent, hover reveals the total, click = stage drill-down (reuses `dealsStageFilter`). "Weighted Forecast" stat already existed (kept).
+- **F16 Deal events:** every create / stage change / value change / probability change / close auto-logs to `deal_events` (state + fetch + `logDealEvent`). "Deal History" feed in the edit view: "Moved Proposal → Negotiation · 2 days ago" with typed dot colors.
+- **F17 Aging badges:** "Nd in {stage}" chip on open cards from the latest stage_changed event (else created_at) — amber ≥7d, red ≥14d.
+- **F18 Close countdown:** cards show "Closes in Nd" (green) / "Closes tomorrow|today" (amber) / "Nd overdue" (red); header gains a **"Closing This Week: $X"** stat (open deals, next 7 days, currency-normalized).
+- **F19 Win/loss capture:** moving a deal to Won/Lost pops a reason+competitor modal (skippable); saves to `deals.close_reason/competitor` + logs a `closed` event with the note. (Aggregate frequency table lands in Reports with Cluster F.)
+- **F20 Quick filters:** All / Closing This Week / High Value ($10k+) / Overdue / Mine (team workspaces only) pills — filter cards inside columns without collapsing the board.
+- `next build` green.
