@@ -420,3 +420,23 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 ## Verified
 - **Browser (1280px):** photorealistic Earth left (real continents/clouds/night-lights/limb glow, bright ocean specular as it rotates), ring-framed initial circles orbiting with curved arcs + a pulse dot caught mid-flight, copy right, stars behind. Console clean. `next build` green.
 - **Founder manual steps:** swap node interiors for emoji/icons/photos (documented in ConnectionNode.js), replace placeholder names, drop the logo face photo.
+
+# ============ BIG UPDATE V2 (branch big-update/v2) ============
+
+## Step 0 — Recon
+- page.js single file (~9.2k lines). Schema verified live: `deals.id`/`tasks.id` uuid, `clients.id` bigint; clients has `referred_by_client_id` + `role` (no `title` — F10/F11 adapt); `clients.email` nullable, `tasks.due_date` NOT NULL, `deals.client_id` nullable w/ defaults (value 0, probability 50, USD).
+- three/fiber/drei/framer-motion present. **date-fns intentionally NOT installed** — a local relative-time helper covers the need, and after the v10 `.next`-corruption incident I don't npm-install mid-session without a server stop + cache clear.
+- Email Automation appStep is `N8N` (not `AUTOMATION`); Cmd+K previously opened the old GlobalSearch.
+
+## Migration (applied + verified live)
+- One idempotent file `supabase/migrations/20260715_big_update_v2.sql`: 8 new tables (relationship_notes, relationship_lists, relationship_list_members, deal_events, subtasks, task_templates, activity_feed, import_history) + 7 columns (email_settings birthday_reminder_days/birthday_template_id, deals close_reason/competitor, tasks priority/task_status, tags is_shared). Verified via information_schema: 8 tables, 7 columns, 9 policies, `relrowsecurity=true` on all.
+- CHECK constraints added via DO-block (duplicate_object-safe); task_status backfilled from status.
+
+## Cluster A — Visual identity (F1–F6)
+- **F1 Command Palette:** Cmd+K now opens a Raycast-style palette (replaces the old search binding): fuzzy-ranked (prefix>substring>subsequence), grouped Actions/Navigate/Relationships/Deals/Tasks/Sequences, ↑↓/Enter/Esc, recents in localStorage, footer kbd hints. Items include create-relationship/deal, toggle dark mode, export CSV, all 8 nav targets, and every client/deal/open-task/sequence by name.
+- **F2 Transitions + breadcrumb:** every appStep switch crossfades+slides (250ms motion.div keyed by step, design EASE). The full-screen profile header's "Back" became a clickable breadcrumb: `Relationships › {name} › {tab}`.
+- **F3 Context menus:** shared fixed-position `<ContextMenu>` (click-away/Esc/screen-edge aware). Wired: relationship rows (View Profile / Send Email / Log Activity / Edit / Delete), deal cards (Edit / Mark Won / Mark Lost / View Relationship / Delete), task rows (Toggle done / View Relationship / Copy title). Extracted `openEditClient`/`openEditDeal` from inline row buttons so menus and rows share one opener.
+- **F4 Quick-add bars:** dashed Enter-to-create bars on Relationships ({name, status New, priority Medium}), Deals ({title, stage Prospect}), Tasks ({title, due today}) — insert shapes verified against live nullability. New relationship row flashes green ~1.2s (`justAddedId`).
+- **F5 Skeletons:** boot "Initializing workspace…" spinner replaced with an app-shaped skeleton (sidebar rail + header + stat cards + table block, staggered pulse). List loads already used SkeletonRows; remaining spinners are button-level busy states (kept — they're affordances, not content placeholders).
+- **F6 Undoable toasts:** redesigned Toast — bottom-right stack (max 4), countdown progress bar (5s undoable / 3s plain), Undo + Close buttons. `showUndoableToast(msg, undoFn)` added. **Relationship delete is now undo-safe by construction:** row leaves the UI instantly but the DB delete is deferred 5.2s; Undo cancels the pending delete (children survive — a re-insert couldn't restore them and clients.id is GENERATED ALWAYS). Failed deletes restore the row + error toast.
+- `next build` green.

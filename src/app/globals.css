@@ -193,3 +193,6 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
 }
+
+/* V2.0 F6 — toast countdown bar */
+@keyframes toast-drain { from { width: 100%; } to { width: 0%; } }

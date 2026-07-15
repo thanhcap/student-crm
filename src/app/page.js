@@ -189,28 +189,230 @@ function ConfirmDialog({ isOpen, title, message, confirmLabel, confirmVariant = 
 // ==========================================
 // TOAST NOTIFICATION SYSTEM
 // ==========================================
-function Toast({ id, type, message, onClose }) {
+// V2.0 F6 — toast redesign: bottom-right stack, countdown progress bar, and an
+// optional Undo button (destructive actions pass an undoFn; clicking it runs
+// the reversal and dismisses immediately). Undoable toasts live 5s, plain 3s.
+function Toast({ id, type, message, undoFn, onClose, stackIndex = 0 }) {
+  const life = undoFn ? 5000 : 3000;
+  const [undone, setUndone] = useState(false);
   useEffect(() => {
-    const timer = setTimeout(onClose, 3000);
+    const timer = setTimeout(onClose, life);
     return () => clearTimeout(timer);
-  }, [onClose]);
+  }, [onClose, life]);
 
-  const bgColor = type === 'success' ? 'bg-green-50 dark:bg-green-900/40 border-green-100 dark:border-green-800 text-green-800 dark:text-green-200' : 'bg-red-50 dark:bg-red-900/40 border-red-100 dark:border-red-800 text-red-800 dark:text-red-200';
-  const icon = type === 'success' ? (
-    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-    </svg>
-  ) : (
-    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
-    </svg>
-  );
+  const tone = type === 'error'
+    ? 'bg-red-50 dark:bg-red-900/40 border-red-100 dark:border-red-800 text-red-800 dark:text-red-200'
+    : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100';
+  const barColor = type === 'error' ? 'bg-red-400' : 'bg-green-500';
 
   return (
-    <div className={`fixed bottom-6 right-6 flex items-center gap-3 px-4 py-3 rounded-xl border ${bgColor} shadow-lg animate-in slide-in-from-bottom-2 fade-in z-[200]`}>
-      {icon}
-      <span className="text-[13px] font-medium">{message}</span>
+    <div
+      className={`fixed right-6 w-[320px] rounded-xl border ${tone} shadow-xl animate-in slide-in-from-bottom-2 fade-in z-[200] overflow-hidden`}
+      style={{ bottom: `${24 + stackIndex * 72}px` }}
+    >
+      <div className="flex items-center gap-3 px-4 py-3">
+        <span className={`w-2 h-2 rounded-full shrink-0 ${type === 'error' ? 'bg-red-500' : 'bg-green-500'}`} />
+        <span className="flex-1 text-[13px] font-medium leading-snug">{message}</span>
+        {undoFn && !undone && (
+          <button
+            onClick={() => { setUndone(true); undoFn(); onClose(); }}
+            className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold bg-gray-900 text-white dark:bg-white dark:text-gray-900 hover:opacity-85 transition-opacity"
+          >
+            Undo
+          </button>
+        )}
+        <button onClick={onClose} className="shrink-0 text-[11px] font-semibold text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-1" title="Dismiss">Close</button>
+      </div>
+      {/* countdown bar — width animates from full to zero over the toast's life */}
+      <div className="h-[3px] bg-black/[0.06] dark:bg-white/[0.08]">
+        <div className={`h-full ${barColor}`} style={{ animation: `toast-drain ${life}ms linear forwards` }} />
+      </div>
     </div>
+  );
+}
+
+// V2.0 F1 — Raycast/Linear-style command palette. Items: { type, label, hint?, action }.
+// Fuzzy-ranked (prefix > substring > subsequence), grouped by type, ↑↓/Enter/Esc,
+// recents in localStorage.
+function CommandPalette({ items, onClose }) {
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState(0);
+  const inputRef = useRef(null);
+  const listRef = useRef(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const recents = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem('crm_cmdk_recents') || '[]'); } catch { return []; }
+  }, []);
+
+  function fuzzyScore(label, query) {
+    const l = label.toLowerCase(), s = query.toLowerCase().trim();
+    if (!s) return 0.5;
+    if (l.startsWith(s)) return 3;
+    if (l.includes(s)) return 2;
+    let i = 0;
+    for (const ch of l) { if (ch === s[i]) i++; if (i === s.length) return 1; }
+    return 0;
+  }
+
+  const results = useMemo(() => {
+    const scored = items
+      .map(it => ({ ...it, score: fuzzyScore(it.label, q) }))
+      .filter(it => it.score > 0);
+    if (!q.trim()) {
+      // empty query: recents first, then commands, then a few of each entity type
+      const byRecent = (it) => (recents.includes(it.label) ? 0 : 1);
+      scored.sort((a, b) => byRecent(a) - byRecent(b));
+      const commands = scored.filter(it => it.type === 'nav' || it.type === 'action').slice(0, 8);
+      const entities = scored.filter(it => it.type !== 'nav' && it.type !== 'action').slice(0, 6);
+      return [...commands, ...entities];
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 14);
+  }, [items, q, recents]);
+
+  // group for section headers while preserving rank order
+  const grouped = useMemo(() => {
+    const order = ['action', 'nav', 'person', 'deal', 'task', 'sequence'];
+    const labels = { action: 'Actions', nav: 'Navigate', person: 'Relationships', deal: 'Deals', task: 'Tasks', sequence: 'Sequences' };
+    const out = [];
+    order.forEach(t => {
+      const group = results.filter(r => r.type === t);
+      if (group.length) out.push({ header: labels[t], group });
+    });
+    return out;
+  }, [results]);
+
+  const flat = grouped.flatMap(g => g.group);
+  useEffect(() => { setSel(0); }, [q]);
+
+  function run(item) {
+    try {
+      const next = [item.label, ...JSON.parse(localStorage.getItem('crm_cmdk_recents') || '[]').filter(l => l !== item.label)].slice(0, 8);
+      localStorage.setItem('crm_cmdk_recents', JSON.stringify(next));
+    } catch {}
+    onClose();
+    item.action();
+  }
+
+  function onKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSel(s => Math.min(s + 1, flat.length - 1)); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSel(s => Math.max(s - 1, 0)); }
+    if (e.key === 'Enter' && flat[sel]) { e.preventDefault(); run(flat[sel]); }
+  }
+
+  useEffect(() => {
+    listRef.current?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [sel]);
+
+  let flatIdx = -1;
+  return (
+    <div className="fixed inset-0 z-[210] bg-black/40 backdrop-blur-sm flex items-start justify-center pt-[12vh] px-4" onClick={onClose}>
+      <div className="w-full max-w-xl bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+           onClick={e => e.stopPropagation()}>
+        <input
+          ref={inputRef}
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={onKey}
+          placeholder="Search or run a command…"
+          className="w-full px-5 h-14 text-[16px] bg-transparent outline-none text-gray-900 dark:text-gray-100 placeholder:text-gray-400 border-b border-gray-100 dark:border-gray-800"
+        />
+        <div ref={listRef} className="max-h-[46vh] overflow-y-auto py-2">
+          {flat.length === 0 && <p className="px-5 py-6 text-[13px] text-gray-400 text-center">No matches.</p>}
+          {grouped.map(({ header, group }) => (
+            <div key={header}>
+              <p className="px-5 pt-2 pb-1 text-[10.5px] font-bold uppercase tracking-[0.08em] text-gray-400">{header}</p>
+              {group.map(item => {
+                flatIdx++;
+                const idx = flatIdx;
+                return (
+                  <button
+                    key={`${item.type}:${item.label}`}
+                    data-selected={idx === sel}
+                    onMouseEnter={() => setSel(idx)}
+                    onClick={() => run(item)}
+                    className={`w-full flex items-center justify-between px-5 py-2.5 text-left transition-colors ${idx === sel ? 'bg-gray-100 dark:bg-gray-800' : ''}`}
+                  >
+                    <span className="text-[14px] text-gray-900 dark:text-gray-100">{item.label}</span>
+                    {item.hint && <span className="text-[11px] text-gray-400 truncate max-w-[180px]">{item.hint}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-4 px-5 py-2.5 border-t border-gray-100 dark:border-gray-800 text-[11px] text-gray-400">
+          <span><kbd className="px-1 py-0.5 rounded border border-gray-200 dark:border-gray-700 font-mono">↑↓</kbd> navigate</span>
+          <span><kbd className="px-1 py-0.5 rounded border border-gray-200 dark:border-gray-700 font-mono">Enter</kbd> select</span>
+          <span><kbd className="px-1 py-0.5 rounded border border-gray-200 dark:border-gray-700 font-mono">Esc</kbd> close</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// V2.0 F3 — shared right-click context menu. Render with state { x, y, items }.
+function ContextMenu({ x, y, items, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const close = () => onClose();
+    const esc = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('click', close);
+    window.addEventListener('contextmenu', close);
+    window.addEventListener('keydown', esc);
+    return () => { window.removeEventListener('click', close); window.removeEventListener('contextmenu', close); window.removeEventListener('keydown', esc); };
+  }, [onClose]);
+  // keep on-screen
+  const style = {
+    left: Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 1280) - 230),
+    top: Math.min(y, (typeof window !== 'undefined' ? window.innerHeight : 800) - items.length * 38 - 16),
+  };
+  return (
+    <div ref={ref} className="fixed z-[220] w-[216px] py-1.5 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-2xl animate-in fade-in zoom-in-95 duration-100" style={style}
+         onClick={e => e.stopPropagation()} onContextMenu={e => e.preventDefault()}>
+      {items.map((item, i) => item.divider ? (
+        <div key={i} className="my-1.5 border-t border-gray-100 dark:border-gray-800" />
+      ) : (
+        <button key={i}
+          onClick={() => { onClose(); item.action(); }}
+          className={`w-full text-left px-3.5 py-2 text-[13px] font-medium transition-colors ${item.danger ? 'text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40' : 'text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// V2.0 F4 — slim quick-add bar: type a name, press Enter, row is created
+// instantly (no form). Caller passes the async creator; bar clears on success.
+function QuickAddBar({ placeholder, onAdd }) {
+  const [val, setVal] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      onSubmit={async e => {
+        e.preventDefault();
+        const name = val.trim();
+        if (!name || busy) return;
+        setBusy(true);
+        const ok = await onAdd(name);
+        setBusy(false);
+        if (ok !== false) setVal('');
+      }}
+      className="flex items-center gap-2 px-3.5 h-10 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-white/60 dark:bg-gray-900/60 focus-within:border-gray-500 dark:focus-within:border-gray-400 transition-colors"
+    >
+      <span className="text-gray-400 text-[15px] leading-none" aria-hidden>+</span>
+      <input
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        placeholder={placeholder}
+        disabled={busy}
+        className="flex-1 bg-transparent outline-none text-[13px] text-gray-900 dark:text-gray-100 placeholder:text-gray-400"
+      />
+      {val.trim() && <kbd className="text-[10px] font-semibold text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">Enter</kbd>}
+    </form>
   );
 }
 
@@ -1055,6 +1257,9 @@ export default function App() {
 
   // GLOBAL SEARCH STATES
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+  const [showCmdPalette, setShowCmdPalette] = useState(false); // V2.0 F1
+  const [contextMenu, setContextMenu] = useState(null); // V2.0 F3 — { x, y, items: [{label, danger?, action}] }
+  const [justAddedId, setJustAddedId] = useState(null); // V2.0 F4 — brief green highlight on quick-added rows
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState({ clients: [], activities: [] });
 
@@ -1336,6 +1541,13 @@ export default function App() {
     setToasts(prev => [...prev, { id, type, message }]);
   }
 
+  // V2.0 F6 — destructive actions pass an undoFn; the toast renders an Undo
+  // button for 5s that reverses the action (re-insert from the caller's cache).
+  function showUndoableToast(message, undoFn) {
+    const id = uid('toast');
+    setToasts(prev => [...prev, { id, type: 'success', message, undoFn }]);
+  }
+
   // HELPER: Show Confirm Dialog
   function showConfirm(title, message, confirmLabel, confirmVariant = 'primary', onConfirmCallback) {
     setConfirmDialog({
@@ -1379,11 +1591,11 @@ export default function App() {
     const savedMode = localStorage.getItem('crm_view_mode');
     if (savedMode) setViewMode(savedMode);
 
-    // Global Search CMD+K Shortcut
+    // V2.0 F1 — Cmd+K now opens the command palette (replaces the old search modal)
     const handleKeyDown = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        setShowGlobalSearch(true);
+        setShowCmdPalette(true);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -1914,6 +2126,16 @@ export default function App() {
       } else showToast(`Error creating deal: ${error?.message}`, 'error');
     }
     setDealSaving(false);
+  }
+
+  // V2.0 F3 — shared deal-edit opener (row Edit button + context menu)
+  function openEditDeal(deal) {
+    setEditingDeal(deal); setDealTitle(deal.title); setDealValue(String(deal.value ?? ''));
+    setDealCurrency(deal.currency || 'USD');
+    setDealIsRecurring(!!deal.is_recurring); setDealBillingCycle(deal.billing_cycle || 'monthly'); setDealRenewalDate(deal.renewal_date || '');
+    setDealStage(deal.stage); setDealProbability(deal.probability ?? 50);
+    setDealCloseDate(deal.close_date || ''); setDealNotes(deal.notes || '');
+    setDealClientId(String(deal.client_id)); setShowDealForm(true);
   }
 
   async function handleUpdateDealStage(deal, newStage) {
@@ -3851,6 +4073,48 @@ export default function App() {
     }
   }
 
+  // V2.0 F4 — quick-add creators (Enter-to-create; no form). Each returns
+  // false on failure so the bar keeps the typed text. New row flashes green.
+  function flashAdded(id) {
+    setJustAddedId(id);
+    setTimeout(() => setJustAddedId(current => (current === id ? null : current)), 1200);
+  }
+  async function handleQuickAddClient(name) {
+    const { data, error } = await supabase.from('clients')
+      .insert([{ name, user_id: user.id, status: 'New', relationship: 'Medium' }]).select();
+    if (error || !data) { showToast(error?.message || 'Could not add', 'error'); return false; }
+    setClients(prev => [data[0], ...prev]);
+    dispatchWebhook('client.created', data[0]);
+    flashAdded(data[0].id);
+  }
+  async function handleQuickAddDeal(title) {
+    const { data, error } = await supabase.from('deals')
+      .insert([{ title, user_id: user.id, stage: 'Prospect' }]).select();
+    if (error || !data) { showToast(error?.message || 'Could not add', 'error'); return false; }
+    setDeals(prev => [data[0], ...prev]);
+    flashAdded(data[0].id);
+  }
+  async function handleQuickAddTask(title) {
+    const { data, error } = await supabase.from('tasks')
+      .insert([{ title, user_id: user.id, status: 'pending', due_date: todayStr }]).select();
+    if (error || !data) { showToast(error?.message || 'Could not add', 'error'); return false; }
+    setTasks(prev => [...prev, data[0]]);
+    dispatchWebhook('task.created', data[0]);
+    flashAdded(data[0].id);
+  }
+
+  // V2.0 F3 — extracted from the inline row Edit button so the context menu
+  // and the row share one opener (preloads custom fields into the form).
+  function openEditClient(client) {
+    setEditingClient(client);
+    const cfs = {};
+    customFieldDefs.forEach(def => {
+      const existing = customFieldValues.find(v => v.client_id === client.id && v.field_definition_id === def.id);
+      cfs[def.id] = existing ? existing.value : '';
+    });
+    setFormCustomValues(cfs);
+  }
+
   function handleDeleteClient(clientId) {
     const clientName = clients.find(c => c.id === clientId)?.name || 'Relationship';
     showConfirm(
@@ -3859,13 +4123,26 @@ export default function App() {
       'Delete',
       'danger',
       async () => {
+        // V2.0 F6 — undoable delete: drop from the UI now, run the real DB
+        // delete only after the 5s undo window. Undo cancels the pending
+        // delete outright, so activities/tasks/deals children survive too
+        // (a re-insert couldn't restore them, and id is GENERATED ALWAYS).
         const deleted = clients.find(c => c.id === clientId);
-        const { error } = await supabase.from('clients').delete().eq('id', clientId);
-        if (!error) {
-          setClients(clients.filter(client => client.id !== clientId));
-          setSelectedClientIds(prev => prev.filter(id => id !== clientId));
-          if (deleted) dispatchWebhook('client.deleted', deleted);
-        }
+        setClients(prev => prev.filter(client => client.id !== clientId));
+        setSelectedClientIds(prev => prev.filter(id => id !== clientId));
+        const timer = setTimeout(async () => {
+          const { error } = await supabase.from('clients').delete().eq('id', clientId);
+          if (error) {
+            setClients(prev => [deleted, ...prev]); // delete failed — put it back
+            showToast(`Could not delete "${clientName}": ${error.message}`, 'error');
+          } else if (deleted) {
+            dispatchWebhook('client.deleted', deleted);
+          }
+        }, 5200);
+        showUndoableToast(`Deleted "${clientName}"`, () => {
+          clearTimeout(timer);
+          setClients(prev => [deleted, ...prev]);
+        });
       }
     );
   }
@@ -4651,11 +4928,25 @@ export default function App() {
   const SearchIcon = () => (<svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>);
 
   if (appStep === 'LOADING') {
+    // V2.0 F5 — boot shows an app-shaped skeleton (sidebar + header + cards),
+    // not a bare spinner: the layout is already "there" while data loads.
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#FAFAFA] dark:bg-[#0A0A0A] text-gray-900 dark:text-gray-100 font-sans">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-5 h-5 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
-          <span className="text-[13px] font-medium tracking-wide text-gray-500">Initializing workspace...</span>
+      <div className="min-h-screen flex bg-[#FAFAFA] dark:bg-[#0A0A0A] font-sans" aria-busy="true" aria-label="Loading workspace">
+        <div className="hidden md:flex flex-col w-60 border-r border-gray-100 dark:border-gray-800 p-4 gap-3">
+          <div className="h-8 w-32 rounded-lg bg-gray-200 dark:bg-gray-800 animate-pulse mb-4" />
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="h-8 rounded-lg bg-gray-100 dark:bg-gray-800/60 animate-pulse" style={{ animationDelay: `${i * 80}ms` }} />
+          ))}
+        </div>
+        <div className="flex-1 p-8 space-y-6">
+          <div className="h-8 w-64 rounded-lg bg-gray-200 dark:bg-gray-800 animate-pulse" />
+          <div className="h-4 w-96 rounded bg-gray-100 dark:bg-gray-800/60 animate-pulse" />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-44 rounded-2xl bg-gray-100 dark:bg-gray-800/60 animate-pulse" style={{ animationDelay: `${i * 120}ms` }} />
+            ))}
+          </div>
+          <div className="h-64 rounded-2xl bg-gray-100 dark:bg-gray-800/60 animate-pulse" />
         </div>
       </div>
     );
@@ -4970,7 +5261,13 @@ export default function App() {
           sidebar offset (md:pl-60) for padding-left â€” content always sits beside
           the 240px nav at every breakpoint, no horizontal scrollbar. */}
       <main className={`flex-1 w-full min-w-0 ${user ? 'md:pl-60' : ''}`}>
-        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+        {/* V2.0 F2 — every screen switch crossfades + slides (no hard cuts) */}
+        <motion.div
+          key={appStep}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
 
         {/* VIEW: LOG IN */}
         {appStep === 'LOG_IN' && (
@@ -5759,6 +6056,9 @@ export default function App() {
               </div>
             )}
 
+            {/* V2.0 F4 — quick-add: type a name, Enter creates instantly */}
+            {canEdit && <QuickAddBar placeholder="Add relationship… type a name and press Enter" onAdd={handleQuickAddClient} />}
+
             {/* DATA VIEW CONTAINER */}
             {loadingClients ? (
               <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm"><SkeletonRows rows={6} /></div>
@@ -5832,7 +6132,15 @@ export default function App() {
                         {paginatedClients.map(client => {
                           const isSelected = selectedClientIds.includes(client.id);
                           return (
-                            <tr key={client.id} className={`hover:bg-gray-50/60 transition-colors ${isSelected ? 'bg-gray-50/80' : ''}`}>
+                            <tr key={client.id} className={`hover:bg-gray-50/60 transition-colors duration-1000 ${isSelected ? 'bg-gray-50/80' : ''} ${justAddedId === client.id ? 'bg-green-50 dark:bg-green-950/30' : ''}`}
+                              onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, items: [
+                                { label: 'View Profile', action: () => setViewingClient(client) },
+                                { label: 'Send Email', action: () => { setViewingClient(client); setEmailTo(client.email || ''); setShowEmailComposer(true); } },
+                                { label: 'Log Activity', action: () => { setViewingClient(client); setActiveProfileTab('activity'); } },
+                                { label: 'Edit', action: () => openEditClient(client) },
+                                { divider: true },
+                                { label: 'Delete', danger: true, action: () => handleDeleteClient(client.id) },
+                              ] }); }}>
                               <td className="p-4 text-center">
                                 <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(client.id)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
                               </td>
@@ -5898,16 +6206,7 @@ export default function App() {
                                   <button onClick={() => setViewingClient(client)} className="text-gray-500 hover:text-gray-900 transition-colors">View</button>
                                   <button onClick={() => { setTimelineClient(client); setAppStep('CLIENT_TIMELINE'); }} className="text-gray-500 hover:text-gray-900 transition-colors">Timeline</button>
                                   <button onClick={() => { setMergeSource(client); setMergeTarget(null); setMergeStep(1); setMergeFieldChoices({}); setMergeSearch(''); setShowMergeTool(true); }} className="text-gray-500 hover:text-gray-900 transition-colors">Merge</button>
-                                  <button onClick={() => {
-                                    setEditingClient(client);
-                                    // Preload custom fields into form
-                                    const cfs = {};
-                                    customFieldDefs.forEach(def => {
-                                      const existing = customFieldValues.find(v => v.client_id === client.id && v.field_definition_id === def.id);
-                                      cfs[def.id] = existing ? existing.value : '';
-                                    });
-                                    setFormCustomValues(cfs);
-                                  }} className="text-gray-900 hover:underline">Edit</button>
+                                  <button onClick={() => openEditClient(client)} className="text-gray-900 hover:underline">Edit</button>
                                   <button onClick={() => handleDeleteClient(client.id)} className="text-red-600 hover:text-red-900 transition-colors">Delete</button>
                                 </div>
                               </td>
@@ -6002,6 +6301,9 @@ export default function App() {
               )}
             </div>
 
+            {/* V2.0 F4 — deal quick-add (lands in Prospect) */}
+            {canEdit && <QuickAddBar placeholder="Add deal… type a title and press Enter" onAdd={handleQuickAddDeal} />}
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[
                 ['Total Pipeline', fmtMoney(pipelineValue)],
@@ -6060,7 +6362,15 @@ export default function App() {
                           return (
                             <div key={deal.id} draggable onDragStart={e => handleDealDragStart(e, deal.id)}
                               className="bg-white dark:bg-gray-900 p-3.5 rounded-xl border border-gray-100 dark:border-gray-800 border-l-4 shadow-sm hover:shadow-md transition-all duration-200 cursor-grab active:cursor-grabbing active:scale-[1.02] active:rotate-[0.5deg] active:shadow-xl flex flex-col gap-2 group"
-                              style={{ borderLeftColor: STAGE_COLORS[stage] || '#9CA3AF' }}>
+                              style={{ borderLeftColor: STAGE_COLORS[stage] || '#9CA3AF' }}
+                              onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, items: [
+                                { label: 'Edit Deal', action: () => openEditDeal(deal) },
+                                { label: 'Mark Won', action: () => handleUpdateDealStage(deal, 'Won') },
+                                { label: 'Mark Lost', action: () => handleUpdateDealStage(deal, 'Lost') },
+                                { label: 'View Relationship', action: () => { const c = clients.find(x => x.id === deal.client_id); if (c) { setViewingClient(c); setAppStep('CLIENTS'); } } },
+                                { divider: true },
+                                { label: 'Delete', danger: true, action: () => handleDeleteDeal(deal) },
+                              ] }); }}>
                               <div className="flex justify-between items-start gap-2">
                                 <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{deal.title}</p>
                                 <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 ring-1 ring-inset ring-indigo-600/20 dark:ring-indigo-400/30">{deal.probability}%</span>
@@ -6077,14 +6387,7 @@ export default function App() {
                               </div>
                               {canEdit && (
                                 <div className="flex gap-2 text-[11px] font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button onClick={() => {
-                                    setEditingDeal(deal); setDealTitle(deal.title); setDealValue(String(deal.value ?? ''));
-                                    setDealCurrency(deal.currency || 'USD');
-                                    setDealIsRecurring(!!deal.is_recurring); setDealBillingCycle(deal.billing_cycle || 'monthly'); setDealRenewalDate(deal.renewal_date || '');
-                                    setDealStage(deal.stage); setDealProbability(deal.probability ?? 50);
-                                    setDealCloseDate(deal.close_date || ''); setDealNotes(deal.notes || '');
-                                    setDealClientId(String(deal.client_id)); setShowDealForm(true);
-                                  }} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Edit</button>
+                                  <button onClick={() => openEditDeal(deal)} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Edit</button>
                                   {canDelete && <button onClick={() => handleDeleteDeal(deal)} className="text-red-500 hover:text-red-700">Delete</button>}
                                 </div>
                               )}
@@ -6628,6 +6931,11 @@ export default function App() {
               </div>
             </div>
 
+            {/* V2.0 F4 — task quick-add (due today, no relationship) */}
+            <div className="mb-4">
+              {canEdit && <QuickAddBar placeholder="Add task… type a title and press Enter (due today)" onAdd={handleQuickAddTask} />}
+            </div>
+
             <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-6 space-y-4">
               {tasks.filter(t => t.status === tasksFilter).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).length === 0 && (
                 tasks.length === 0 ? (
@@ -6646,7 +6954,12 @@ export default function App() {
                 const isOverdue = task.status === 'pending' && new Date(task.due_date) < new Date(todayStr);
                 
                 return (
-                  <div key={task.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-gray-300 transition-colors bg-gray-50/50 dark:bg-gray-800/40">
+                  <div key={task.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-gray-300 transition-colors bg-gray-50/50 dark:bg-gray-800/40"
+                    onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, items: [
+                      { label: task.status === 'done' ? 'Mark Pending' : 'Mark Done', action: () => handleToggleTask(task.id, task.status) },
+                      { label: 'View Relationship', action: () => { if (client) { setViewingClient(client); setAppStep('CLIENTS'); } } },
+                      { label: 'Copy Title', action: () => { navigator.clipboard?.writeText(task.title); showToast('Copied'); } },
+                    ] }); }}>
                     <div className="flex items-center gap-4">
                       <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-900 cursor-pointer" />
                       <div>
@@ -8011,7 +8324,7 @@ export default function App() {
           </div>
         )}
 
-        </div>
+        </motion.div>
       </main>
 
       {/* --- MODALS --- */}
@@ -8021,9 +8334,16 @@ export default function App() {
         <div className="fixed inset-0 bg-white dark:bg-gray-950 z-50 overflow-y-auto animate-in fade-in duration-200">
           {/* Sticky header — persistent Back affordance replaces the corner × */}
           <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between gap-3">
-            <button onClick={() => { setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null); }} className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 shrink-0">
-              <span aria-hidden>←</span> Back to Relationships
-            </button>
+            {/* V2.0 F2 — breadcrumb trail: each segment clickable */}
+            <nav className="flex items-center gap-1.5 text-[13px] font-semibold shrink-0 min-w-0" aria-label="Breadcrumb">
+              <button onClick={() => { setViewingClient(null); setActivityFilterType('All'); setEditingActivityId(null); }} className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100">
+                Relationships
+              </button>
+              <span className="text-gray-300 dark:text-gray-600" aria-hidden>›</span>
+              <span className="text-gray-900 dark:text-gray-100 truncate max-w-[180px]">{viewingClient.name}</span>
+              <span className="text-gray-300 dark:text-gray-600" aria-hidden>›</span>
+              <span className="text-gray-400 capitalize">{activeProfileTab}</span>
+            </nav>
             <div className="flex items-center gap-2 shrink-0">
               <button type="button" onClick={() => { setEmailTo(viewingClient.email || ''); setShowEmailComposer(true); }} className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">Send Email</button>
               <button type="button" onClick={() => handleExportPDF(viewingClient)} className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Export PDF</button>
@@ -9230,13 +9550,45 @@ export default function App() {
         onCancel={closeConfirm}
       />
 
-      {/* TOAST NOTIFICATIONS */}
-      {toasts.map(toast => (
+      {/* V2.0 F1 — COMMAND PALETTE (Cmd+K) */}
+      {showCmdPalette && user && (
+        <CommandPalette
+          onClose={() => setShowCmdPalette(false)}
+          items={[
+            { type: 'action', label: 'Create new relationship', action: () => { setAppStep('CLIENTS'); setTimeout(() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' }), 150); } },
+            { type: 'action', label: 'Create new deal', action: () => { setAppStep('DEALS'); resetDealForm(); setShowDealForm(true); } },
+            { type: 'action', label: 'Toggle dark mode', action: () => toggleDarkMode() },
+            { type: 'action', label: 'Export relationships CSV', action: () => handleExportCSV() },
+            { type: 'nav', label: 'Go to Overview', action: () => setAppStep('DASHBOARD') },
+            { type: 'nav', label: 'Go to Relationships', action: () => setAppStep('CLIENTS') },
+            { type: 'nav', label: 'Go to Deals', action: () => setAppStep('DEALS') },
+            { type: 'nav', label: 'Go to Email Automation', action: () => setAppStep('N8N') },
+            { type: 'nav', label: 'Go to Tasks', action: () => setAppStep('GLOBAL_TASKS') },
+            { type: 'nav', label: 'Go to Calendar', action: () => setAppStep('CALENDAR') },
+            { type: 'nav', label: 'Go to Reports', action: () => setAppStep('REPORTS') },
+            { type: 'nav', label: 'Go to Settings', action: () => setAppStep('SETTINGS') },
+            ...clients.map(c => ({ type: 'person', label: c.name, hint: c.company_name || c.email || '', action: () => { setViewingClient(c); setAppStep('CLIENTS'); } })),
+            ...deals.map(d => ({ type: 'deal', label: d.title, hint: d.stage, action: () => setAppStep('DEALS') })),
+            ...tasks.filter(t => t.status !== 'done').map(t => ({ type: 'task', label: t.title, hint: t.due_date || '', action: () => setAppStep('GLOBAL_TASKS') })),
+            ...sequences.map(s => ({ type: 'sequence', label: s.name, hint: s.status || '', action: () => { setAppStep('N8N'); setEditingSeqId(s.id); } })),
+          ]}
+        />
+      )}
+
+      {/* V2.0 F3 — CONTEXT MENU */}
+      {contextMenu && (
+        <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />
+      )}
+
+      {/* TOAST NOTIFICATIONS — bottom-right stack, countdown bar, Undo (F6) */}
+      {toasts.slice(-4).map((toast, i) => (
         <Toast
           key={toast.id}
           id={toast.id}
           type={toast.type}
           message={toast.message}
+          undoFn={toast.undoFn}
+          stackIndex={i}
           onClose={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
         />
       ))}
