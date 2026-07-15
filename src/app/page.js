@@ -730,7 +730,74 @@ const SEQ_TEMPLATES = [
     ],
     edges: [[0,1,'default'],[1,2,'default'],[2,3,'default'],[3,4,'default'],[4,5,'default'],[5,6,'default']],
   },
+  // V2.0 F28 — four more built-in templates (8 total)
+  {
+    key: 're_engagement', emoji: '', name: 'Re-Engagement',
+    desc: 'Warm up relationships that went quiet for 30+ days.',
+    nodes: [
+      { node_type: 'trigger', config: { trigger_event: 'manual' }, pos: [300, 30] },
+      { node_type: 'email', subject: 'Been a while, {{first_name}}', body: 'Hi {{first_name}},\n\nWe haven’t spoken since [last topic] and I’ve been meaning to reach back out. How have things been at {{company}}?\n\nNo agenda — genuinely curious how you’re doing.\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 160] },
+      { node_type: 'wait', config: { days: 5 }, pos: [300, 290] },
+      { node_type: 'email', subject: 'One thing that made me think of you', body: 'Hi {{first_name}},\n\nSaw [article/news] and thought of you — [one-line why].\n\nWorth a quick catch-up call sometime this month?\n\nBest,\n[Your name]', wait_days: 0, condition: 'if_no_reply', pos: [300, 420] },
+      { node_type: 'goal', config: { label: 'Replied — re-engaged' }, pos: [300, 550] },
+    ],
+    edges: [[0,1,'default'],[1,2,'default'],[2,3,'default'],[3,4,'default']],
+  },
+  {
+    key: 'event_follow_up', emoji: '', name: 'Event Follow-Up',
+    desc: 'Turn conference intros into real conversations within a week.',
+    nodes: [
+      { node_type: 'trigger', config: { trigger_event: 'manual' }, pos: [300, 30] },
+      { node_type: 'email', subject: 'Great meeting you at [event]', body: 'Hi {{first_name}},\n\nReally enjoyed our chat at [event] about [topic]. Wanted to keep the thread alive.\n\n[One concrete follow-up: link, intro, or idea you promised.]\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 160] },
+      { node_type: 'wait', config: { days: 4 }, pos: [300, 290] },
+      { node_type: 'email', subject: 'That thing we talked about', body: 'Hi {{first_name}},\n\nFollowing up on [topic] — would a 20-minute call next week make sense?\n\nBest,\n[Your name]', wait_days: 0, condition: 'if_no_reply', pos: [300, 420] },
+      { node_type: 'goal', config: { label: 'Replied' }, pos: [300, 550] },
+    ],
+    edges: [[0,1,'default'],[1,2,'default'],[2,3,'default'],[3,4,'default']],
+  },
+  {
+    key: 'referral_request', emoji: '', name: 'Referral Request',
+    desc: 'Ask happy contacts for one specific introduction.',
+    nodes: [
+      { node_type: 'trigger', config: { trigger_event: 'manual' }, pos: [300, 30] },
+      { node_type: 'email', subject: 'A small favor, {{first_name}}?', body: 'Hi {{first_name}},\n\nWorking with you on [project] has been great, and I’m looking to meet more people like you.\n\nIs there one person in your network who [specific description] that you’d feel comfortable introducing me to? Happy to send a short blurb you can forward.\n\nEither way — thank you!\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 160] },
+      { node_type: 'wait', config: { days: 6 }, pos: [300, 290] },
+      { node_type: 'email', subject: 'Re: a small favor', body: 'Hi {{first_name}},\n\nJust floating this back up — totally fine if now isn’t the right time.\n\nBest,\n[Your name]', wait_days: 0, condition: 'if_no_reply', pos: [300, 420] },
+    ],
+    edges: [[0,1,'default'],[1,2,'default'],[2,3,'default']],
+  },
+  {
+    key: 'quarterly_checkin', emoji: '', name: 'Quarterly Check-In',
+    desc: 'A twice-a-year touch that keeps VIPs warm with zero effort.',
+    nodes: [
+      { node_type: 'trigger', config: { trigger_event: 'manual' }, pos: [300, 30] },
+      { node_type: 'email', subject: 'Quick hello + what’s new', body: 'Hi {{first_name}},\n\nQuarterly check-in! Since we last spoke: [one personal/company update].\n\nWhat’s new on your side? Anything I can help with this quarter?\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 160] },
+      { node_type: 'wait', config: { days: 90 }, pos: [300, 290] },
+      { node_type: 'email', subject: 'Checking in again, {{first_name}}', body: 'Hi {{first_name}},\n\nAnother quarter, another hello. [Fresh one-line update.]\n\nHow are things at {{company}}?\n\nBest,\n[Your name]', wait_days: 0, pos: [300, 420] },
+    ],
+    edges: [[0,1,'default'],[1,2,'default'],[2,3,'default']],
+  },
 ];
+
+// V2.0 F23 — client-side deliverability check: common spam triggers, scored 0–10.
+function spamCheck(subject, body) {
+  const warnings = [];
+  const text = `${subject} ${body}`;
+  const capsWords = (text.match(/\b[A-Z]{4,}\b/g) || []).filter(w => !['HTML', 'HTTP', 'HTTPS', 'LLC'].includes(w));
+  if (capsWords.length) warnings.push(`ALL-CAPS words: ${capsWords.slice(0, 3).join(', ')}`);
+  const bangs = (text.match(/!/g) || []).length;
+  if (bangs >= 3) warnings.push(`${bangs} exclamation marks — one is plenty`);
+  const SPAM_PHRASES = ['act now', 'limited time', 'click here', 'buy now', 'free!!', '100% free', 'no obligation', 'winner', 'guarantee', 'risk-free', 'urgent', 'once in a lifetime'];
+  const hits = SPAM_PHRASES.filter(p => text.toLowerCase().includes(p));
+  if (hits.length) warnings.push(`Spam phrases: “${hits.join('”, “')}”`);
+  if (!subject.trim()) warnings.push('Empty subject line');
+  else if (subject.length > 60) warnings.push(`Subject is ${subject.length} chars — aim under 60`);
+  if (subject === subject.toUpperCase() && /[A-Z]/.test(subject)) warnings.push('Subject is all caps');
+  if ((body.match(/https?:\/\//g) || []).length > 3) warnings.push('More than 3 links');
+  if (body.trim().length < 40) warnings.push('Body is very short — looks like a blast');
+  const score = Math.max(0, 10 - warnings.length * 2);
+  return { score, warnings };
+}
 
 function stepConditionMet(step, enrollment, sends) {
   const cond = step.condition || 'always';
@@ -1378,6 +1445,8 @@ export default function App() {
   const [dealEvents, setDealEvents] = useState([]); // V2.0 F16 — auto-logged deal history
   const [winLossPrompt, setWinLossPrompt] = useState(null); // V2.0 F19 — { deal, stage } pending reason capture
   const [dealQuickFilter, setDealQuickFilter] = useState('all'); // V2.0 F20
+  const [seqStatsId, setSeqStatsId] = useState(null); // V2.0 F21 — per-sequence analytics overlay
+  const [composerPreview, setComposerPreview] = useState(false); // V2.0 F22 — device preview toggle
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState({ clients: [], activities: [] });
 
@@ -2740,22 +2809,46 @@ export default function App() {
       });
   }
 
+  // V2.0 F24 — TRUE deep copy: sequence + every step (node_type, canvas position,
+  // config, channel, condition, A/B subject, draft flag) + every edge, with old
+  // step ids remapped to the new ones. The previous version dropped canvas data
+  // and edges entirely.
   async function handleDuplicateSequence(seq) {
     const { data, error } = await supabase.from('email_sequences').insert([{
       user_id: user.id, name: `${seq.name} (copy)`, status: 'draft',
       trigger_type: seq.trigger_type, trigger_value: seq.trigger_value,
+      description: seq.description || null,
     }]).select();
     if (error || !data) { showToast(`Error: ${error?.message}`, 'error'); return; }
-    const steps = seqStepsFor(seq.id).map(s => ({
-      sequence_id: data[0].id, user_id: user.id, step_order: s.step_order,
-      wait_days: s.wait_days, subject: s.subject, body: s.body,
-    }));
-    if (steps.length > 0) {
-      const { data: sd } = await supabase.from('sequence_steps').insert(steps).select();
-      if (sd) setSequenceSteps(prev => [...prev, ...sd]);
+    const newSeq = data[0];
+    const oldSteps = sequenceSteps.filter(s => s.sequence_id === seq.id);
+    let idMap = {};
+    if (oldSteps.length > 0) {
+      const rows = oldSteps.map(s => ({
+        sequence_id: newSeq.id, user_id: user.id, step_order: s.step_order,
+        wait_days: s.wait_days, subject: s.subject, body: s.body,
+        subject_b: s.subject_b, channel: s.channel, condition: s.condition,
+        task_note: s.task_note, node_type: s.node_type,
+        pos_x: s.pos_x, pos_y: s.pos_y, config: s.config, is_draft: s.is_draft,
+      }));
+      const { data: sd, error: se } = await supabase.from('sequence_steps').insert(rows).select();
+      if (se || !sd) { showToast(`Steps failed: ${se?.message}`, 'error'); return; }
+      // insert order matches input order → build old→new id map positionally
+      oldSteps.forEach((s, i) => { idMap[s.id] = sd[i].id; });
+      setSequenceSteps(prev => [...prev, ...sd]);
+      const oldEdges = sequenceEdges.filter(e => e.sequence_id === seq.id);
+      if (oldEdges.length > 0) {
+        const edgeRows = oldEdges
+          .filter(e => idMap[e.from_step_id] && idMap[e.to_step_id])
+          .map(e => ({ sequence_id: newSeq.id, user_id: user.id, from_step_id: idMap[e.from_step_id], to_step_id: idMap[e.to_step_id], branch: e.branch }));
+        if (edgeRows.length) {
+          const { data: ed } = await supabase.from('sequence_edges').insert(edgeRows).select();
+          if (ed) setSequenceEdges(prev => [...prev, ...ed]);
+        }
+      }
     }
-    setSequences(prev => [...prev, data[0]]);
-    showToast('Workflow duplicated as draft.', 'success');
+    setSequences(prev => [...prev, newSeq]);
+    showToast(`"${newSeq.name}" created as draft.`, 'success');
   }
 
   // UPGRADE 5/6/8 — add step with channel/condition/A-B, optionally inserted
@@ -7556,7 +7649,15 @@ export default function App() {
                         return (
                           <div key={n.id}
                             className={`absolute w-64 bg-white dark:bg-gray-900 rounded-xl border ${isSel ? 'border-gray-900 dark:border-gray-100 shadow-md' : 'border-gray-200 dark:border-gray-700 shadow-sm'} border-l-4 ${meta.border} select-none ${connectTarget ? 'ring-2 ring-indigo-400 ring-offset-2 dark:ring-offset-gray-950 cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
-                            style={{ left: p.x, top: p.y }}
+                            style={{ left: p.x, top: p.y, ...(() => {
+                              // V2.0 F25 — email nodes tint by open rate: green >50%, yellow 20–50%, red <20% (≥5 sends)
+                              if (t !== 'email') return {};
+                              const ns = sequenceSends.filter(s => s.step_id === n.id && s.channel === 'email');
+                              if (ns.length < 5) return {};
+                              const rate = ns.filter(s => s.opened_at).length / ns.length;
+                              const tint = rate > 0.5 ? 'rgba(16,185,129,0.08)' : rate >= 0.2 ? 'rgba(245,158,11,0.08)' : 'rgba(239,68,68,0.08)';
+                              return { backgroundImage: `linear-gradient(${tint}, ${tint})` };
+                            })() }}
                             onMouseDown={e => {
                               if (connectFrom) return;
                               if (e.target.closest('button')) return;
@@ -7835,9 +7936,10 @@ export default function App() {
                             <div className="flex items-center gap-2 mt-auto pt-2 border-t border-gray-100 dark:border-gray-800 text-[12px] font-medium">
                               <button onClick={() => { setEditingSeqId(seq.id); setSelectedNodeId(null); }} className="px-3 py-1.5 font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:opacity-90 shadow-sm">Open builder →</button>
                               <button onClick={() => { setEditingSeqId(seq.id); setSelectedNodeId(null); }} title="Enroll contacts now" className="px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">▶ Run</button>
-                              <span className="ml-auto flex gap-2">
-                                <button onClick={() => handleDuplicateSequence(seq)} className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100" title="Duplicate">⧉</button>
-                                <button onClick={() => handleDeleteSequence(seq)} className="text-[11px] font-semibold text-gray-400 hover:text-red-600" title="Delete">Delete</button>
+                              <span className="ml-auto flex gap-2.5 text-[11px] font-semibold">
+                                <button onClick={() => setSeqStatsId(seq.id)} className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100" title="Performance analytics">Stats</button>
+                                <button onClick={() => handleDuplicateSequence(seq)} className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100" title="Full copy: steps + arrows">Duplicate</button>
+                                <button onClick={() => handleDeleteSequence(seq)} className="text-gray-400 hover:text-red-600" title="Delete">Delete</button>
                               </span>
                             </div>
                           </div>
@@ -7854,6 +7956,34 @@ export default function App() {
 
               {seqView === 'contacts' && (
                 <>
+                  {/* V2.0 F26 — status dashboard: counts + % bars, click filters the list */}
+                  {coldContacts.length > 0 && (
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                      {[
+                        ['prospect', 'Prospect', 'bg-gray-400'],
+                        ['contacted', 'Contacted', 'bg-blue-500'],
+                        ['replied', 'Replied', 'bg-green-500'],
+                        ['converted', 'Converted', 'bg-emerald-600'],
+                        ['unsubscribed', 'Unsubscribed', 'bg-amber-500'],
+                        ['bounced', 'Bounced', 'bg-red-500'],
+                      ].map(([key, label, color]) => {
+                        const n = coldContacts.filter(c => c.status === key).length;
+                        const p = Math.round((n / coldContacts.length) * 100);
+                        const active = coldFilter.toLowerCase() === key;
+                        return (
+                          <button key={key} onClick={() => setColdFilter(active ? 'All' : label)}
+                            className={`text-left bg-white dark:bg-gray-900 p-3 rounded-xl border transition-colors ${active ? 'border-gray-900 dark:border-gray-100' : 'border-gray-100 dark:border-gray-800 hover:border-gray-300'}`}>
+                            <p className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-wider truncate">{label}</p>
+                            <p className="text-[18px] font-bold text-gray-900 dark:text-gray-100">{n} <span className="text-[11px] font-medium text-gray-400">{p}%</span></p>
+                            <div className="h-1 rounded-full bg-gray-100 dark:bg-gray-800 mt-1.5 overflow-hidden">
+                              <div className={`h-full ${color}`} style={{ width: `${p}%` }} />
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {/* import + manual add */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
@@ -9527,6 +9657,137 @@ export default function App() {
         </div>
       )}
 
+      {/* V2.0 F21 — SEQUENCE PERFORMANCE DASHBOARD (A/B, funnel, weekday, trend) */}
+      {seqStatsId && (() => {
+        const seq = sequences.find(s => s.id === seqStatsId);
+        if (!seq) return null;
+        const sends = sequenceSends.filter(s => s.sequence_id === seqStatsId && s.channel !== 'linkedin_view');
+        const emailSteps = sequenceSteps.filter(s => s.sequence_id === seqStatsId && (s.node_type || 'email') === 'email').sort((a, b) => a.step_order - b.step_order);
+        const pct = (n, d) => d ? Math.round((n / d) * 100) : 0;
+        const abSteps = emailSteps.filter(st => st.subject_b);
+        const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const byDay = WD.map((_, i) => {
+          const daySends = sends.filter(s => s.sent_at && new Date(s.sent_at).getDay() === i);
+          return { sent: daySends.length, replied: daySends.filter(s => s.replied_at).length };
+        });
+        const maxReplyRate = Math.max(...byDay.map(d => pct(d.replied, d.sent)), 1);
+        const days30 = [...Array(30)].map((_, i) => {
+          const day = new Date(Date.now() - (29 - i) * 864e5).toISOString().split('T')[0];
+          const ds = sends.filter(s => (s.sent_at || '').startsWith(day));
+          return { day, sent: ds.length, replied: ds.filter(x => x.replied_at).length };
+        });
+        const maxDaily = Math.max(...days30.map(d => d.sent), 1);
+        return (
+          <div className="fixed inset-0 bg-white dark:bg-gray-950 z-50 overflow-y-auto animate-in fade-in duration-200">
+            <div className="sticky top-0 z-10 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-4 sm:px-8 py-4 flex items-center justify-between">
+              <nav className="flex items-center gap-1.5 text-[13px] font-semibold">
+                <button onClick={() => setSeqStatsId(null)} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Email Automation</button>
+                <span className="text-gray-300 dark:text-gray-600">›</span>
+                <span className="text-gray-900 dark:text-gray-100">{seq.name}</span>
+                <span className="text-gray-300 dark:text-gray-600">›</span>
+                <span className="text-gray-400">Performance</span>
+              </nav>
+              <button onClick={() => setSeqStatsId(null)} className="text-[13px] font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Close</button>
+            </div>
+            <div className="max-w-4xl mx-auto px-4 sm:px-8 py-8 space-y-8">
+              {sends.length === 0 && <p className="text-center text-[13px] text-gray-400 py-10">No sends yet — analytics appear after the first emails go out.</p>}
+
+              {/* per-step funnel */}
+              {emailSteps.length > 0 && sends.length > 0 && (
+                <section>
+                  <h3 className="text-[13px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-4">Step Funnel — Sent → Opened → Clicked → Replied</h3>
+                  <div className="space-y-4">
+                    {emailSteps.map((st, i) => {
+                      const ss = sends.filter(s => s.step_id === st.id);
+                      const opened = ss.filter(s => s.opened_at).length, clicked = ss.filter(s => s.clicked_at).length, replied = ss.filter(s => s.replied_at).length;
+                      return (
+                        <div key={st.id} className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                          <p className="text-[12.5px] font-semibold text-gray-800 dark:text-gray-200 mb-2.5 truncate">Step {i + 1}: {st.subject || '(no subject)'}</p>
+                          <div className="grid grid-cols-4 gap-2">
+                            {[['Sent', ss.length, 'bg-gray-400'], ['Opened', opened, 'bg-blue-500'], ['Clicked', clicked, 'bg-violet-500'], ['Replied', replied, 'bg-green-500']].map(([label, n, color]) => (
+                              <div key={label}>
+                                <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden mb-1">
+                                  <div className={`h-full ${color} transition-all duration-700`} style={{ width: `${pct(n, ss.length)}%` }} />
+                                </div>
+                                <p className="text-[11px] text-gray-500">{label} <span className="font-bold text-gray-900 dark:text-gray-100">{n}</span> <span className="text-gray-400">({pct(n, ss.length)}%)</span></p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {/* A/B subject comparison */}
+              {abSteps.length > 0 && (
+                <section>
+                  <h3 className="text-[13px] font-bold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-4">Subject A/B — Open Rates</h3>
+                  <div className="space-y-4">
+                    {abSteps.map(st => {
+                      const ss = sends.filter(s => s.step_id === st.id);
+                      const A = ss.filter(s => s.subject_variant !== 'B'), B = ss.filter(s => s.subject_variant === 'B');
+                      const rA = pct(A.filter(s => s.opened_at).length, A.length), rB = pct(B.filter(s => s.opened_at).length, B.length);
+                      const winner = rA === rB ? null : rA > rB ? 'A' : 'B';
+                      return (
+                        <div key={st.id} className="rounded-xl border border-gray-100 dark:border-gray-800 p-4 space-y-2.5">
+                          {[['A', st.subject, rA, A.length], ['B', st.subject_b, rB, B.length]].map(([v, subj, rate, n]) => (
+                            <div key={v}>
+                              <div className="flex justify-between text-[12px] mb-1">
+                                <span className={`font-semibold truncate max-w-[70%] ${winner === v ? 'text-green-700 dark:text-green-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                                  {v}: “{subj}” {winner === v && '· winner'}
+                                </span>
+                                <span className="text-gray-400">{rate}% of {n}</span>
+                              </div>
+                              <div className="h-2.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                                <div className={`h-full ${winner === v ? 'bg-green-500' : 'bg-blue-400'} transition-all duration-700`} style={{ width: `${rate}%` }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {/* weekday heatmap + 30-day trend */}
+              {sends.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                    <h3 className="text-[12px] font-bold text-gray-400 uppercase tracking-wider mb-3">Best Day of Week (reply rate)</h3>
+                    <div className="grid grid-cols-7 gap-1.5">
+                      {byDay.map((d, i) => {
+                        const rate = pct(d.replied, d.sent);
+                        return (
+                          <div key={i} className="text-center" title={`${WD[i]}: ${d.replied}/${d.sent} replied`}>
+                            <div className="aspect-square rounded-lg mb-1"
+                                 style={{ background: d.sent === 0 ? 'rgba(156,163,175,0.15)' : `rgba(16,185,129,${0.15 + (rate / maxReplyRate) * 0.7})` }} />
+                            <span className="text-[10px] text-gray-400">{WD[i]}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                  <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                    <h3 className="text-[12px] font-bold text-gray-400 uppercase tracking-wider mb-3">Last 30 Days — sends & replies</h3>
+                    <div className="flex items-end gap-[2px] h-24">
+                      {days30.map(d => (
+                        <div key={d.day} className="flex-1 flex flex-col justify-end gap-[1px]" title={`${d.day}: ${d.sent} sent, ${d.replied} replied`}>
+                          <div className="w-full bg-green-500 rounded-sm" style={{ height: `${(d.replied / maxDaily) * 100}%` }} />
+                          <div className="w-full bg-blue-200 dark:bg-blue-900 rounded-sm" style={{ height: `${((d.sent - d.replied) / maxDaily) * 100}%` }} />
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* EMAIL COMPOSER MODAL (Feature 4) */}
       {showEmailComposer && (
         <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[90] overflow-y-auto animate-in fade-in duration-200">
@@ -9562,6 +9823,54 @@ export default function App() {
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Body</label>
                 <textarea rows={6} required value={emailBody} onChange={e => setEmailBody(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
                 <p className="text-[11px] text-gray-400 mt-1">Merge tags: {'{{name}}'} {'{{email}}'} {'{{phone}}'} {'{{stage}}'}</p>
+              </div>
+
+              {/* V2.0 F23 — deliverability score (client-side spam triggers) */}
+              {(emailSubject || emailBody) && (() => {
+                const { score, warnings } = spamCheck(emailSubject, emailBody);
+                const tone = score >= 8 ? 'text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-950/40' : score >= 5 ? 'text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40' : 'text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40';
+                return (
+                  <div className="rounded-xl border border-gray-100 dark:border-gray-800 p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${tone}`}>Deliverability: {score}/10</span>
+                      {warnings.length === 0 && <span className="text-[11px] text-gray-400">No spam triggers found.</span>}
+                    </div>
+                    {warnings.length > 0 && (
+                      <ul className="text-[11.5px] text-gray-500 dark:text-gray-400 space-y-0.5 mt-1">
+                        {warnings.map((w, i) => <li key={i}>• {w}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* V2.0 F22 — device preview: desktop + phone frame side by side */}
+              <div>
+                <button type="button" onClick={() => setComposerPreview(p => !p)}
+                  className="text-[12px] font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">
+                  {composerPreview ? 'Hide preview' : 'Preview across devices'}
+                </button>
+                {composerPreview && (
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-start">
+                    <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                      <div className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Desktop</div>
+                      <div className="p-4 bg-white dark:bg-gray-900">
+                        <p className="text-[14px] font-bold text-gray-900 dark:text-gray-100 mb-2">{emailSubject || '(no subject)'}</p>
+                        <p className="text-[13px] text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{emailBody || '(empty body)'}</p>
+                      </div>
+                    </div>
+                    <div className="w-[240px] mx-auto rounded-[24px] border-[6px] border-gray-900 dark:border-gray-600 overflow-hidden shadow-lg">
+                      <div className="bg-gray-900 dark:bg-gray-600 flex items-center justify-center py-1">
+                        <span className="w-12 h-1 rounded-full bg-gray-600 dark:bg-gray-400" />
+                      </div>
+                      <div className="bg-white dark:bg-gray-900 px-3 py-3 h-[300px] overflow-y-auto">
+                        <p className="text-[7px] text-gray-400 flex justify-between mb-2"><span>9:41</span><span>LTE ▮</span></p>
+                        <p className="text-[11px] font-bold text-gray-900 dark:text-gray-100 mb-1.5 leading-snug">{emailSubject || '(no subject)'}</p>
+                        <p className="text-[10px] text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{emailBody || '(empty body)'}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               {/* V6 Part 5 — Gmail web compose only (no default-mail-app option; that opened iCloud) */}
               <div className="flex items-center gap-2 pt-3 border-t border-gray-100 dark:border-gray-800">

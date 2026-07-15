@@ -460,3 +460,14 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **F19 Win/loss capture:** moving a deal to Won/Lost pops a reason+competitor modal (skippable); saves to `deals.close_reason/competitor` + logs a `closed` event with the note. (Aggregate frequency table lands in Reports with Cluster F.)
 - **F20 Quick filters:** All / Closing This Week / High Value ($10k+) / Overdue / Mine (team workspaces only) pills — filter cards inside columns without collapsing the board.
 - `next build` green.
+
+## Cluster D — Email automation power-ups (F21–F28)
+- **F21 Performance dashboard:** "Stats" button per sequence → full-screen analytics: per-step Sent→Opened→Clicked→Replied funnel bars, **subject A/B open-rate comparison with winner highlighting** (real infra existed: `sequence_steps.subject_b` + `sequence_sends.subject_variant`), best-day-of-week reply-rate heat cells, and a 30-day stacked sends/replies trend. All computed from existing `sequence_sends`.
+- **F22 Device preview:** composer "Preview across devices" toggle — desktop pane + a phone frame (240px, bezel + fake status bar) rendering subject/body live.
+- **F23 Spam score:** client-side `spamCheck` (ALL-CAPS words, exclamation count, 12 spam phrases, subject length/caps/empty, >3 links, too-short body) → live "Deliverability: N/10" chip + specific warnings in the composer.
+- **F24 True sequence cloning:** the old Duplicate was a shallow copy that dropped node types, canvas positions, configs, A/B subjects, and ALL edges — rewritten as a deep copy with positional old→new step-id remapping so the arrows survive. Named "(copy)", lands as draft.
+- **F25 Step heatmap:** canvas email nodes tint by open rate (green >50% / yellow 20–50% / red <20%, only at ≥5 sends) via a background gradient overlay — glance at the canvas, see what's working.
+- **F26 Cold contact dashboard:** 6 status stat cards (count + % + bar) above the cold list; clicking one drives the existing `coldFilter`.
+- **F27 Unsubscribe injection: already live since v5** — the runner appends the footer link (`index.ts:258`) and `/track/unsub/:token` upserts `unsubscribes` + stops active enrollments. Verified, not rebuilt.
+- **F28 Template library:** extended `SEQ_TEMPLATES` 4 → 8 (added Re-Engagement, Event Follow-Up, Referral Request, Quarterly Check-In) with written subject/body copy + merge tags; existing gallery + one-click import handles them.
+- `next build` green.
