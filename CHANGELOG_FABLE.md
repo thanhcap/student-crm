@@ -440,3 +440,14 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **F5 Skeletons:** boot "Initializing workspace…" spinner replaced with an app-shaped skeleton (sidebar rail + header + stat cards + table block, staggered pulse). List loads already used SkeletonRows; remaining spinners are button-level busy states (kept — they're affordances, not content placeholders).
 - **F6 Undoable toasts:** redesigned Toast — bottom-right stack (max 4), countdown progress bar (5s undoable / 3s plain), Undo + Close buttons. `showUndoableToast(msg, undoFn)` added. **Relationship delete is now undo-safe by construction:** row leaves the UI instantly but the DB delete is deferred 5.2s; Undo cancels the pending delete (children survive — a re-insert couldn't restore them and clients.id is GENERATED ALWAYS). Failed deletes restore the row + error toast.
 - `next build` green.
+
+## Cluster B — Relationship intelligence (F7–F14)
+- **F7 Strength meter:** `computeStrength` (recency 30 / 90-day frequency 25 / channel diversity 20 / deal value 15 / active sequence 10) rendered as an animated SVG arc (`StrengthArc`, green≥70 / amber≥40 / red) in the profile header next to the lead score.
+- **F8 Swimlane timeline:** `SwimlaneTimeline` atop the profile Activity tab — Email/Call/Meeting/Note/Deal/Task lanes, dots positioned across the last 90 days, hover tooltips, axis labels. The editable flat list stays below (visual on top, editing below — deliberate adaptation).
+- **F9 Last Contacted / Days Silent:** new sortable table column (relative time + color-coded "Nd silent" badge: green≤7 / yellow≤21 / orange≤45 / red 46+), `lastActivityByClient` memo, click-to-sort header + 2 new sort-dropdown options. Local `timeAgo`/`daysSilent` helpers (no date-fns).
+- **F10 Connected to:** profile sidebar section clustering by referrer (`referred_by_client_id`, both directions), same company, same source — clickable links that jump between profiles.
+- **F11 LinkedIn enrich assist:** when `linkedin_url` set but company/role missing → prompt that opens the LinkedIn profile in a new tab AND the full edit form simultaneously (structured manual assist; no scraping).
+- **F12 Birthday reminders:** Overview banner for birthdays within `email_settings.birthday_reminder_days` (year-wrap safe) with per-person "Draft email" buttons — one click opens the composer pre-filled from `birthday_template_id` (or a warm default).
+- **F13 Notes tab:** new profile tab on relationship_notes — add/pin/delete, pinned float to top (amber), relative timestamps, **undoable delete** (deferred DB delete pattern from F6).
+- **F14 Lists:** relationship_lists as filter pills above the table (color dot + live member count + inline "+ New list" creator + delete w/ undo), bulk-bar "Add to list…" action, list filter wired into the filter memo. Enroll-list-into-sequence = filter by list → select all → existing bulk enroll.
+- `next build` green.

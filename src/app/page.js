@@ -416,6 +416,116 @@ function QuickAddBar({ placeholder, onAdd }) {
   );
 }
 
+// V2.0 F9 — relative time ("3 days ago" / "2 weeks ago"); local, no date-fns.
+function timeAgo(dateStr) {
+  if (!dateStr) return 'never';
+  const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / 864e5);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 365) return `${Math.floor(days / 30)} months ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+function daysSilent(dateStr) {
+  if (!dateStr) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / 864e5));
+}
+const SILENT_TONE = (d) => d == null ? 'text-gray-400 bg-gray-100 dark:bg-gray-800'
+  : d <= 7 ? 'text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-950/40'
+  : d <= 21 ? 'text-yellow-700 bg-yellow-50 dark:text-yellow-300 dark:bg-yellow-950/40'
+  : d <= 45 ? 'text-orange-700 bg-orange-50 dark:text-orange-300 dark:bg-orange-950/40'
+  : 'text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40';
+
+// V2.0 F7 — relationship strength: 0–100 from recency, 90-day frequency,
+// channel diversity, deal value, and active-sequence presence. Rendered as a
+// thin SVG arc, not a bare number.
+function computeStrength(client, clientActivities, clientDeals, hasActiveSequence) {
+  let s = 0;
+  const last = clientActivities.reduce((m, a) => (!m || a.activity_date > m ? a.activity_date : m), null);
+  const silent = daysSilent(last);
+  if (silent != null) s += silent <= 7 ? 30 : silent <= 21 ? 22 : silent <= 45 ? 12 : 4; // recency (30)
+  const recent = clientActivities.filter(a => daysSilent(a.activity_date) <= 90).length;
+  s += Math.min(recent * 3, 25);                                                          // frequency (25)
+  const channels = new Set(clientActivities.map(a => a.activity_type)).size;
+  s += Math.min(channels * 5, 20);                                                        // diversity (20)
+  const dealValue = clientDeals.reduce((sum, d) => sum + (parseFloat(d.value) || 0), 0);
+  if (dealValue > 0) s += dealValue >= 10000 ? 15 : dealValue >= 1000 ? 10 : 6;           // deals (15)
+  if (hasActiveSequence) s += 10;                                                         // sequence (10)
+  return Math.min(100, Math.round(s));
+}
+
+function StrengthArc({ score, size = 64 }) {
+  const r = (size - 8) / 2;
+  const c = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(100, score));
+  const tone = pct >= 70 ? '#10B981' : pct >= 40 ? '#F59E0B' : '#EF4444';
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }} title={`Relationship strength: ${pct}/100`}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth="4" className="stroke-gray-100 dark:stroke-gray-800" />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth="4" stroke={tone} strokeLinecap="round"
+                strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)} style={{ transition: 'stroke-dashoffset 800ms cubic-bezier(0.22,1,0.36,1)' }} />
+      </svg>
+      <span className="absolute text-[13px] font-bold text-gray-900 dark:text-gray-100">{pct}</span>
+    </div>
+  );
+}
+
+// V2.0 F8 — interaction swimlanes: one horizontal lane per channel, a dot per
+// event at its date position over the last 90 days. Hover a dot for detail.
+function SwimlaneTimeline({ activities, deals, tasks }) {
+  const DAYS = 90;
+  const now = Date.now();
+  const lanes = [
+    { label: 'Email',   color: '#3B82F6', items: activities.filter(a => a.activity_type === 'Email').map(a => ({ date: a.activity_date, tip: a.description })) },
+    { label: 'Call',    color: '#10B981', items: activities.filter(a => a.activity_type === 'Call').map(a => ({ date: a.activity_date, tip: a.description })) },
+    { label: 'Meeting', color: '#8B5CF6', items: activities.filter(a => a.activity_type === 'Meeting').map(a => ({ date: a.activity_date, tip: a.description })) },
+    { label: 'Note',    color: '#6B7280', items: activities.filter(a => a.activity_type === 'Note').map(a => ({ date: a.activity_date, tip: a.description })) },
+    { label: 'Deal',    color: '#F59E0B', items: deals.map(d => ({ date: (d.created_at || '').split('T')[0], tip: `${d.title} · ${d.stage}` })) },
+    { label: 'Task',    color: '#14B8A6', items: tasks.map(t => ({ date: t.due_date, tip: t.title })) },
+  ];
+  const pos = (dateStr) => {
+    if (!dateStr) return null;
+    const age = (now - new Date(dateStr).getTime()) / 864e5;
+    if (age < 0 || age > DAYS) return null;
+    return 100 - (age / DAYS) * 100; // % from left (old→new)
+  };
+  const hasAny = lanes.some(l => l.items.some(i => pos(i.date) != null));
+  return (
+    <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Last 90 days</p>
+        {!hasAny && <p className="text-[11px] text-gray-400">No touchpoints in this window.</p>}
+      </div>
+      <div className="space-y-2">
+        {lanes.map(lane => (
+          <div key={lane.label} className="flex items-center gap-3">
+            <span className="w-14 shrink-0 text-[11px] font-semibold text-gray-500 dark:text-gray-400 text-right">{lane.label}</span>
+            <div className="relative flex-1 h-5 rounded bg-white dark:bg-gray-950 border border-gray-100 dark:border-gray-800 overflow-visible">
+              {lane.items.map((item, i) => {
+                const p = pos(item.date);
+                if (p == null) return null;
+                return (
+                  <span key={i} className="group absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full cursor-default hover:scale-150 transition-transform"
+                        style={{ left: `${p}%`, background: lane.color }}>
+                    <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block px-2 py-1 rounded-lg bg-gray-900 text-white text-[10.5px] whitespace-nowrap max-w-[240px] truncate z-20">
+                      {item.date} — {(item.tip || '').slice(0, 60)}
+                    </span>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-between mt-2 pl-[68px] text-[10px] text-gray-400">
+        <span>90d ago</span><span>60d</span><span>30d</span><span>today</span>
+      </div>
+    </div>
+  );
+}
+
 // ==========================================
 // MODULE-SCOPE CONSTANTS
 // ==========================================
@@ -1260,6 +1370,11 @@ export default function App() {
   const [showCmdPalette, setShowCmdPalette] = useState(false); // V2.0 F1
   const [contextMenu, setContextMenu] = useState(null); // V2.0 F3 — { x, y, items: [{label, danger?, action}] }
   const [justAddedId, setJustAddedId] = useState(null); // V2.0 F4 — brief green highlight on quick-added rows
+  const [profileNotes, setProfileNotes] = useState([]); // V2.0 F13 — relationship_notes for the open profile
+  const [newNoteBody, setNewNoteBody] = useState('');
+  const [relationshipLists, setRelationshipLists] = useState([]); // V2.0 F14
+  const [listMembers, setListMembers] = useState({}); // list_id -> [client_id]
+  const [filterListId, setFilterListId] = useState(null);
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState({ clients: [], activities: [] });
 
@@ -1799,6 +1914,7 @@ export default function App() {
       fetchEmailTemplates(session.user.id),
       fetchAutomationRules(session.user.id),
       fetchTags(session.user.id),
+      fetchLists(session.user.id),
       fetchWebhooks(session.user.id),
       fetchGoals(session.user.id),
       fetchSavedViews(session.user.id),
@@ -1838,6 +1954,21 @@ export default function App() {
   async function fetchAutomationRules(userId) {
     const { data } = await supabase.from('automation_rules').select('*').eq('user_id', userId).order('created_at', { ascending: false });
     if (data) setAutomationRules(data);
+  }
+
+  // V2.0 F14 — relationship lists (curated collections; a client can be in many)
+  async function fetchLists(userId) {
+    const { data: lists } = await supabase.from('relationship_lists').select('*').eq('user_id', userId).order('name');
+    if (!lists) return;
+    setRelationshipLists(lists);
+    if (lists.length) {
+      const { data: members } = await supabase.from('relationship_list_members').select('list_id, client_id').in('list_id', lists.map(l => l.id));
+      const map = {};
+      (members || []).forEach(m => { (map[m.list_id] = map[m.list_id] || []).push(m.client_id); });
+      setListMembers(map);
+    } else {
+      setListMembers({});
+    }
   }
 
   async function fetchTags(userId) {
@@ -4073,6 +4204,78 @@ export default function App() {
     }
   }
 
+  // V2.0 F13 — relationship notes (pinnable, separate from activities/quick_note)
+  useEffect(() => {
+    if (!viewingClient || !user) { setProfileNotes([]); return; }
+    let alive = true;
+    supabase.from('relationship_notes').select('*')
+      .eq('client_id', viewingClient.id)
+      .order('pinned', { ascending: false }).order('created_at', { ascending: false })
+      .then(({ data }) => { if (alive && data) setProfileNotes(data); });
+    return () => { alive = false; };
+  }, [viewingClient?.id, user?.id]);
+
+  async function handleAddNote() {
+    const body = newNoteBody.trim();
+    if (!body || !viewingClient) return;
+    const { data, error } = await supabase.from('relationship_notes')
+      .insert([{ client_id: viewingClient.id, user_id: user.id, body }]).select();
+    if (error) { showToast(error.message, 'error'); return; }
+    setProfileNotes(prev => {
+      const pinned = prev.filter(n => n.pinned);
+      const rest = prev.filter(n => !n.pinned);
+      return [...pinned, data[0], ...rest]; // newest unpinned sits under the pinned block
+    });
+    setNewNoteBody('');
+  }
+
+  async function handleTogglePinNote(note) {
+    const { error } = await supabase.from('relationship_notes').update({ pinned: !note.pinned, updated_at: new Date().toISOString() }).eq('id', note.id);
+    if (error) { showToast(error.message, 'error'); return; }
+    setProfileNotes(prev => prev.map(n => n.id === note.id ? { ...n, pinned: !n.pinned } : n)
+      .sort((a, b) => (b.pinned - a.pinned) || (a.created_at < b.created_at ? 1 : -1)));
+  }
+
+  async function handleDeleteNote(note) {
+    setProfileNotes(prev => prev.filter(n => n.id !== note.id)); // optimistic
+    const timer = setTimeout(async () => {
+      const { error } = await supabase.from('relationship_notes').delete().eq('id', note.id);
+      if (error) { setProfileNotes(prev => [note, ...prev]); showToast(error.message, 'error'); }
+    }, 5200);
+    showUndoableToast('Note deleted', () => { clearTimeout(timer); setProfileNotes(prev => [note, ...prev]); });
+  }
+
+  // V2.0 F14 — list CRUD + membership
+  async function handleCreateList(name) {
+    const { data, error } = await supabase.from('relationship_lists').insert([{ user_id: user.id, name }]).select();
+    if (error) { showToast(error.message, 'error'); return; }
+    setRelationshipLists(prev => [...prev, data[0]].sort((a, b) => a.name.localeCompare(b.name)));
+    showToast(`List "${name}" created`);
+  }
+  async function handleDeleteList(list) {
+    const members = listMembers[list.id] || [];
+    setRelationshipLists(prev => prev.filter(l => l.id !== list.id));
+    if (filterListId === list.id) setFilterListId(null);
+    const timer = setTimeout(async () => {
+      const { error } = await supabase.from('relationship_lists').delete().eq('id', list.id);
+      if (error) { setRelationshipLists(prev => [...prev, list]); showToast(error.message, 'error'); }
+    }, 5200);
+    showUndoableToast(`List "${list.name}" deleted`, () => {
+      clearTimeout(timer);
+      setRelationshipLists(prev => [...prev, list].sort((a, b) => a.name.localeCompare(b.name)));
+      setListMembers(prev => ({ ...prev, [list.id]: members }));
+    });
+  }
+  async function handleAddSelectedToList(listId) {
+    const existing = new Set(listMembers[listId] || []);
+    const rows = selectedClientIds.filter(id => !existing.has(id)).map(client_id => ({ list_id: listId, client_id }));
+    if (!rows.length) { showToast('Already in that list'); return; }
+    const { error } = await supabase.from('relationship_list_members').insert(rows);
+    if (error) { showToast(error.message, 'error'); return; }
+    setListMembers(prev => ({ ...prev, [listId]: [...(prev[listId] || []), ...rows.map(r => r.client_id)] }));
+    showToast(`${rows.length} added to "${relationshipLists.find(l => l.id === listId)?.name}"`);
+  }
+
   // V2.0 F4 — quick-add creators (Enter-to-create; no form). Each returns
   // false on failure so the bar keeps the typed text. New row flashes green.
   function flashAdded(id) {
@@ -4531,6 +4734,18 @@ export default function App() {
     return counts;
   }, [relationshipHealth]);
 
+  // V2.0 F9 — most recent activity_date per client (drives Last Contacted /
+  // Days Silent column and the last_contact sorts)
+  const lastActivityByClient = useMemo(() => {
+    const map = {};
+    activities.forEach(a => {
+      if (a.client_id && a.activity_date && (!map[a.client_id] || a.activity_date > map[a.client_id])) {
+        map[a.client_id] = a.activity_date;
+      }
+    });
+    return map;
+  }, [activities]);
+
   const healthByClientId = useMemo(() => {
     const m = {};
     relationshipHealth.forEach(c => { m[c.id] = c.health; });
@@ -4586,6 +4801,7 @@ export default function App() {
 
   const filteredAndSortedClients = useMemo(() => (clientsWithScores || [])
     .filter(Boolean)
+    .filter(client => !filterListId || (listMembers[filterListId] || []).includes(client.id)) // V2.0 F14
     .filter(client => matchesClientFilters(client, {
       search: searchTerm, priority: filterPriority, status: filterStatus, tagIds: filterTags,
       source: filterSource, health: filterHealth, dateAdded: filterDateAdded,
@@ -4599,8 +4815,17 @@ export default function App() {
       if (sortBy === 'name_desc') return (b.name || '').localeCompare(a.name || '');
       if (sortBy === 'score_desc') return b.leadScore - a.leadScore;
       if (sortBy === 'score_asc') return a.leadScore - b.leadScore;
+      // V2.0 F9 — sort by most-recent touchpoint (nulls last)
+      if (sortBy === 'last_contact_desc' || sortBy === 'last_contact_asc') {
+        const la = lastActivityByClient[a.id] || '';
+        const lb = lastActivityByClient[b.id] || '';
+        if (la === lb) return 0;
+        if (!la) return 1;
+        if (!lb) return -1;
+        return sortBy === 'last_contact_desc' ? (la < lb ? 1 : -1) : (la < lb ? -1 : 1);
+      }
       return 0;
-    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterSource, deals, activities]);
+    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterSource, deals, activities, lastActivityByClient, filterListId, listMembers]);
 
   const activeFilterCount = [
     filterPriority !== 'All', filterStatus !== 'All', filterDateAdded, filterHasDeals,
@@ -5447,6 +5672,44 @@ export default function App() {
               );
             })()}
 
+            {/* V2.0 F12 — birthday reminders with one-click pre-drafted email */}
+            {(() => {
+              const windowDays = emailSettings?.birthday_reminder_days ?? 3;
+              const upcoming = clients.filter(c => {
+                if (!c.birthday) return false;
+                const now = new Date(todayStr);
+                const b = new Date(c.birthday);
+                const thisYear = new Date(now.getFullYear(), b.getMonth(), b.getDate());
+                if (thisYear < now) thisYear.setFullYear(now.getFullYear() + 1);
+                const diff = Math.round((thisYear - now) / 864e5);
+                return diff >= 0 && diff <= windowDays;
+              });
+              if (!upcoming.length) return null;
+              const tpl = emailSettings?.birthday_template_id ? emailTemplates.find(t => t.id === emailSettings.birthday_template_id) : null;
+              return (
+                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 flex flex-wrap items-center gap-3">
+                  <p className="text-[13px] font-semibold text-amber-900 dark:text-amber-200 flex-1 min-w-[200px]">
+                    {upcoming.length === 1 ? `${upcoming[0].name}'s birthday is coming up` : `${upcoming.length} birthdays in the next ${windowDays} days`}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {upcoming.slice(0, 3).map(c => (
+                      <button key={c.id}
+                        onClick={() => {
+                          setViewingClient(c);
+                          setEmailTo(c.email || '');
+                          setEmailSubject(tpl?.subject || `Happy birthday, ${c.name.split(' ')[0]}!`);
+                          setEmailBody(tpl?.body || `Hi ${c.name.split(' ')[0]},\n\nHappy birthday! Hope you have a great one — no agenda, just wanted to say it.\n\nBest,`);
+                          setShowEmailComposer(true);
+                        }}
+                        className="px-3 h-8 rounded-lg text-[12px] font-bold bg-amber-600 text-white hover:bg-amber-700 transition-colors">
+                        Draft email to {c.name.split(' ')[0]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ONBOARDING CHECKLIST (Feature 30) */}
             {!onboardingComplete && !onboardingDismissed && (
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow animate-in fade-in">
@@ -5927,6 +6190,8 @@ export default function App() {
                       <option value="name_desc">Name (Z-A)</option>
                       <option value="score_desc">Score: High→Low</option>
                       <option value="score_asc">Score: Low→High</option>
+                      <option value="last_contact_desc">Last Contact: Recent first</option>
+                      <option value="last_contact_asc">Last Contact: Oldest first</option>
                     </select>
                   </div>
                 )}
@@ -6051,10 +6316,42 @@ export default function App() {
                       {sequences.map(s => <option key={s.id} value={s.id} className="text-gray-900">{s.name}</option>)}
                     </select>
                   )}
+                  {/* V2.0 F14 — add selection to a list */}
+                  {relationshipLists.length > 0 && (
+                    <select onChange={e => { if (e.target.value) handleAddSelectedToList(Number(e.target.value)); e.target.value = ''; }} className={`px-3 h-8 ${R.ctl} bg-white/10 dark:bg-gray-900/10 text-white dark:text-gray-900 text-[12px] font-medium outline-none border-none`}>
+                      <option value="" className="text-gray-900">Add to list…</option>
+                      {relationshipLists.map(l => <option key={l.id} value={l.id} className="text-gray-900">{l.name}</option>)}
+                    </select>
+                  )}
                   <button onClick={handleBulkDelete} className={`px-3 h-8 ${R.ctl} bg-red-600 text-white text-[12px] font-semibold hover:bg-red-700 transition-colors`}>Delete</button>
                 </div>
               </div>
             )}
+
+            {/* V2.0 F14 — lists: curated collections as filter pills */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => setFilterListId(null)}
+                className={`px-3 h-7 rounded-full text-[12px] font-semibold transition-colors ${!filterListId ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}>
+                All
+              </button>
+              {relationshipLists.map(list => (
+                <span key={list.id} className={`inline-flex items-center gap-1.5 pl-3 pr-1.5 h-7 rounded-full text-[12px] font-semibold transition-colors cursor-pointer ${filterListId === list.id ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}
+                      onClick={() => setFilterListId(filterListId === list.id ? null : list.id)}>
+                  <span className="w-2 h-2 rounded-full" style={{ background: list.color }} />
+                  {list.name}
+                  <span className="opacity-60">{(listMembers[list.id] || []).length}</span>
+                  {canEdit && (
+                    <button onClick={e => { e.stopPropagation(); handleDeleteList(list); }}
+                      className="px-1 text-[10px] font-bold opacity-40 hover:opacity-100" title="Delete list">Del</button>
+                  )}
+                </span>
+              ))}
+              {canEdit && (
+                <form onSubmit={e => { e.preventDefault(); const v = e.target.elements.newlist.value.trim(); if (v) { handleCreateList(v); e.target.reset(); } }}>
+                  <input name="newlist" placeholder="+ New list" className="dark:bg-gray-900 dark:text-gray-100 w-24 focus:w-40 transition-all px-3 h-7 rounded-full text-[12px] border border-dashed border-gray-300 dark:border-gray-700 outline-none focus:border-gray-500 bg-transparent placeholder:text-gray-400" />
+                </form>
+              )}
+            </div>
 
             {/* V2.0 F4 — quick-add: type a name, Enter creates instantly */}
             {canEdit && <QuickAddBar placeholder="Add relationship… type a name and press Enter" onAdd={handleQuickAddClient} />}
@@ -6125,6 +6422,10 @@ export default function App() {
                           <th className="p-4">Score</th>
                           <th className="p-4">Pipeline Stage</th>
                           <th className="p-4">Health</th>
+                          <th className="p-4 cursor-pointer hover:text-gray-600" title="Sort by last contact"
+                              onClick={() => setSortBy(s => s === 'last_contact_desc' ? 'last_contact_asc' : 'last_contact_desc')}>
+                            Last Contact {sortBy === 'last_contact_desc' ? '↓' : sortBy === 'last_contact_asc' ? '↑' : ''}
+                          </th>
                           <th className="p-4 text-right">Actions</th>
                         </tr>
                       </thead>
@@ -6199,6 +6500,21 @@ export default function App() {
                                   const h = healthByClientId[client.id];
                                   const cls = { Excellent: 'bg-green-50 text-green-700 ring-green-600/10', Good: 'bg-teal-50 text-teal-700 ring-teal-600/10', Fair: 'bg-yellow-50 text-yellow-700 ring-yellow-600/20', 'At Risk': 'bg-orange-50 text-orange-700 ring-orange-600/10', Critical: 'bg-red-50 text-red-700 ring-red-600/10' }[h] || 'bg-gray-50 text-gray-500 border-gray-100';
                                   return <button onClick={() => setFilterHealth(h)} className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ring-1 ring-inset ${cls}`}>{h}</button>;
+                                })()}
+                              </td>
+                              {/* V2.0 F9 — Last Contacted + Days Silent */}
+                              <td className="p-4">
+                                {(() => {
+                                  const last = lastActivityByClient[client.id];
+                                  const silent = daysSilent(last);
+                                  return (
+                                    <div className="flex flex-col gap-1">
+                                      <span className="text-[12px] text-gray-600 dark:text-gray-300">{timeAgo(last)}</span>
+                                      <span className={`inline-flex w-fit px-1.5 py-0.5 rounded text-[10px] font-bold ${SILENT_TONE(silent)}`}>
+                                        {silent == null ? 'no contact' : `${silent}d silent`}
+                                      </span>
+                                    </div>
+                                  );
                                 })()}
                               </td>
                               <td className="p-4 text-right font-normal">
@@ -8369,7 +8685,7 @@ export default function App() {
                 <div className="w-16 h-16 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 flex items-center justify-center text-[20px] font-bold shrink-0">
                   {(viewingClient.name || '?').slice(0, 2).toUpperCase()}
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h2 className="text-[18px] font-bold text-gray-900 dark:text-white truncate">{viewingClient.name}</h2>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900" title="Lead score">
@@ -8378,6 +8694,13 @@ export default function App() {
                     <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{viewingClient.status}</span>
                   </div>
                 </div>
+                {/* V2.0 F7 — relationship strength arc */}
+                <StrengthArc score={computeStrength(
+                  viewingClient,
+                  activities.filter(a => a.client_id === viewingClient.id),
+                  deals.filter(d => d.client_id === viewingClient.id),
+                  sequenceEnrollments.some(en => en.client_id === viewingClient.id && en.status === 'active')
+                )} />
               </div>
               {/* FEATURE 9 — tags on profile */}
               <div className="flex flex-wrap items-center gap-1">
@@ -8404,6 +8727,55 @@ export default function App() {
                 <button type="button" onClick={() => handleExportPDF(viewingClient)} className="px-4 py-2.5 text-[13px] font-semibold border border-gray-200 dark:border-gray-700 rounded-xl text-gray-700 dark:text-gray-200">PDF</button>
               </div>
               <div className="space-y-5 text-[13px]">
+
+              {/* V2.0 F11 — LinkedIn enrichment assist: url set but company/role missing */}
+              {viewingClient.linkedin_url && (!viewingClient.company_name || !viewingClient.role) && canEdit && (
+                <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900 rounded-xl p-3">
+                  <p className="text-[12.5px] text-blue-900 dark:text-blue-300 mb-2">
+                    <span className="font-semibold">Enrich from LinkedIn</span> — {!viewingClient.company_name && !viewingClient.role ? 'company and role are' : !viewingClient.company_name ? 'company is' : 'role is'} missing.
+                  </p>
+                  <button onClick={() => { window.open(viewingClient.linkedin_url, '_blank', 'noopener,noreferrer'); openEditClient(viewingClient); setViewingClient(null); }}
+                    className="text-[12px] font-bold text-blue-700 dark:text-blue-300 hover:underline">
+                    Open profile + edit form →
+                  </button>
+                </div>
+              )}
+
+              {/* V2.0 F10 — Connected to: shared company / source / referrer clusters */}
+              {(() => {
+                const others = clients.filter(c => c.id !== viewingClient.id);
+                const sameCompany = viewingClient.company_name ? others.filter(c => c.company_name && c.company_name.toLowerCase() === viewingClient.company_name.toLowerCase()) : [];
+                const sameReferrer = viewingClient.referred_by_client_id ? others.filter(c => c.referred_by_client_id === viewingClient.referred_by_client_id) : [];
+                const referredByThis = others.filter(c => c.referred_by_client_id === viewingClient.id);
+                const referrer = viewingClient.referred_by_client_id ? clients.find(c => c.id === viewingClient.referred_by_client_id) : null;
+                const sameSource = viewingClient.source ? others.filter(c => c.source === viewingClient.source).slice(0, 4) : [];
+                const rows = [
+                  ...(referrer ? [{ label: 'Referred by', people: [referrer] }] : []),
+                  ...(referredByThis.length ? [{ label: 'Referred', people: referredByThis }] : []),
+                  ...(sameCompany.length ? [{ label: `Also at ${viewingClient.company_name}`, people: sameCompany }] : []),
+                  ...(sameReferrer.length ? [{ label: 'Same referrer', people: sameReferrer }] : []),
+                  ...(sameSource.length ? [{ label: `Also from ${viewingClient.source}`, people: sameSource }] : []),
+                ];
+                if (!rows.length) return null;
+                return (
+                  <div className="rounded-xl border border-gray-100 dark:border-gray-800 p-3">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Connected to</p>
+                    <div className="space-y-1.5">
+                      {rows.map(row => (
+                        <div key={row.label} className="text-[12.5px]">
+                          <span className="text-gray-400">{row.label}: </span>
+                          {row.people.slice(0, 4).map((p, i) => (
+                            <span key={p.id}>
+                              {i > 0 && ', '}
+                              <button onClick={() => setViewingClient(p)} className="font-semibold text-gray-900 dark:text-gray-100 hover:underline">{p.name}</button>
+                            </span>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* FEATURE 23 — SMART FOLLOW-UP SUGGESTION */}
               {followUpLoading && <div className="h-10 bg-green-50 dark:bg-green-950/30 border border-green-100 dark:border-green-900 rounded-xl animate-pulse" />}
@@ -8535,6 +8907,7 @@ export default function App() {
                 onChange={setActiveProfileTab}
                 tabs={[
                   { key: 'activity', label: 'Activity' },
+                  { key: 'notes', label: 'Notes', count: profileNotes.length },
                   { key: 'tasks', label: 'Tasks', count: tasks.filter(t => t.client_id === viewingClient.id).length },
                   { key: 'files', label: 'Files' },
                   { key: 'deals', label: 'Deals', count: deals.filter(d => d.client_id === viewingClient.id).length },
@@ -8647,8 +9020,44 @@ export default function App() {
               )}
 
               {/* TAB: ACTIVITY — ENHANCED ACTIVITY LOGGING */}
+              {/* V2.0 F13 — NOTES TAB (pinnable, distinct from activities/quick_note) */}
+              {activeProfileTab === 'notes' && (
+                <div className="space-y-4">
+                  {canEdit && (
+                    <div className="flex gap-2">
+                      <textarea value={newNoteBody} onChange={e => setNewNoteBody(e.target.value)} rows={2}
+                        placeholder="Write a note… (pin the important ones)"
+                        className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 flex-1 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-gray-400 resize-none" />
+                      <button onClick={handleAddNote} disabled={!newNoteBody.trim()}
+                        className="self-end px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90 disabled:opacity-40">Add</button>
+                    </div>
+                  )}
+                  {profileNotes.length === 0 && <p className="text-[13px] text-gray-400 py-6 text-center">No notes yet. Notes are private jottings — pin the ones that matter.</p>}
+                  {profileNotes.map(note => (
+                    <div key={note.id} className={`rounded-xl border p-3.5 ${note.pinned ? 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20' : 'border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-[13px] text-gray-800 dark:text-gray-200 whitespace-pre-wrap flex-1">{note.body}</p>
+                        {canEdit && (
+                          <div className="flex gap-2 shrink-0 text-[11px] font-semibold">
+                            <button onClick={() => handleTogglePinNote(note)} className={note.pinned ? 'text-amber-600' : 'text-gray-400 hover:text-amber-600'}>{note.pinned ? 'Pinned' : 'Pin'}</button>
+                            <button onClick={() => handleDeleteNote(note)} className="text-gray-400 hover:text-red-600">Delete</button>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[10.5px] text-gray-400 mt-1.5">{timeAgo(note.created_at)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {activeProfileTab === 'activity' && (
               <div id="activity-timeline" className="space-y-4">
+                {/* V2.0 F8 — swimlane view: channels as lanes, dots at dates */}
+                <SwimlaneTimeline
+                  activities={activities.filter(a => a.client_id === viewingClient.id)}
+                  deals={deals.filter(d => d.client_id === viewingClient.id)}
+                  tasks={tasks.filter(t => t.client_id === viewingClient.id)}
+                />
                 <div className="flex items-center justify-between">
                   <span className="text-[12px] font-bold text-gray-400 uppercase tracking-wider">Activity Timeline</span>
                   <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
