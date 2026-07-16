@@ -526,6 +526,31 @@ function SwimlaneTimeline({ activities, deals, tasks }) {
   );
 }
 
+// V2.0 F29 — task priority levels
+const TASK_PRIORITIES = ['urgent', 'high', 'medium', 'low'];
+const PRIORITY_META = {
+  urgent: { label: 'Urgent', chip: 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300', dot: 'bg-red-500 animate-pulse' },
+  high:   { label: 'High',   chip: 'bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300', dot: 'bg-orange-500' },
+  medium: { label: 'Medium', chip: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300', dot: 'bg-blue-500' },
+  low:    { label: 'Low',    chip: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400', dot: 'bg-gray-400' },
+};
+
+// V2.0 F32 — built-in task templates: offsets are days from today.
+const TASK_TEMPLATE_LIBRARY = [
+  { name: 'New Client Onboarding', tasks: [
+    { title: 'Send welcome email + next steps', offset: 0, priority: 'high' },
+    { title: 'Set up shared folder / docs', offset: 3, priority: 'medium' },
+    { title: 'Week-one check-in call', offset: 7, priority: 'high' },
+    { title: 'Collect feedback + adjust plan', offset: 14, priority: 'medium' },
+    { title: '30-day review', offset: 30, priority: 'medium' },
+  ]},
+  { name: 'Follow-Up Blitz', tasks: [
+    { title: 'Send recap of last conversation', offset: 0, priority: 'high' },
+    { title: 'Share one useful resource', offset: 2, priority: 'medium' },
+    { title: 'Ask for the next meeting', offset: 5, priority: 'urgent' },
+  ]},
+];
+
 // ==========================================
 // MODULE-SCOPE CONSTANTS
 // ==========================================
@@ -1447,6 +1472,16 @@ export default function App() {
   const [dealQuickFilter, setDealQuickFilter] = useState('all'); // V2.0 F20
   const [seqStatsId, setSeqStatsId] = useState(null); // V2.0 F21 — per-sequence analytics overlay
   const [composerPreview, setComposerPreview] = useState(false); // V2.0 F22 — device preview toggle
+  const [taskPriorityFilter, setTaskPriorityFilter] = useState('All'); // V2.0 F29
+  const [dueSoonTask, setDueSoonTask] = useState(null); // V2.0 F30 — task due within 30min
+  const [subtasks, setSubtasks] = useState([]); // V2.0 F31
+  const [expandedTaskId, setExpandedTaskId] = useState(null); // V2.0 F31 — open checklist
+  const [taskViewMode, setTaskViewMode] = useState('list'); // V2.0 F33 — 'list' | 'board'
+  const [activityFeed, setActivityFeed] = useState([]); // V2.0 F41 — workspace-wide feed
+  const [filterMissingField, setFilterMissingField] = useState(null); // V2.0 F47
+  const [showShortcuts, setShowShortcuts] = useState(false); // V2.0 F49
+  const [showWhatsNew, setShowWhatsNew] = useState(false); // V2.0 F50
+  const [importHistory, setImportHistory] = useState([]); // V2.0 F46
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState({ clients: [], activities: [] });
 
@@ -1988,6 +2023,9 @@ export default function App() {
       fetchTags(session.user.id),
       fetchLists(session.user.id),
       fetchDealEvents(session.user.id),
+      fetchSubtasks(),
+      fetchActivityFeed(),
+      fetchImportHistory(),
       fetchWebhooks(session.user.id),
       fetchGoals(session.user.id),
       fetchSavedViews(session.user.id),
@@ -2028,6 +2066,105 @@ export default function App() {
     const { data } = await supabase.from('automation_rules').select('*').eq('user_id', userId).order('created_at', { ascending: false });
     if (data) setAutomationRules(data);
   }
+
+  // V2.0 F41 — workspace activity feed (visible to all members via RLS)
+  async function fetchActivityFeed() {
+    const { data } = await supabase.from('activity_feed').select('*').order('created_at', { ascending: false }).limit(50);
+    if (data) setActivityFeed(data);
+  }
+  async function logFeed(action, entity_type, entity_id, entity_name, metadata = {}) {
+    try {
+      const { data } = await supabase.from('activity_feed')
+        .insert([{ workspace_id: workspace?.id || null, user_id: user.id, action, entity_type, entity_id: String(entity_id), entity_name, metadata }]).select();
+      if (data) setActivityFeed(prev => [data[0], ...prev].slice(0, 50));
+    } catch {} // feed logging must never break the primary action
+  }
+
+  // V2.0 F46 — import history (CSV imports logged with created row ids)
+  async function fetchImportHistory() {
+    const { data } = await supabase.from('import_history').select('*').order('created_at', { ascending: false }).limit(20);
+    if (data) setImportHistory(data);
+  }
+  async function handleUndoImport(imp) {
+    showConfirm('Undo Import', `Delete all ${imp.row_count} rows created by "${imp.filename || 'this import'}"? This cannot be undone.`, 'Delete rows', 'danger', async () => {
+      const table = imp.type === 'cold_contacts' ? 'cold_contacts' : 'clients';
+      const { error } = await supabase.from(table).delete().in('id', imp.imported_ids || []);
+      if (error) { showToast(error.message, 'error'); return; }
+      if (table === 'clients') setClients(prev => prev.filter(c => !(imp.imported_ids || []).includes(c.id)));
+      else setColdContacts(prev => prev.filter(c => !(imp.imported_ids || []).includes(c.id)));
+      await supabase.from('import_history').delete().eq('id', imp.id);
+      setImportHistory(prev => prev.filter(i => i.id !== imp.id));
+      showToast(`Import undone — ${imp.row_count} rows removed.`);
+    });
+  }
+
+  // V2.0 F31 — subtasks (all of the user's; RLS scopes to own tasks)
+  async function fetchSubtasks() {
+    const { data } = await supabase.from('subtasks').select('*').order('display_order').order('created_at');
+    if (data) setSubtasks(data);
+  }
+  async function handleAddSubtask(taskId, title) {
+    const { data, error } = await supabase.from('subtasks').insert([{ task_id: taskId, title }]).select();
+    if (error) { showToast(error.message, 'error'); return; }
+    setSubtasks(prev => [...prev, data[0]]);
+  }
+  async function handleToggleSubtask(st) {
+    const { error } = await supabase.from('subtasks').update({ done: !st.done }).eq('id', st.id);
+    if (!error) setSubtasks(prev => prev.map(s => s.id === st.id ? { ...s, done: !s.done } : s));
+  }
+  async function handleDeleteSubtask(st) {
+    const { error } = await supabase.from('subtasks').delete().eq('id', st.id);
+    if (!error) setSubtasks(prev => prev.filter(s => s.id !== st.id));
+  }
+
+  // V2.0 F29 — click the chip to cycle priority (urgent→high→medium→low)
+  async function handleCycleTaskPriority(task) {
+    const cur = TASK_PRIORITIES.indexOf(task.priority || 'medium');
+    const next = TASK_PRIORITIES[(cur + 1) % TASK_PRIORITIES.length];
+    const { error } = await supabase.from('tasks').update({ priority: next }).eq('id', task.id);
+    if (!error) setTasks(prev => prev.map(t => t.id === task.id ? { ...t, priority: next } : t));
+  }
+
+  // V2.0 F33 — board column move (keeps legacy pending/done status in sync)
+  async function handleMoveTaskStatus(task, task_status) {
+    const status = task_status === 'done' ? 'done' : 'pending';
+    const { error } = await supabase.from('tasks').update({ task_status, status }).eq('id', task.id);
+    if (!error) setTasks(prev => prev.map(t => t.id === task.id ? { ...t, task_status, status } : t));
+    else showToast(error.message, 'error');
+  }
+
+  // V2.0 F32 — apply a built-in task template to a relationship (relative dates)
+  async function handleApplyTaskTemplate(tpl, clientId) {
+    const rows = tpl.tasks.map(t => ({
+      client_id: clientId, user_id: user.id, title: t.title, status: 'pending',
+      priority: t.priority || 'medium',
+      due_date: new Date(Date.now() + t.offset * 864e5).toISOString().split('T')[0],
+    }));
+    const { data, error } = await supabase.from('tasks').insert(rows).select();
+    if (error) { showToast(error.message, 'error'); return; }
+    setTasks(prev => [...prev, ...data]);
+    showToast(`${data.length} tasks created from "${tpl.name}"`);
+  }
+
+  // V2.0 F30 — in-app due-time reminder: checks every 60s for tasks due within 30min
+  useEffect(() => {
+    if (!user) return;
+    const check = () => {
+      const now = new Date();
+      const today = now.toISOString().split('T')[0];
+      const soon = tasks.find(t => {
+        if (t.status === 'done' || t.due_date !== today || !t.due_time) return false;
+        const [h, m] = t.due_time.split(':').map(Number);
+        const due = new Date(now); due.setHours(h, m, 0, 0);
+        const mins = (due - now) / 60000;
+        return mins > 0 && mins <= 30;
+      });
+      setDueSoonTask(soon || null);
+    };
+    check();
+    const iv = setInterval(check, 60000);
+    return () => clearInterval(iv);
+  }, [tasks, user?.id]);
 
   // V2.0 F16 — deal event history (auto-logged on create/stage/value changes)
   async function fetchDealEvents(userId) {
@@ -2371,6 +2508,7 @@ export default function App() {
     if (!error) {
       setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, stage: newStage } : d));
       logDealEvent(deal.id, 'stage_changed', deal.stage, newStage); // V2.0 F16
+      if (newStage === 'Won') logFeed('won_deal', 'deal', deal.id, deal.title, { value: deal.value }); // V2.0 F41
       if (newStage === 'Won' || newStage === 'Lost') setWinLossPrompt({ deal, stage: newStage }); // V2.0 F19
       if (newStage === 'Won') dispatchWebhook('deal.won', { ...deal, stage: newStage });
       if (newStage === 'Lost') dispatchWebhook('deal.lost', { ...deal, stage: newStage });
@@ -4344,6 +4482,20 @@ export default function App() {
     const { data, error } = await supabase.from('relationship_notes')
       .insert([{ client_id: viewingClient.id, user_id: user.id, body }]).select();
     if (error) { showToast(error.message, 'error'); return; }
+    // V2.0 F42 — @mentions: notify any workspace member named in the note
+    if (workspace) {
+      const myName = profile?.username || user.email;
+      workspaceMembers.forEach(m => {
+        const uname = m.username || m.profiles?.username;
+        if (m.user_id && m.user_id !== user.id && uname && body.toLowerCase().includes(`@${uname.toLowerCase()}`)) {
+          supabase.from('notifications').insert([{
+            user_id: m.user_id, type: 'mention',
+            message: `${myName} mentioned you in a note on ${viewingClient.name}`,
+            reference_id: viewingClient.id,
+          }]).then(() => {});
+        }
+      });
+    }
     setProfileNotes(prev => {
       const pinned = prev.filter(n => n.pinned);
       const rest = prev.filter(n => !n.pinned);
@@ -4411,6 +4563,7 @@ export default function App() {
     if (error || !data) { showToast(error?.message || 'Could not add', 'error'); return false; }
     setClients(prev => [data[0], ...prev]);
     dispatchWebhook('client.created', data[0]);
+    logFeed('created_relationship', 'client', data[0].id, data[0].name); // V2.0 F41
     flashAdded(data[0].id);
   }
   async function handleQuickAddDeal(title) {
@@ -5394,6 +5547,7 @@ export default function App() {
           <nav className="flex-1 overflow-y-auto px-3 py-4 flex flex-col gap-0.5">
             {[
               ['DASHBOARD', 'Overview'],
+              ['TODAY', 'Today'],
               ['CLIENTS', 'Relationships'],
               ['DEALS', 'Deals'],
               ['N8N', 'Email Automation'],
@@ -5480,6 +5634,7 @@ export default function App() {
                 <div className="hidden md:flex items-center gap-1">
                   {[
                     ['DASHBOARD', 'Overview'],
+                    ['TODAY', 'Today'],
                     ['CLIENTS', 'Relationships'],
                     ['DEALS', 'Deals'],
                     ['GLOBAL_TASKS', 'Tasks'],
@@ -5571,6 +5726,7 @@ export default function App() {
             <div className="px-4 py-3 flex flex-col gap-1">
               {[
                 ['DASHBOARD', 'Overview'],
+                ['TODAY', 'Today'],
                 ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
                 ['N8N', 'Email Automation'],
@@ -5608,6 +5764,18 @@ export default function App() {
       {/* FIX: page padding lives on the inner wrapper so it can never fight the
           sidebar offset (md:pl-60) for padding-left â€” content always sits beside
           the 240px nav at every breakpoint, no horizontal scrollbar. */}
+      {/* V2.0 F30 — task due-time reminder (within 30 minutes) */}
+      {user && dueSoonTask && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 md:left-[calc(50%+120px)] z-[190] flex items-center gap-3 px-4 py-2.5 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-2xl animate-in slide-in-from-top-2 fade-in">
+          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+          <span className="text-[13px] font-semibold">
+            Task due {(() => { const [h, m] = dueSoonTask.due_time.split(':').map(Number); const due = new Date(); due.setHours(h, m, 0, 0); const mins = Math.max(1, Math.round((due - Date.now()) / 60000)); return `in ${mins} min`; })()}: {dueSoonTask.title}
+          </span>
+          <button onClick={() => { setAppStep('GLOBAL_TASKS'); setDueSoonTask(null); }} className="text-[12px] font-bold underline underline-offset-2">View</button>
+          <button onClick={() => setDueSoonTask(null)} className="text-[11px] font-semibold opacity-60 hover:opacity-100">Dismiss</button>
+        </div>
+      )}
+
       <main className={`flex-1 w-full min-w-0 ${user ? 'md:pl-60' : ''}`}>
         {/* V2.0 F2 — every screen switch crossfades + slides (no hard cuts) */}
         <motion.div
@@ -5795,6 +5963,56 @@ export default function App() {
               );
             })()}
 
+            {/* V2.0 F35 — KPI cards with vs-last-30-days trend arrows */}
+            {(() => {
+              const now = Date.now();
+              const d30 = new Date(now - 30 * 864e5).toISOString().split('T')[0];
+              const d60 = new Date(now - 60 * 864e5).toISOString().split('T')[0];
+              const inWin = (dateStr, from, to) => dateStr && dateStr >= from && (!to || dateStr < to);
+              const kpis = [
+                {
+                  label: 'New Relationships',
+                  cur: clients.filter(c => inWin((c.created_at || '').split('T')[0], d30)).length,
+                  prev: clients.filter(c => inWin((c.created_at || '').split('T')[0], d60, d30)).length,
+                },
+                {
+                  label: 'Activities Logged',
+                  cur: activities.filter(a => inWin(a.activity_date, d30)).length,
+                  prev: activities.filter(a => inWin(a.activity_date, d60, d30)).length,
+                },
+                {
+                  label: 'Deals Won ($)',
+                  money: true,
+                  cur: deals.filter(d => d.stage === 'Won' && inWin((d.created_at || '').split('T')[0], d30)).reduce((s, d) => s + toUSD(d.value, d.currency), 0),
+                  prev: deals.filter(d => d.stage === 'Won' && inWin((d.created_at || '').split('T')[0], d60, d30)).reduce((s, d) => s + toUSD(d.value, d.currency), 0),
+                },
+                {
+                  label: 'Emails Auto-Sent',
+                  cur: sequenceSends.filter(s => s.channel === 'email' && inWin((s.sent_at || '').split('T')[0], d30)).length,
+                  prev: sequenceSends.filter(s => s.channel === 'email' && inWin((s.sent_at || '').split('T')[0], d60, d30)).length,
+                },
+              ];
+              return (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {kpis.map(k => {
+                    const delta = k.prev === 0 ? (k.cur > 0 ? 100 : 0) : Math.round(((k.cur - k.prev) / k.prev) * 100);
+                    const up = delta > 0, flat = delta === 0;
+                    return (
+                      <div key={k.label} className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
+                        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{k.label}</p>
+                        <div className="flex items-end justify-between mt-1">
+                          <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">{k.money ? fmtMoney(k.cur) : k.cur}</p>
+                          <span className={`text-[12px] font-bold ${flat ? 'text-gray-400' : up ? 'text-green-600' : 'text-red-500'}`} title="vs prior 30 days">
+                            {flat ? '—' : `${up ? '▲' : '▼'} ${Math.abs(delta)}%`}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
             {/* V2.0 F12 — birthday reminders with one-click pre-drafted email */}
             {(() => {
               const windowDays = emailSettings?.birthday_reminder_days ?? 3;
@@ -5829,6 +6047,61 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                </div>
+              );
+            })()}
+
+            {/* V2.0 F41 + F44 — team feed + leaderboard (feed solo-friendly too) */}
+            {activityFeed.length > 0 && (() => {
+              const memberName = (uid) => {
+                if (uid === user.id) return 'You';
+                const m = workspaceMembers.find(x => x.user_id === uid);
+                return m?.username || m?.profiles?.username || m?.invited_email || 'Teammate';
+              };
+              const ACTION_LABEL = {
+                won_deal: (f) => `won ${f.metadata?.value ? fmtMoney(parseFloat(f.metadata.value) || 0) + ' with ' : ''}${f.entity_name}`,
+                created_relationship: (f) => `added ${f.entity_name}`,
+                enrolled_contacts: (f) => `enrolled ${f.metadata?.count || ''} contacts in ${f.entity_name}`,
+              };
+              const monthStart = todayStr.slice(0, 7) + '-01';
+              const monthFeed = activityFeed.filter(f => (f.created_at || '') >= monthStart);
+              const byUser = {};
+              monthFeed.forEach(f => {
+                byUser[f.user_id] = byUser[f.user_id] || { actions: 0, wins: 0 };
+                byUser[f.user_id].actions++;
+                if (f.action === 'won_deal') byUser[f.user_id].wins++;
+              });
+              const top = Object.entries(byUser).sort((a, b) => b[1].actions - a[1].actions).slice(0, 3);
+              return (
+                <div className={`grid grid-cols-1 ${workspace ? 'lg:grid-cols-[1.4fr_1fr]' : ''} gap-6`}>
+                  <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                    <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">{workspace ? 'Team Feed' : 'Recent Wins'}</h3>
+                    <div className="space-y-2.5">
+                      {activityFeed.slice(0, 6).map(f => (
+                        <div key={f.id} className="flex items-center gap-2.5 text-[12.5px]">
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${f.action === 'won_deal' ? 'bg-emerald-500' : 'bg-indigo-400'}`} />
+                          <span className="text-gray-700 dark:text-gray-300 truncate">
+                            <span className="font-semibold">{memberName(f.user_id)}</span> {(ACTION_LABEL[f.action] || (x => `${x.action.replace(/_/g, ' ')} ${x.entity_name || ''}`))(f)}
+                          </span>
+                          <span className="text-[11px] text-gray-400 ml-auto shrink-0">{timeAgo(f.created_at)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {workspace && top.length > 0 && (
+                    <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                      <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Leaderboard — this month</h3>
+                      <div className="space-y-2.5">
+                        {top.map(([uid, stats], i) => (
+                          <div key={uid} className="flex items-center gap-3">
+                            <span className={`w-6 h-6 rounded-full grid place-items-center text-[11px] font-bold ${i === 0 ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'}`}>{i + 1}</span>
+                            <span className="text-[13px] font-semibold text-gray-900 dark:text-gray-100">{memberName(uid)}</span>
+                            <span className="text-[11px] text-gray-400 ml-auto">{stats.actions} actions{stats.wins ? ` · ${stats.wins} won` : ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -6927,8 +7200,214 @@ export default function App() {
                 <button onClick={() => setCompareReports(!compareReports)} className={`px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-all ${compareReports ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 border-gray-900 dark:border-gray-100' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
                   Compare to previous period {compareReports ? '(on)' : ''}
                 </button>
+                {/* V2.0 F40 — print-optimized report → Print → Save as PDF */}
+                <button onClick={() => {
+                  const esc = (x) => String(x ?? '').replace(/</g, '&lt;');
+                  const won = deals.filter(d => d.stage === 'Won');
+                  const w = window.open('', '_blank');
+                  if (!w) { showToast('Popup blocked — allow popups to download the report.', 'error'); return; }
+                  w.document.write(`<!doctype html><html><head><title>CRM Report — ${todayStr}</title>
+                    <style>body{font-family:-apple-system,Helvetica,sans-serif;max-width:720px;margin:40px auto;color:#111}h1{font-size:22px}h2{font-size:15px;margin-top:28px;border-bottom:1px solid #ddd;padding-bottom:4px}table{width:100%;border-collapse:collapse;font-size:12.5px}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #eee}p{font-size:13px}@media print{body{margin:12px auto}}</style>
+                    </head><body>
+                    <h1>CRM Report</h1><p>Generated ${todayStr} · window: last ${reportRange} days</p>
+                    <h2>Overview</h2>
+                    <table>
+                      <tr><td>Relationships</td><td><b>${clients.length}</b></td><td>Activities (window)</td><td><b>${reportStats.activitiesInRange.length}</b></td></tr>
+                      <tr><td>Open pipeline</td><td><b>${esc(fmtMoney(pipelineValue))}</b></td><td>Weighted forecast</td><td><b>${esc(fmtMoney(weightedForecast))}</b></td></tr>
+                      <tr><td>Won (total)</td><td><b>${esc(fmtMoney(wonValue))}</b></td><td>Win rate</td><td><b>${reportStats.winRate}%</b></td></tr>
+                      <tr><td>Emails auto-sent</td><td><b>${sequenceSends.filter(s => s.channel === 'email').length}</b></td><td>Replies</td><td><b>${sequenceSends.filter(s => s.replied_at).length}</b></td></tr>
+                    </table>
+                    <h2>Won Deals</h2>
+                    <table><tr><th>Deal</th><th>Value</th><th>Close</th><th>Reason</th></tr>
+                    ${won.map(d => `<tr><td>${esc(d.title)}</td><td>${esc(fmtCurrency(d.value, d.currency))}</td><td>${esc(d.close_date || '—')}</td><td>${esc(d.close_reason || '—')}</td></tr>`).join('')}</table>
+                    <h2>Pipeline by Stage</h2>
+                    <table>${DEAL_STAGES.map(s => `<tr><td>${s}</td><td><b>${esc(fmtMoney(deals.filter(d => d.stage === s).reduce((sum, d) => sum + toUSD(d.value, d.currency), 0)))}</b></td><td>${deals.filter(d => d.stage === s).length} deals</td></tr>`).join('')}</table>
+                    <script>window.print()</script></body></html>`);
+                  w.document.close();
+                }} className="px-3 py-1.5 text-[12px] font-semibold rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90 transition-opacity">
+                  Download Report
+                </button>
               </div>
             </div>
+
+            {/* V2.0 F36 — GitHub-style 365-day activity heatmap */}
+            {(() => {
+              const byDay = {};
+              activities.forEach(a => { if (a.activity_date) byDay[a.activity_date] = (byDay[a.activity_date] || 0) + 1; });
+              const weeks = [];
+              const start = new Date(Date.now() - 364 * 864e5);
+              start.setDate(start.getDate() - start.getDay()); // align to Sunday
+              for (let w = 0; w < 53; w++) {
+                const col = [];
+                for (let d = 0; d < 7; d++) {
+                  const day = new Date(start.getTime() + (w * 7 + d) * 864e5);
+                  const key = day.toISOString().split('T')[0];
+                  if (day > new Date()) { col.push(null); continue; }
+                  col.push({ key, n: byDay[key] || 0 });
+                }
+                weeks.push(col);
+              }
+              let streak = 0;
+              for (let i = 0; ; i++) {
+                const key = new Date(Date.now() - i * 864e5).toISOString().split('T')[0];
+                if (byDay[key]) streak++;
+                else if (i === 0) continue; // today can still be empty without breaking the streak
+                else break;
+              }
+              const shade = (n) => n === 0 ? 'rgba(156,163,175,0.15)' : n === 1 ? 'rgba(16,185,129,0.35)' : n <= 3 ? 'rgba(16,185,129,0.6)' : 'rgba(16,185,129,0.95)';
+              return (
+                <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Activity — last 365 days</h3>
+                    <span className="text-[12px] font-bold text-gray-900 dark:text-gray-100">{streak > 0 ? `${streak}-day streak` : 'No current streak'}</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <div className="flex gap-[3px] w-max">
+                      {weeks.map((col, wi) => (
+                        <div key={wi} className="flex flex-col gap-[3px]">
+                          {col.map((cell, di) => cell === null
+                            ? <span key={di} className="w-[10px] h-[10px]" />
+                            : <span key={di} className="w-[10px] h-[10px] rounded-[2px]" title={`${cell.key}: ${cell.n} activities`} style={{ background: shade(cell.n) }} />)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* V2.0 F37 + F39 + F19 — revenue analytics, automation ROI, win/loss reasons */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {(() => {
+                const monthKey = (d) => (d || '').slice(0, 7);
+                const thisMonth = todayStr.slice(0, 7);
+                const won = deals.filter(d => d.stage === 'Won');
+                const lost = deals.filter(d => d.stage === 'Lost');
+                const wonThisMonth = won.filter(d => monthKey(d.close_date || (d.created_at || '').split('T')[0]) === thisMonth)
+                  .reduce((s, d) => s + toUSD(d.value, d.currency), 0);
+                const avgDeal = won.length ? won.reduce((s, d) => s + toUSD(d.value, d.currency), 0) / won.length : 0;
+                const months = [...Array(6)].map((_, i) => {
+                  const m = new Date(); m.setMonth(m.getMonth() - (5 - i));
+                  const key = m.toISOString().slice(0, 7);
+                  return { key, total: won.filter(d => monthKey(d.close_date || (d.created_at || '').split('T')[0]) === key).reduce((s, d) => s + toUSD(d.value, d.currency), 0) };
+                });
+                const maxM = Math.max(...months.map(m => m.total), 1);
+                const bySource = {};
+                won.forEach(d => {
+                  const src = clients.find(c => c.id === d.client_id)?.source || 'Unknown';
+                  bySource[src] = (bySource[src] || 0) + toUSD(d.value, d.currency);
+                });
+                const srcRows = Object.entries(bySource).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                return (
+                  <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-4">
+                    <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Revenue</h3>
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <div><p className="text-[18px] font-bold text-gray-900 dark:text-gray-100">{fmtMoney(wonThisMonth)}</p><p className="text-[10.5px] text-gray-400">Won this month</p></div>
+                      <div><p className="text-[18px] font-bold text-gray-900 dark:text-gray-100">{won.length}:{lost.length}</p><p className="text-[10.5px] text-gray-400">Won : Lost</p></div>
+                      <div><p className="text-[18px] font-bold text-gray-900 dark:text-gray-100">{fmtMoney(avgDeal)}</p><p className="text-[10.5px] text-gray-400">Avg deal size</p></div>
+                    </div>
+                    <div className="flex items-end gap-2 h-20">
+                      {months.map(m => (
+                        <div key={m.key} className="flex-1 flex flex-col items-center gap-1" title={`${m.key}: ${fmtMoney(m.total)}`}>
+                          <div className="w-full bg-emerald-500/80 rounded-t" style={{ height: `${(m.total / maxM) * 100}%`, minHeight: 2 }} />
+                          <span className="text-[9px] text-gray-400">{m.key.slice(5)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {srcRows.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[10.5px] font-bold text-gray-400 uppercase tracking-wider">Revenue by source</p>
+                        {srcRows.map(([src, val]) => (
+                          <div key={src} className="flex justify-between text-[12px]"><span className="text-gray-600 dark:text-gray-300">{src}</span><span className="font-bold text-gray-900 dark:text-gray-100">{fmtMoney(val)}</span></div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+              <div className="space-y-6">
+                {(() => {
+                  const autoSends = sequenceSends.filter(s => s.channel === 'email');
+                  const replies = autoSends.filter(s => s.replied_at);
+                  const meetingsBooked = replies.filter(r => {
+                    const cid = r.client_id;
+                    if (!cid || !r.replied_at) return false;
+                    const replyDay = new Date(r.replied_at);
+                    return activities.some(a => a.client_id === cid && a.activity_type === 'Meeting' && a.activity_date &&
+                      new Date(a.activity_date) >= replyDay && new Date(a.activity_date) <= new Date(replyDay.getTime() + 7 * 864e5));
+                  }).length;
+                  const hoursSaved = Math.round((autoSends.length * 2) / 60 * 10) / 10;
+                  return (
+                    <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                      <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Email Automation ROI</h3>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          ['Auto-sent', autoSends.length],
+                          ['Reply rate', autoSends.length ? `${Math.round((replies.length / autoSends.length) * 100)}%` : '—'],
+                          ['Meetings booked', meetingsBooked],
+                          ['Hours saved', `${hoursSaved}h`],
+                        ].map(([label, v]) => (
+                          <div key={label} className="rounded-xl bg-gray-50 dark:bg-gray-800/60 p-3 text-center">
+                            <p className="text-[18px] font-bold text-gray-900 dark:text-gray-100">{v}</p>
+                            <p className="text-[10.5px] text-gray-400">{label}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10.5px] text-gray-400 mt-2">Hours saved = auto-sends × 2 min each. Meetings = Meeting activities within 7 days of a reply.</p>
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const reasons = {};
+                  deals.filter(d => ['Won', 'Lost'].includes(d.stage) && (d.close_reason || d.competitor)).forEach(d => {
+                    const key = `${d.stage}: ${d.close_reason || `Chose ${d.competitor}`}`;
+                    reasons[key] = (reasons[key] || 0) + 1;
+                  });
+                  const rows = Object.entries(reasons).sort((a, b) => b[1] - a[1]).slice(0, 8);
+                  if (!rows.length) return null;
+                  return (
+                    <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                      <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Win / Loss Reasons</h3>
+                      <div className="space-y-1.5">
+                        {rows.map(([reason, n]) => (
+                          <div key={reason} className="flex justify-between gap-3 text-[12.5px]">
+                            <span className={`truncate ${reason.startsWith('Won') ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{reason}</span>
+                            <span className="font-bold text-gray-900 dark:text-gray-100 shrink-0">{n}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* V2.0 F38 — relationship growth (12 weekly points) */}
+            {(() => {
+              const weeks = [...Array(12)].map((_, i) => {
+                const end = new Date(Date.now() - (11 - i) * 7 * 864e5);
+                const endKey = end.toISOString().split('T')[0];
+                const startKey = new Date(end.getTime() - 7 * 864e5).toISOString().split('T')[0];
+                const total = clients.filter(c => (c.created_at || '').split('T')[0] <= endKey).length;
+                const added = clients.filter(c => { const d = (c.created_at || '').split('T')[0]; return d > startKey && d <= endKey; }).length;
+                return { endKey, total, added };
+              });
+              const maxT = Math.max(...weeks.map(w => w.total), 1);
+              return (
+                <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                  <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">Network Growth — 12 weeks</h3>
+                  <div className="flex items-end gap-2 h-24">
+                    {weeks.map(w => (
+                      <div key={w.endKey} className="flex-1 flex flex-col items-center gap-1" title={`Week of ${w.endKey}: ${w.total} total, +${w.added} new`}>
+                        <span className="text-[9px] font-bold text-green-600">{w.added > 0 ? `+${w.added}` : ''}</span>
+                        <div className="w-full bg-indigo-500/70 rounded-t" style={{ height: `${(w.total / maxT) * 100}%`, minHeight: 3 }} />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between text-[9px] text-gray-400 mt-1"><span>{weeks[0].endKey}</span><span>{weeks[11].endKey}</span></div>
+                </div>
+              );
+            })()}
 
             {/* PART C4 — saved report pills */}
             {customReports.length > 0 && (
@@ -7421,6 +7900,82 @@ export default function App() {
         })()}
 
         {/* VIEW: GLOBAL TASKS */}
+        {/* V2.0 F34 — TODAY / FOCUS MODE: only what matters right now */}
+        {appStep === 'TODAY' && (() => {
+          const weekAhead = new Date(Date.now() + 7 * 864e5).toISOString().split('T')[0];
+          const dueTasks = tasks.filter(t => t.status === 'pending' && t.due_date && t.due_date <= todayStr)
+            .sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+          const closingDeals = deals.filter(d => !['Won', 'Lost'].includes(d.stage) && d.close_date && d.close_date >= todayStr && d.close_date <= weekAhead);
+          const coldVIPs = clients.filter(c => {
+            if (c.relationship !== 'High') return false;
+            const silent = daysSilent(lastActivityByClient[c.id]);
+            return silent == null || silent >= 30;
+          });
+          const bdays = clients.filter(c => {
+            if (!c.birthday) return false;
+            const now = new Date(todayStr); const b = new Date(c.birthday);
+            const t = new Date(now.getFullYear(), b.getMonth(), b.getDate());
+            if (t < now) t.setFullYear(now.getFullYear() + 1);
+            const diff = Math.round((t - now) / 864e5);
+            return diff >= 0 && diff <= 7;
+          });
+          const Section = ({ title, empty, children }) => (
+            <section className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
+              <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3">{title}</h3>
+              {children.length === 0 ? <p className="text-[13px] text-gray-400">{empty}</p> : <div className="space-y-2">{children}</div>}
+            </section>
+          );
+          return (
+            <div className="space-y-6 max-w-3xl animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Today</h1>
+                <p className="text-[13px] text-gray-500">No noise — just what needs you right now.</p>
+              </div>
+              <Section title={`Tasks due or overdue (${dueTasks.length})`} empty="Nothing due. Clear runway.">
+                {dueTasks.map(t => {
+                  const c = clients.find(x => x.id === t.client_id);
+                  const overdue = t.due_date < todayStr;
+                  return (
+                    <div key={t.id} className="flex items-center gap-3">
+                      <input type="checkbox" checked={false} onChange={() => handleToggleTask(t.id, t.status)} className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+                      <span className={`text-[13.5px] font-medium ${overdue ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>{t.title}</span>
+                      <span className="text-[11px] text-gray-400">{overdue ? `overdue since ${t.due_date}` : 'today'}{c ? ` · ${c.name}` : ''}</span>
+                    </div>
+                  );
+                })}
+              </Section>
+              <Section title={`Deals closing this week (${closingDeals.length})`} empty="No closes scheduled this week.">
+                {closingDeals.map(d => (
+                  <button key={d.id} onClick={() => setAppStep('DEALS')} className="flex items-center gap-3 w-full text-left hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg px-1 py-0.5">
+                    <span className="text-[13.5px] font-medium text-gray-900 dark:text-gray-100">{d.title}</span>
+                    <span className="text-[12px] font-bold text-gray-700 dark:text-gray-300 ml-auto">{fmtCurrency(d.value, d.currency)}</span>
+                    <span className="text-[11px] text-gray-400">{d.close_date}</span>
+                  </button>
+                ))}
+              </Section>
+              <Section title={`High-priority gone quiet 30d+ (${coldVIPs.length})`} empty="All VIPs are warm.">
+                {coldVIPs.slice(0, 6).map(c => (
+                  <button key={c.id} onClick={() => { setViewingClient(c); setAppStep('CLIENTS'); }} className="flex items-center gap-3 w-full text-left hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg px-1 py-0.5">
+                    <span className="text-[13.5px] font-medium text-gray-900 dark:text-gray-100">{c.name}</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${SILENT_TONE(daysSilent(lastActivityByClient[c.id]))}`}>
+                      {daysSilent(lastActivityByClient[c.id]) == null ? 'never contacted' : `${daysSilent(lastActivityByClient[c.id])}d silent`}
+                    </span>
+                  </button>
+                ))}
+              </Section>
+              <Section title={`Birthdays within 7 days (${bdays.length})`} empty="No birthdays this week.">
+                {bdays.map(c => (
+                  <div key={c.id} className="flex items-center gap-3">
+                    <span className="text-[13.5px] font-medium text-gray-900 dark:text-gray-100">{c.name}</span>
+                    <span className="text-[11px] text-gray-400">{c.birthday}</span>
+                    <button onClick={() => { setViewingClient(c); setEmailTo(c.email || ''); setEmailSubject(`Happy birthday, ${c.name.split(' ')[0]}!`); setShowEmailComposer(true); }} className="text-[11px] font-bold text-amber-600 hover:underline ml-auto">Draft email</button>
+                  </div>
+                ))}
+              </Section>
+            </div>
+          );
+        })()}
+
         {appStep === 'GLOBAL_TASKS' && (
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex justify-between items-center mb-6">
@@ -7439,48 +7994,156 @@ export default function App() {
               {canEdit && <QuickAddBar placeholder="Add task… type a title and press Enter (due today)" onAdd={handleQuickAddTask} />}
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-6 space-y-4">
-              {tasks.filter(t => t.status === tasksFilter).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).length === 0 && (
-                tasks.length === 0 ? (
-                  <EmptyState
-                    title="No tasks yet"
-                    desc="Create tasks to stay on top of your follow-ups — open a relationship profile to add one."
-                    ctaLabel="Go to Relationships"
-                    onCta={() => setAppStep('CLIENTS')}
-                  />
-                ) : (
-                  <p className="text-center text-[13px] text-gray-500 py-8">No {tasksFilter} tasks found.</p>
-                )
-              )}
-              {tasks.filter(t => t.status === tasksFilter).sort((a, b) => new Date(a.due_date) - new Date(b.due_date)).map(task => {
-                const client = clients.find(c => c.id === task.client_id);
-                const isOverdue = task.status === 'pending' && new Date(task.due_date) < new Date(todayStr);
-                
+            {/* V2.0 F29 + F33 — priority filter pills + list/board switcher */}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {['All', ...TASK_PRIORITIES].map(p => (
+                <button key={p} onClick={() => setTaskPriorityFilter(p)}
+                  className={`px-3 h-7 rounded-full text-[12px] font-semibold capitalize transition-colors ${taskPriorityFilter === p ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:border-gray-400'}`}>
+                  {p === 'All' ? 'All priorities' : p}
+                </button>
+              ))}
+              <div className="ml-auto flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
+                {[['list', 'List'], ['board', 'Board']].map(([v, label]) => (
+                  <button key={v} onClick={() => setTaskViewMode(v)} className={`px-3 py-1 text-[12px] font-semibold rounded-md transition-all ${taskViewMode === v ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500'}`}>{label}</button>
+                ))}
+              </div>
+            </div>
+
+            {(() => {
+              const matchesPriority = t => taskPriorityFilter === 'All' || (t.priority || 'medium') === taskPriorityFilter;
+              const TaskMeta = ({ task }) => {
+                const pm = PRIORITY_META[task.priority || 'medium'];
+                const subs = subtasks.filter(s => s.task_id === task.id);
+                const done = subs.filter(s => s.done).length;
                 return (
-                  <div key={task.id} className="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-gray-300 transition-colors bg-gray-50/50 dark:bg-gray-800/40"
-                    onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, items: [
-                      { label: task.status === 'done' ? 'Mark Pending' : 'Mark Done', action: () => handleToggleTask(task.id, task.status) },
-                      { label: 'View Relationship', action: () => { if (client) { setViewingClient(client); setAppStep('CLIENTS'); } } },
-                      { label: 'Copy Title', action: () => { navigator.clipboard?.writeText(task.title); showToast('Copied'); } },
-                    ] }); }}>
-                    <div className="flex items-center gap-4">
-                      <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-900 cursor-pointer" />
-                      <div>
-                        <div className={`text-[14px] ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
-                          {task.recurrence && <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mr-1" title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>Repeats</span>}
-                          {task.title}
-                        </div>
-                        <div className="text-[12px] text-gray-500 mt-0.5">
-                          Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span> 
-                          &nbsp;•&nbsp; 
-                          Relationship: <button onClick={() => { setViewingClient(client); setAppStep('CLIENTS'); }} className="text-gray-900 font-medium hover:underline">{client?.name || 'Unknown'}</button>
-                        </div>
-                      </div>
+                  <span className="inline-flex items-center gap-2">
+                    <button onClick={() => handleCycleTaskPriority(task)} title="Click to cycle priority"
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${pm.chip}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${pm.dot}`} />{pm.label}
+                    </button>
+                    {subs.length > 0 && (
+                      <button onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
+                        className="inline-flex items-center gap-1.5 text-[10.5px] font-semibold text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
+                        {done}/{subs.length}
+                        <span className="w-12 h-1 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden inline-block">
+                          <span className="block h-full bg-green-500" style={{ width: `${subs.length ? (done / subs.length) * 100 : 0}%` }} />
+                        </span>
+                      </button>
+                    )}
+                    {subs.length === 0 && (
+                      <button onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)} className="text-[10.5px] font-semibold text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">+ checklist</button>
+                    )}
+                  </span>
+                );
+              };
+              const Checklist = ({ task }) => expandedTaskId === task.id && (
+                <div className="mt-3 pl-9 space-y-1.5" onClick={e => e.stopPropagation()}>
+                  {subtasks.filter(s => s.task_id === task.id).map(st => (
+                    <div key={st.id} className="flex items-center gap-2 group/sub">
+                      <input type="checkbox" checked={st.done} onChange={() => handleToggleSubtask(st)} className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+                      <span className={`text-[12.5px] ${st.done ? 'line-through text-gray-400' : 'text-gray-700 dark:text-gray-300'}`}>{st.title}</span>
+                      <button onClick={() => handleDeleteSubtask(st)} className="opacity-0 group-hover/sub:opacity-100 text-[10px] font-semibold text-gray-400 hover:text-red-600">Del</button>
                     </div>
+                  ))}
+                  <form onSubmit={e => { e.preventDefault(); const v = e.target.elements.sub.value.trim(); if (v) { handleAddSubtask(task.id, v); e.target.reset(); } }}>
+                    <input name="sub" placeholder="+ Add checklist item, press Enter" className="dark:bg-gray-800 dark:text-gray-100 w-full max-w-[280px] px-2 py-1 text-[12px] border border-dashed border-gray-300 dark:border-gray-600 rounded-lg outline-none focus:border-gray-500 bg-transparent" />
+                  </form>
+                </div>
+              );
+
+              if (taskViewMode === 'board') {
+                // V2.0 F33 — kanban: To Do / In Progress / Done, drag to move
+                const COLS = [['todo', 'To Do'], ['in_progress', 'In Progress'], ['done', 'Done']];
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {COLS.map(([key, label]) => {
+                      const colTasks = tasks.filter(t => (t.task_status || (t.status === 'done' ? 'done' : 'todo')) === key).filter(matchesPriority);
+                      return (
+                        <div key={key} className="bg-gray-100/60 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800 flex flex-col"
+                          onDragOver={e => e.preventDefault()}
+                          onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData('text/task-id'); const t = tasks.find(x => String(x.id) === id); if (t) handleMoveTaskStatus(t, key); }}>
+                          <div className="px-4 py-3 flex items-center justify-between">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">{label}</span>
+                            <span className="text-[11px] font-mono text-gray-400">{colTasks.length}</span>
+                          </div>
+                          <div className="px-3 pb-3 space-y-2 min-h-[120px]">
+                            {colTasks.map(task => {
+                              const client = clients.find(c => c.id === task.client_id);
+                              return (
+                                <div key={task.id} draggable onDragStart={e => e.dataTransfer.setData('text/task-id', String(task.id))}
+                                  className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-3 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow">
+                                  <p className={`text-[13px] font-medium mb-1.5 ${key === 'done' ? 'line-through text-gray-400' : 'text-gray-900 dark:text-gray-100'}`}>{task.title}</p>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <TaskMeta task={task} />
+                                    <span className="text-[10.5px] text-gray-400 shrink-0">{task.due_date}</span>
+                                  </div>
+                                  {client && <p className="text-[11px] text-gray-400 mt-1 truncate">{client.name}</p>}
+                                  <Checklist task={task} />
+                                </div>
+                              );
+                            })}
+                            {colTasks.length === 0 && <div className="border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl h-16 grid place-items-center text-[11px] text-gray-400">Drop here</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
-              })}
-            </div>
+              }
+
+              const listTasks = tasks.filter(t => t.status === tasksFilter).filter(matchesPriority).sort((a, b) => {
+                const pDiff = TASK_PRIORITIES.indexOf(a.priority || 'medium') - TASK_PRIORITIES.indexOf(b.priority || 'medium');
+                return pDiff !== 0 ? pDiff : new Date(a.due_date) - new Date(b.due_date);
+              });
+              return (
+                <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-6 space-y-4">
+                  {listTasks.length === 0 && (
+                    tasks.length === 0 ? (
+                      <EmptyState
+                        title="No tasks yet"
+                        desc="Create tasks to stay on top of your follow-ups — open a relationship profile to add one."
+                        ctaLabel="Go to Relationships"
+                        onCta={() => setAppStep('CLIENTS')}
+                      />
+                    ) : (
+                      <p className="text-center text-[13px] text-gray-500 py-8">No matching tasks.</p>
+                    )
+                  )}
+                  {listTasks.map(task => {
+                    const client = clients.find(c => c.id === task.client_id);
+                    const isOverdue = task.status === 'pending' && new Date(task.due_date) < new Date(todayStr);
+                    return (
+                      <div key={task.id} className="p-4 border border-gray-100 rounded-xl hover:border-gray-300 transition-colors bg-gray-50/50 dark:bg-gray-800/40"
+                        onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, items: [
+                          { label: task.status === 'done' ? 'Mark Pending' : 'Mark Done', action: () => handleToggleTask(task.id, task.status) },
+                          { label: 'Cycle Priority', action: () => handleCycleTaskPriority(task) },
+                          { label: 'View Relationship', action: () => { if (client) { setViewingClient(client); setAppStep('CLIENTS'); } } },
+                          { label: 'Copy Title', action: () => { navigator.clipboard?.writeText(task.title); showToast('Copied'); } },
+                        ] }); }}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-4 min-w-0">
+                            <input type="checkbox" checked={task.status === 'done'} onChange={() => handleToggleTask(task.id, task.status)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-900 cursor-pointer" />
+                            <div className="min-w-0">
+                              <div className={`text-[14px] truncate ${task.status === 'done' ? 'line-through text-gray-400' : isOverdue ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'}`}>
+                                {task.recurrence && <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mr-1" title={`Repeats ${task.recurrence}${task.recurrence_end_date ? ` until ${task.recurrence_end_date}` : ''}`}>Repeats</span>}
+                                {task.title}
+                              </div>
+                              <div className="text-[12px] text-gray-500 mt-0.5">
+                                Due: <span className={isOverdue ? 'text-red-500 font-medium' : ''}>{task.due_date}</span>
+                                &nbsp;•&nbsp;
+                                Relationship: <button onClick={() => { setViewingClient(client); setAppStep('CLIENTS'); }} className="text-gray-900 font-medium hover:underline">{client?.name || 'Unknown'}</button>
+                              </div>
+                            </div>
+                          </div>
+                          <TaskMeta task={task} />
+                        </div>
+                        <Checklist task={task} />
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -9199,7 +9862,17 @@ export default function App() {
               {/* TAB: TASKS */}
               {activeProfileTab === 'tasks' && (
               <div>
-                <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-3">Tasks for this Relationship</h4>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400">Tasks for this Relationship</h4>
+                  {/* V2.0 F32 — apply a task template (relative due dates from today) */}
+                  {canEdit && (
+                    <select onChange={e => { const tpl = TASK_TEMPLATE_LIBRARY.find(t => t.name === e.target.value); if (tpl) handleApplyTaskTemplate(tpl, viewingClient.id); e.target.value = ''; }}
+                      className="dark:bg-gray-800 dark:text-gray-100 px-2 py-1 text-[12px] border border-dashed border-gray-300 dark:border-gray-600 rounded-lg outline-none">
+                      <option value="">Apply template…</option>
+                      {TASK_TEMPLATE_LIBRARY.map(t => <option key={t.name} value={t.name}>{t.name} ({t.tasks.length} tasks)</option>)}
+                    </select>
+                  )}
+                </div>
 
                 <form onSubmit={(e) => handleCreateTask(e, viewingClient.id)} className="flex flex-wrap gap-2 mb-3">
                   <input type="text" placeholder="New task title..." value={newTaskTitle} onChange={(e) => setNewTaskTitle(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 flex-1 min-w-[140px] px-3 py-1.5 min-h-[44px] md:min-h-0 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" required />
