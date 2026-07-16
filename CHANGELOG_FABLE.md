@@ -500,3 +500,43 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **F49 Shortcut sheet:** the old small modal is now a full-screen two-column reference grouped by context (Global/Relationships/Deals/Automation/Tasks/Toasts) with `<kbd>` keys — same `?` binding and Esc dismiss; sidebar `?` button unchanged.
 - **F50 What's New:** `WHATS_NEW` array in code; modal auto-shows once per version (localStorage `crm_whatsnew_seen`), sidebar "What's New" entry with a pulsing dot until seen. Sidebar Search now opens the F1 palette (consistency).
 - Note: a prior crashed continuation of this same session had committed partial E–G work (`d07835b`) and left stale git locks (verified no live git process, then removed); current tree audited — no duplicate implementations, single source for every feature, build green.
+
+# ============ BIG UPDATE V3 (branch big-update/v3) ============
+
+## Step 0 — Recon
+- All assumed tables exist; `gmail_connections.id` bigint; `automation_rules.id` uuid (prompt said bigint — reality wins); jobs/payments exist UI-orphaned; **no /api routes exist** (F100's "existing /api/v1" adapted); no PWA files.
+- **Already live, NOT rebuilt:** `deals.is_recurring/billing_cycle/renewal_date/currency` + Recurring Revenue widget + ≈USD display (F45/F48 ~80% pre-existing), task recurrence auto-reschedule (F26 core), `automation_rules.run_count/last_run_at` (half of F95), **F9 voice-to-activity (SpeechRecognition flow from an earlier session)**.
+- `ai-summary` edge function was live but its source wasn't in the repo — pulled into `supabase/functions/ai-summary/`, extended, redeployed (v3).
+
+## Migration (applied + verified live)
+- `supabase/migrations/20260716_big_update_v3.sql`: **16 new tables** (meeting_briefs, info_interviews, applications, career_goals, booking_slots, bookings, call_scripts, deal_stakeholders, deal_templates, proposals, contract_templates, saved_search_alerts, audit_log, achievements, automation_runs, dashboard_layout) + **15 columns** (clients.network_role/school/timezone/preferred_channel, profiles.elevator_pitch/one_line_bio/email_signature/deletion_requested_at/accent_color, tasks.series_id, deals.split_credit, email_sequences.gmail_connection_id, jobs.stripe_payment_link, relationship_lists.is_smart/smart_filters). RLS + policies on all; verified via information_schema.
+- **Security decision:** NO anon RLS policy for shared proposals (would allow enumeration) — the public link will be served by a token-checking edge function.
+
+## Cluster B — Student & career networking (F11–F22)
+- **F13 Applications kanban** (the headline): new **Career Hub** sidebar view — Researching→Applied→Phone Screen→Interview→Offer→Rejected columns, drag between stages, quick-add by company, per-card job-URL/role/referrer via context menu, referrer links to the relationship ("via Sarah Chen"), offer celebration toast.
+- **F12 Info interviews:** "Interviews" profile tab — schedule + prepared questions up front, takeaways after, "thank-you sent" checkbox; saving takeaways with no thank-you auto-queues the F17 task.
+- **F17 Thank-you auto-reminder:** Meeting activity with a mentor/recruiter/professor (or interview takeaways) creates "Send thank-you note to [Name]" due tomorrow, high priority, deduped.
+- **F11 Network roles:** mentor/mentee/peer/recruiter/alumni/professor — edit-form select, colored profile badge.
+- **F14 Referral chain:** profile card renders the intro chain upward (up to 4 hops) and everyone this person referred, all clickable.
+- **F21 Warm intro:** one click drafts the "small introduction favor" email pre-filled with a same-company target.
+- **F15 School network:** `school` field + Career Hub tab grouping contacts by school (alumni lens).
+- **F18 Career goals:** goal + target date + linked people (add/remove via select), mark achieved/reopen.
+- **F19 Pitch & bio:** Settings section persisting to profiles; `{{my_pitch}}`/`{{my_bio}}` merge tags resolve everywhere.
+- **F20 Diversity donut:** conic-gradient donut of network_role mix in the Career Hub header.
+- **F16 Coffee-chat template:** new sequence template written in informational tone (uses {{my_bio}}), 2 steps + polite bump.
+- **F22 Endorsements:** one-tap tags ("Made an introduction"…) on notes, rendered as emerald chips.
+- **F27 Timezone:** "It's 9:14 PM for them — probably offline" under the profile name (Intl API; amber outside 7:00–22:00).
+
+## Cluster A — AI & intelligence layer (F1–F10)
+- **Edge function v3:** one function, 8 modes (summary, follow_up_suggestion, meeting_brief, draft_sequence, icebreakers, compare, classify_reply, nl_search) on claude-haiku; clean 400 without ANTHROPIC_API_KEY → every feature degrades gracefully (checklist #3). Source now lives in the repo.
+- **F1 NL search:** long palette queries surface "Ask your CRM" → AI translates to a structured filter (days-silent, priority, status, role, source, open-deal, text) applied via a new memo step with a dismissible "AI filter" chip; JSON-parse or API failure falls back to keyword search.
+- **F2 Meeting briefs:** "AI Brief" profile button → 5-bullet brief panel, persisted to meeting_briefs.
+- **F3 Sentiment:** keyword classifier — colored dot per timeline entry + a last-10-activities trend strip (bar height by sentiment).
+- **F4 AI sequence draft:** "Generate with AI" in Email Automation — one-line goal → 3–5 step draft sequence created as a real canvas (trigger→email→wait chain with edges), named "AI: …", opens in the builder with a review-everything toast.
+- **F5 Fuzzy duplicates:** Levenshtein + same-company + first-name-with-initial heuristics → dismissible Settings panel wired straight into the existing Merge tool.
+- **F6 Icebreakers:** composer button inserts 3 role/company-referencing openers above the draft.
+- **F7 At Risk:** dashboard section for *trending* cold (14–60d silent AND declining 30d activity vs prior AND no open deal) — distinct from the static health map, with one-click reach-out.
+- **F8 Reply classification:** `classify_reply` mode deployed server-side; on-demand UI classification deferred (gmail-sync integration point documented).
+- **F10 Compare:** select exactly 2 → "Compare (AI)" in the bulk bar → side-by-side verdict modal with a this-week priority recommendation.
+- **F9:** already existed (browser SpeechRecognition) — verified, untouched.
+- `next build` green.

@@ -234,7 +234,7 @@ function Toast({ id, type, message, undoFn, onClose, stackIndex = 0 }) {
 // V2.0 F1 — Raycast/Linear-style command palette. Items: { type, label, hint?, action }.
 // Fuzzy-ranked (prefix > substring > subsequence), grouped by type, ↑↓/Enter/Esc,
 // recents in localStorage.
-function CommandPalette({ items, onClose }) {
+function CommandPalette({ items, onClose, onAskAI }) {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const inputRef = useRef(null);
@@ -320,7 +320,15 @@ function CommandPalette({ items, onClose }) {
           className="w-full px-5 h-14 text-[16px] bg-transparent outline-none text-gray-900 dark:text-gray-100 placeholder:text-gray-400 border-b border-gray-100 dark:border-gray-800"
         />
         <div ref={listRef} className="max-h-[46vh] overflow-y-auto py-2">
-          {flat.length === 0 && <p className="px-5 py-6 text-[13px] text-gray-400 text-center">No matches.</p>}
+          {/* V3 F1 — natural language escape hatch: long queries go to the AI */}
+          {onAskAI && q.trim().length > 8 && (
+            <button onClick={() => { onClose(); onAskAI(q.trim()); }}
+              className="w-full flex items-center justify-between px-5 py-2.5 text-left bg-indigo-50/60 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 transition-colors">
+              <span className="text-[14px] text-indigo-800 dark:text-indigo-300">Ask your CRM: &ldquo;{q.trim().slice(0, 60)}&rdquo;</span>
+              <span className="text-[11px] font-bold text-indigo-500 uppercase">AI</span>
+            </button>
+          )}
+          {flat.length === 0 && <p className="px-5 py-6 text-[13px] text-gray-400 text-center">No matches{onAskAI && q.trim().length > 8 ? ' — try Ask AI above' : ''}.</p>}
           {grouped.map(({ header, group }) => (
             <div key={header}>
               <p className="px-5 pt-2 pb-1 text-[10.5px] font-bold uppercase tracking-[0.08em] text-gray-400">{header}</p>
@@ -542,6 +550,83 @@ const WHATS_NEW = [
     ],
   },
 ];
+
+// V3 F3 — lightweight keyword sentiment (client-side; no API call)
+const POSITIVE_WORDS = ['great', 'excited', 'interested', 'love', 'perfect', 'yes', 'agreed', 'thanks', 'thank you', 'awesome', 'helpful', 'won', 'signed', 'intro', 'referred', 'connected', 'happy', 'good call', 'productive'];
+const NEGATIVE_WORDS = ['not interested', 'no budget', 'declined', 'rejected', 'unsubscribe', 'stop', 'cancel', 'frustrated', 'delay', 'ghosted', 'no response', 'lost', 'concern', 'issue', 'problem', 'bad'];
+function sentimentOf(text) {
+  const t = (text || '').toLowerCase();
+  const pos = POSITIVE_WORDS.filter(w => t.includes(w)).length;
+  const neg = NEGATIVE_WORDS.filter(w => t.includes(w)).length;
+  if (neg > pos) return 'negative';
+  if (pos > neg) return 'positive';
+  return 'neutral';
+}
+const SENTIMENT_DOT = { positive: 'bg-green-500', neutral: 'bg-gray-300 dark:bg-gray-600', negative: 'bg-red-500' };
+
+// V3 F5 — fuzzy duplicate detection: Levenshtein + same-company boost
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = [...Array(n + 1).keys()];
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+function findFuzzyDuplicates(clients) {
+  const pairs = [];
+  const norm = (s) => (s || '').toLowerCase().trim();
+  for (let i = 0; i < clients.length; i++) {
+    for (let j = i + 1; j < clients.length; j++) {
+      const a = clients[i], b = clients[j];
+      const na = norm(a.name), nb = norm(b.name);
+      if (!na || !nb) continue;
+      if (norm(a.email) && norm(a.email) === norm(b.email)) { pairs.push({ a, b, reason: 'same email' }); continue; }
+      const dist = levenshtein(na, nb);
+      const maxLen = Math.max(na.length, nb.length);
+      const similar = dist <= Math.max(1, Math.floor(maxLen * 0.25));
+      const sameCompany = norm(a.company_name) && norm(a.company_name) === norm(b.company_name);
+      // "Sarah Chen" vs "Sarah C." — first names match and one surname is an initial of the other
+      const [fa, ...ra] = na.split(' '); const [fb, ...rb] = nb.split(' ');
+      const initialMatch = fa === fb && ra.length && rb.length && (ra[0][0] === rb[0][0]) && (ra[0].length <= 2 || rb[0].length <= 2);
+      if ((similar && sameCompany) || initialMatch || (similar && dist <= 2)) {
+        pairs.push({ a, b, reason: sameCompany ? 'similar name, same company' : 'similar name' });
+      }
+    }
+  }
+  return pairs.slice(0, 10);
+}
+
+// V3 F11 — network roles (the career-networking lens on a relationship)
+const NETWORK_ROLES = ['mentor', 'mentee', 'peer', 'recruiter', 'alumni', 'professor'];
+const NETWORK_ROLE_META = {
+  mentor:    { label: 'Mentor',    chip: 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300' },
+  mentee:    { label: 'Mentee',    chip: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300' },
+  peer:      { label: 'Peer',      chip: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' },
+  recruiter: { label: 'Recruiter', chip: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' },
+  alumni:    { label: 'Alumni',    chip: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' },
+  professor: { label: 'Professor', chip: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300' },
+};
+
+// V3 F13 — application pipeline stages (kanban columns)
+const APPLICATION_STAGES = ['researching', 'applied', 'phone_screen', 'interview', 'offer', 'rejected'];
+const APP_STAGE_META = {
+  researching:  { label: 'Researching',  color: '#9CA3AF' },
+  applied:      { label: 'Applied',      color: '#3B82F6' },
+  phone_screen: { label: 'Phone Screen', color: '#8B5CF6' },
+  interview:    { label: 'Interview',    color: '#F59E0B' },
+  offer:        { label: 'Offer',        color: '#10B981' },
+  rejected:     { label: 'Rejected',     color: '#EF4444' },
+};
+
+// V3 F22 — endorsement quick-tags for relationship notes
+const ENDORSEMENT_TAGS = ['Gave great advice', 'Made an introduction', 'Reviewed my work', 'Referred me', 'Great mentor moment'];
 
 // V2.0 F29 — task priority levels
 const TASK_PRIORITIES = ['urgent', 'high', 'medium', 'low'];
@@ -809,6 +894,19 @@ const SEQ_TEMPLATES = [
       { node_type: 'email', subject: 'Re: a small favor', body: 'Hi {{first_name}},\n\nJust floating this back up — totally fine if now isn’t the right time.\n\nBest,\n[Your name]', wait_days: 0, condition: 'if_no_reply', pos: [300, 420] },
     ],
     edges: [[0,1,'default'],[1,2,'default'],[2,3,'default']],
+  },
+  // V3 F16 — coffee-chat tone, NOT sales tone: for informational interviews
+  {
+    key: 'coffee_chat', emoji: '', name: 'Coffee Chat Request',
+    desc: 'Warm, low-pressure ask for a 20-minute informational chat.',
+    nodes: [
+      { node_type: 'trigger', config: { trigger_event: 'manual' }, pos: [300, 30] },
+      { node_type: 'email', subject: 'Quick question about your path, {{first_name}}', body: 'Hi {{first_name}},\n\n{{my_bio}}\n\nI came across your work at {{company}} and was genuinely impressed by [specific thing]. I’m trying to learn more about [field/role], and your path stood out to me.\n\nWould you be open to a 20-minute virtual coffee chat in the next couple of weeks? I’ll come prepared with specific questions and keep strictly to time — I know how valuable your calendar is.\n\nEither way, thank you for reading this!\n\nBest,\n{{sender_name}}', wait_days: 0, pos: [300, 160] },
+      { node_type: 'wait', config: { days: 6 }, pos: [300, 290] },
+      { node_type: 'email', subject: 'Re: quick question', body: 'Hi {{first_name}},\n\nJust gently floating this back up — totally understand if now isn’t a good time. If a chat ever works, I’d love 20 minutes; if not, no worries at all and I’ll keep following your work.\n\nBest,\n{{sender_name}}', wait_days: 0, condition: 'if_no_reply', pos: [300, 420] },
+      { node_type: 'goal', config: { label: 'Chat scheduled' }, pos: [300, 550] },
+    ],
+    edges: [[0,1,'default'],[1,2,'default'],[2,3,'default'],[3,4,'default']],
   },
   {
     key: 'quarterly_checkin', emoji: '', name: 'Quarterly Check-In',
@@ -1501,6 +1599,14 @@ export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false); // V2.0 F49
   const [showWhatsNew, setShowWhatsNew] = useState(false); // V2.0 F50
   const [importHistory, setImportHistory] = useState([]); // V2.0 F46
+  const [applications, setApplications] = useState([]); // V3 F13
+  const [careerGoals, setCareerGoals] = useState([]); // V3 F18
+  const [infoInterviews, setInfoInterviews] = useState([]); // V3 F12 (all of the user's)
+  const [careerTab, setCareerTab] = useState('applications'); // V3 Career Hub tab
+  const [nlFilter, setNlFilter] = useState(null); // V3 F1 — structured filter from natural language
+  const [aiBusy, setAiBusy] = useState(false); // V3 — any AI call in flight
+  const [meetingBrief, setMeetingBrief] = useState(null); // V3 F2 — { clientId, brief }
+  const [compareResult, setCompareResult] = useState(null); // V3 F10
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState({ clients: [], activities: [] });
 
@@ -2053,6 +2159,7 @@ export default function App() {
       fetchSubtasks(),
       fetchActivityFeed(),
       fetchImportHistory(),
+      fetchCareerData(session.user.id),
       fetchWebhooks(session.user.id),
       fetchGoals(session.user.id),
       fetchSavedViews(session.user.id),
@@ -2092,6 +2199,199 @@ export default function App() {
   async function fetchAutomationRules(userId) {
     const { data } = await supabase.from('automation_rules').select('*').eq('user_id', userId).order('created_at', { ascending: false });
     if (data) setAutomationRules(data);
+  }
+
+  // V3 Cluster A — one door to the AI edge function; returns null on ANY failure
+  // (missing key, network, bad JSON) so every AI feature degrades gracefully.
+  async function callAI(body) {
+    try {
+      setAiBusy(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/ai-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+        body: JSON.stringify(body),
+      });
+      const { summary, error } = await res.json();
+      if (error || !summary) { showToast(error || 'AI unavailable', 'error'); return null; }
+      return summary;
+    } catch { showToast('AI unavailable — check your connection.', 'error'); return null; }
+    finally { setAiBusy(false); }
+  }
+
+  // V3 F1 — natural language search → structured filter (falls back to keyword)
+  async function handleNlSearch(query) {
+    const raw = await callAI({ mode: 'nl_search', query, clientName: 'n/a' });
+    if (!raw) { setSearchTerm(query); setAppStep('CLIENTS'); return; } // keyword fallback
+    try {
+      const f = JSON.parse(raw.replace(/```json|```/g, '').trim());
+      setNlFilter({ ...f, _query: query });
+      setAppStep(f.entity === 'deals' ? 'DEALS' : 'CLIENTS');
+    } catch {
+      setSearchTerm(query); setAppStep('CLIENTS'); // unparseable → keyword fallback
+    }
+  }
+
+  // V3 F2 — meeting brief: generate + persist + show
+  async function handleGenerateBrief(client) {
+    const brief = await callAI({
+      mode: 'meeting_brief', clientName: client.name,
+      activities: activities.filter(a => a.client_id === client.id).slice(0, 15),
+      tasks: tasks.filter(t => t.client_id === client.id),
+      deals: deals.filter(d => d.client_id === client.id),
+      notes: client.note_conversation,
+    });
+    if (!brief) return;
+    setMeetingBrief({ clientId: client.id, brief });
+    supabase.from('meeting_briefs').insert([{ client_id: client.id, user_id: user.id, brief, generated_for: todayStr }]).then(() => {});
+  }
+
+  // V3 F4 — AI drafts an entire sequence (steps land as editable draft canvas)
+  async function handleAiDraftSequence() {
+    const goal = prompt('Describe the outreach goal in one line:\n(e.g. "cold outreach to design agencies about a portfolio tool")');
+    if (!goal?.trim()) return;
+    const raw = await callAI({ mode: 'draft_sequence', goal, clientName: 'n/a' });
+    if (!raw) return;
+    let draft;
+    try { draft = JSON.parse(raw.replace(/```json|```/g, '').trim()); } catch { showToast('AI returned an unusable draft — try rephrasing.', 'error'); return; }
+    if (!draft?.steps?.length) { showToast('AI returned no steps.', 'error'); return; }
+    const { data: seqRow, error } = await supabase.from('email_sequences')
+      .insert([{ user_id: user.id, name: draft.name || `AI: ${goal.slice(0, 40)}`, status: 'draft', description: `AI-drafted from: "${goal}"` }]).select();
+    if (error || !seqRow) { showToast(error?.message || 'Could not create sequence', 'error'); return; }
+    const seq = seqRow[0];
+    const nodes = [
+      { sequence_id: seq.id, user_id: user.id, step_order: 0, wait_days: 0, subject: '', body: '', node_type: 'trigger', channel: 'email', condition: 'always', config: { trigger_event: 'manual' }, pos_x: 300, pos_y: 30 },
+      ...draft.steps.slice(0, 5).flatMap((st, i) => {
+        const out = [];
+        if (i > 0) out.push({ sequence_id: seq.id, user_id: user.id, step_order: i * 2 - 1, wait_days: 0, subject: '', body: '', node_type: 'wait', channel: 'email', condition: 'always', config: { days: Math.max(1, parseInt(st.wait_days, 10) || 3) }, pos_x: 300, pos_y: 30 + (i * 2) * 130 - 130 });
+        out.push({ sequence_id: seq.id, user_id: user.id, step_order: i * 2, wait_days: 0, subject: String(st.subject || '').slice(0, 200), body: String(st.body || ''), node_type: 'email', channel: 'email', condition: i > 0 ? 'if_no_reply' : 'always', pos_x: 300, pos_y: 30 + (i * 2 + 1) * 130 });
+        return out;
+      }),
+    ];
+    const { data: stepRows, error: se } = await supabase.from('sequence_steps').insert(nodes).select();
+    if (se || !stepRows) { showToast(`Steps failed: ${se?.message}`, 'error'); return; }
+    const sorted = [...stepRows].sort((a, b) => a.step_order - b.step_order);
+    const edgeRows = sorted.slice(0, -1).map((s, i) => ({ user_id: user.id, sequence_id: seq.id, from_step_id: s.id, to_step_id: sorted[i + 1].id, branch: 'default' }));
+    const { data: edges } = await supabase.from('sequence_edges').insert(edgeRows).select();
+    setSequences(prev => [...prev, seq]);
+    setSequenceSteps(prev => [...prev, ...stepRows]);
+    if (edges) setSequenceEdges(prev => [...prev, ...edges]);
+    setEditingSeqId(seq.id);
+    showToast(`AI drafted "${seq.name}" — review every word before enrolling anyone.`);
+  }
+
+  // V3 F6 — icebreakers straight into the composer body
+  async function handleAiIcebreakers(target) {
+    const raw = await callAI({ mode: 'icebreakers', clientName: target.name, contact: { title: target.role || target.title || '', company: target.company_name || target.company || '' } });
+    if (!raw) return;
+    setEmailBody(prev => `${raw}\n\n---- pick one, delete the rest ----\n\n${prev}`);
+  }
+
+  // V3 F10 — compare two selected relationships
+  async function handleAiCompare() {
+    const [aId, bId] = selectedClientIds;
+    const a = clients.find(c => c.id === aId), b = clients.find(c => c.id === bId);
+    if (!a || !b) return;
+    const packFor = (c) => ({
+      name: c.name,
+      activities: activities.filter(x => x.client_id === c.id).slice(0, 15),
+      tasks: tasks.filter(x => x.client_id === c.id),
+      deals: deals.filter(x => x.client_id === c.id),
+      notes: c.note_conversation,
+    });
+    const result = await callAI({
+      mode: 'compare', clientName: a.name,
+      activities: packFor(a).activities, tasks: packFor(a).tasks, deals: packFor(a).deals, notes: a.note_conversation,
+      compareWith: packFor(b),
+    });
+    if (result) setCompareResult({ a: a.name, b: b.name, text: result });
+  }
+
+  // V3 Cluster B — career networking fetches + handlers
+  async function fetchCareerData(userId) {
+    const [apps, goals, interviews] = await Promise.all([
+      supabase.from('applications').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+      supabase.from('career_goals').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+      supabase.from('info_interviews').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+    ]);
+    if (apps.data) setApplications(apps.data);
+    if (goals.data) setCareerGoals(goals.data);
+    if (interviews.data) setInfoInterviews(interviews.data);
+  }
+
+  // F13 — application CRUD
+  async function handleQuickAddApplication(company_name) {
+    const { data, error } = await supabase.from('applications')
+      .insert([{ user_id: user.id, company_name, status: 'researching', applied_date: todayStr }]).select();
+    if (error || !data) { showToast(error?.message || 'Could not add', 'error'); return false; }
+    setApplications(prev => [data[0], ...prev]);
+    flashAdded(data[0].id);
+  }
+  async function handleMoveApplication(app, status) {
+    const { error } = await supabase.from('applications').update({ status }).eq('id', app.id);
+    if (error) { showToast(error.message, 'error'); return; }
+    setApplications(prev => prev.map(a => a.id === app.id ? { ...a, status } : a));
+    if (status === 'offer') showToast(`Offer at ${app.company_name}! Congratulations.`);
+  }
+  async function handleUpdateApplication(app, patch) {
+    const { error } = await supabase.from('applications').update(patch).eq('id', app.id);
+    if (error) { showToast(error.message, 'error'); return; }
+    setApplications(prev => prev.map(a => a.id === app.id ? { ...a, ...patch } : a));
+  }
+  async function handleDeleteApplication(app) {
+    setApplications(prev => prev.filter(a => a.id !== app.id));
+    const timer = setTimeout(async () => {
+      const { error } = await supabase.from('applications').delete().eq('id', app.id);
+      if (error) { setApplications(prev => [app, ...prev]); showToast(error.message, 'error'); }
+    }, 5200);
+    showUndoableToast(`Deleted application to ${app.company_name}`, () => { clearTimeout(timer); setApplications(prev => [app, ...prev]); });
+  }
+
+  // F18 — career goals
+  async function handleAddCareerGoal(goal, target_date) {
+    const { data, error } = await supabase.from('career_goals')
+      .insert([{ user_id: user.id, goal, target_date: target_date || null }]).select();
+    if (error || !data) { showToast(error?.message || 'Could not add', 'error'); return; }
+    setCareerGoals(prev => [data[0], ...prev]);
+  }
+  async function handleToggleGoalClient(goal, clientId) {
+    const ids = new Set(goal.linked_client_ids || []);
+    ids.has(clientId) ? ids.delete(clientId) : ids.add(clientId);
+    const linked_client_ids = [...ids];
+    const { error } = await supabase.from('career_goals').update({ linked_client_ids }).eq('id', goal.id);
+    if (!error) setCareerGoals(prev => prev.map(g => g.id === goal.id ? { ...g, linked_client_ids } : g));
+  }
+  async function handleUpdateGoalStatus(goal, status) {
+    const { error } = await supabase.from('career_goals').update({ status }).eq('id', goal.id);
+    if (!error) setCareerGoals(prev => prev.map(g => g.id === goal.id ? { ...g, status } : g));
+  }
+
+  // F12 — informational interviews (per relationship)
+  async function handleAddInfoInterview(clientId, fields) {
+    const { data, error } = await supabase.from('info_interviews')
+      .insert([{ client_id: clientId, user_id: user.id, ...fields }]).select();
+    if (error || !data) { showToast(error?.message || 'Could not save', 'error'); return; }
+    setInfoInterviews(prev => [data[0], ...prev]);
+  }
+  async function handleUpdateInfoInterview(iv, patch) {
+    const { error } = await supabase.from('info_interviews').update(patch).eq('id', iv.id);
+    if (error) { showToast(error.message, 'error'); return; }
+    setInfoInterviews(prev => prev.map(x => x.id === iv.id ? { ...x, ...patch } : x));
+    // F17 — marking follow_up_sent false→true is the thank-you; otherwise remind
+    if (patch.key_takeaways && !iv.follow_up_sent && !patch.follow_up_sent) {
+      const client = clients.find(c => c.id === iv.client_id);
+      if (client) autoCreateThankYouTask(client);
+    }
+  }
+
+  // F17 — thank-you auto-reminder (skips if one already pending for this person)
+  async function autoCreateThankYouTask(client) {
+    const title = `Send thank-you note to ${client.name}`;
+    if (tasks.some(t => t.status === 'pending' && t.title === title)) return;
+    const due = new Date(Date.now() + 864e5).toISOString().split('T')[0];
+    const { data } = await supabase.from('tasks')
+      .insert([{ client_id: client.id, user_id: user.id, title, due_date: due, status: 'pending', priority: 'high' }]).select();
+    if (data) { setTasks(prev => [...prev, data[0]]); showToast(`Reminder created: thank-you note to ${client.name} (due tomorrow)`); }
   }
 
   // V2.0 F41 — workspace activity feed (visible to all members via RLS)
@@ -2616,7 +2916,10 @@ export default function App() {
       .replace(/{{title}}/g, contact?.title || '')
       .replace(/{{company}}/g, contact?.company_name ?? contact?.company ?? '')
       .replace(/{{linkedin_url}}/g, contact?.linkedin_url || '')
-      .replace(/{{sender_name}}/g, seq?.from_name || profile?.username || '');
+      .replace(/{{sender_name}}/g, seq?.from_name || profile?.username || '')
+      // V3 F19 — the user's stored pitch/bio, editable in Settings
+      .replace(/{{my_pitch}}/g, profile?.elevator_pitch || '')
+      .replace(/{{my_bio}}/g, profile?.one_line_bio || '');
   }
 
   // PART B — default send path opens a real compose tab in the user's browser.
@@ -4441,7 +4744,12 @@ export default function App() {
       birthday: editingClient.birthday || null, relationship: editingClient.relationship,
       source: editingClient.source || null,
       company_name: editingClient.company_name || null, company_url: editingClient.company_url || null,
-      referred_by_client_id: editingClient.referred_by_client_id || null // G18
+      referred_by_client_id: editingClient.referred_by_client_id || null, // G18
+      // V3 — career networking + channel fields
+      network_role: editingClient.network_role || null,
+      school: editingClient.school || null,
+      timezone: editingClient.timezone || null,
+      preferred_channel: editingClient.preferred_channel || null
     }).eq('id', editingClient.id).select();
 
     // Update custom fields atomically: run all upserts/deletes in parallel and fail together
@@ -4760,6 +5068,10 @@ export default function App() {
 
     if (!error && data) {
       setActivities([data[0], ...activities]);
+      // V3 F17 — a Meeting with a mentor/recruiter auto-queues a thank-you task for tomorrow
+      if (activityType === 'Meeting' && ['mentor', 'recruiter', 'professor'].includes(viewingClient.network_role)) {
+        autoCreateThankYouTask(viewingClient);
+      }
       setActivityDesc('');
       setActivityDate(new Date().toISOString().split('T')[0]);
       setSavingTemplateName(''); // FEATURE 22: offer "save as template" after logging
@@ -5128,6 +5440,20 @@ export default function App() {
       if (filterMissingField === 'activity') return !activities.some(a => a.client_id === client.id);
       return !client[filterMissingField];
     })
+    .filter(client => { // V3 F1 — natural-language filter (AI-translated)
+      if (!nlFilter || nlFilter.entity === 'deals') return true;
+      const silent = daysSilent(lastActivityByClient[client.id]);
+      if (nlFilter.days_silent_gte != null && !(silent == null || silent >= nlFilter.days_silent_gte)) return false;
+      if (nlFilter.days_silent_lte != null && !(silent != null && silent <= nlFilter.days_silent_lte)) return false;
+      if (nlFilter.priority && client.relationship !== nlFilter.priority) return false;
+      if (nlFilter.status && client.status !== nlFilter.status) return false;
+      if (nlFilter.network_role && client.network_role !== nlFilter.network_role) return false;
+      if (nlFilter.source && (client.source || '').toLowerCase() !== nlFilter.source.toLowerCase()) return false;
+      if (nlFilter.has_open_deal === true && !deals.some(d => d.client_id === client.id && !['Won', 'Lost'].includes(d.stage))) return false;
+      if (nlFilter.has_open_deal === false && deals.some(d => d.client_id === client.id && !['Won', 'Lost'].includes(d.stage))) return false;
+      if (nlFilter.text && !(client.name || '').toLowerCase().includes(nlFilter.text.toLowerCase()) && !(client.company_name || '').toLowerCase().includes(nlFilter.text.toLowerCase())) return false;
+      return true;
+    })
     .filter(client => matchesClientFilters(client, {
       search: searchTerm, priority: filterPriority, status: filterStatus, tagIds: filterTags,
       source: filterSource, health: filterHealth, dateAdded: filterDateAdded,
@@ -5151,7 +5477,7 @@ export default function App() {
         return sortBy === 'last_contact_desc' ? (la < lb ? 1 : -1) : (la < lb ? -1 : 1);
       }
       return 0;
-    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterSource, deals, activities, lastActivityByClient, filterListId, listMembers, filterMissingField]);
+    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterSource, deals, activities, lastActivityByClient, filterListId, listMembers, filterMissingField, nlFilter]);
 
   const activeFilterCount = [
     filterPriority !== 'All', filterStatus !== 'All', filterDateAdded, filterHasDeals,
@@ -5598,6 +5924,7 @@ export default function App() {
             {[
               ['DASHBOARD', 'Overview'],
               ['TODAY', 'Today'],
+              ['CAREER', 'Career Hub'],
               ['CLIENTS', 'Relationships'],
               ['DEALS', 'Deals'],
               ['N8N', 'Email Automation'],
@@ -5692,6 +6019,7 @@ export default function App() {
                   {[
                     ['DASHBOARD', 'Overview'],
                     ['TODAY', 'Today'],
+              ['CAREER', 'Career Hub'],
                     ['CLIENTS', 'Relationships'],
                     ['DEALS', 'Deals'],
                     ['GLOBAL_TASKS', 'Tasks'],
@@ -5784,6 +6112,7 @@ export default function App() {
               {[
                 ['DASHBOARD', 'Overview'],
                 ['TODAY', 'Today'],
+              ['CAREER', 'Career Hub'],
                 ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
                 ['N8N', 'Email Automation'],
@@ -6102,6 +6431,41 @@ export default function App() {
                         className="px-3 h-8 rounded-lg text-[12px] font-bold bg-amber-600 text-white hover:bg-amber-700 transition-colors">
                         Draft email to {c.name.split(' ')[0]}
                       </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* V3 F7 — AT RISK: trending cold, not just already-cold (silence + declining frequency + no open deal) */}
+            {(() => {
+              const d30 = new Date(Date.now() - 30 * 864e5).toISOString().split('T')[0];
+              const d60 = new Date(Date.now() - 60 * 864e5).toISOString().split('T')[0];
+              const atRisk = clients.filter(c => {
+                const silent = daysSilent(lastActivityByClient[c.id]);
+                if (silent == null || silent < 14 || silent > 60) return false; // trending, not dead
+                const recent = activities.filter(a => a.client_id === c.id && a.activity_date >= d30).length;
+                const prior = activities.filter(a => a.client_id === c.id && a.activity_date >= d60 && a.activity_date < d30).length;
+                const declining = recent < prior;
+                const hasOpenDeal = deals.some(d => d.client_id === c.id && !['Won', 'Lost'].includes(d.stage));
+                return declining && !hasOpenDeal;
+              }).sort((a, b) => (daysSilent(lastActivityByClient[b.id]) || 0) - (daysSilent(lastActivityByClient[a.id]) || 0)).slice(0, 5);
+              if (!atRisk.length) return null;
+              return (
+                <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-orange-200 dark:border-orange-900 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-[11px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider">At Risk — trending cold</h3>
+                    <span className="text-[10.5px] text-gray-400">contact was declining before it went quiet</span>
+                  </div>
+                  <div className="space-y-2">
+                    {atRisk.map(c => (
+                      <div key={c.id} className="flex items-center gap-3">
+                        <button onClick={() => { setViewingClient(c); setAppStep('CLIENTS'); }} className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 hover:underline">{c.name}</button>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${SILENT_TONE(daysSilent(lastActivityByClient[c.id]))}`}>{daysSilent(lastActivityByClient[c.id])}d silent</span>
+                        {c.email && (
+                          <button onClick={() => { setViewingClient(c); setEmailTo(c.email); setShowEmailComposer(true); }} className="ml-auto text-[11px] font-bold text-orange-600 hover:underline">Reach out</button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -6769,6 +7133,13 @@ export default function App() {
                       {sequences.map(s => <option key={s.id} value={s.id} className="text-gray-900">{s.name}</option>)}
                     </select>
                   )}
+                  {/* V3 F10 — compare exactly two selected relationships */}
+                  {selectedClientIds.length === 2 && (
+                    <button onClick={handleAiCompare} disabled={aiBusy}
+                      className={`px-3 h-8 ${R.ctl} bg-violet-500/90 text-white text-[12px] font-semibold hover:bg-violet-600 transition-colors disabled:opacity-50`}>
+                      {aiBusy ? 'Comparing…' : 'Compare (AI)'}
+                    </button>
+                  )}
                   {/* V2.0 F45 — bulk edit priority + source */}
                   <select onChange={e => { if (e.target.value) handleBulkField('relationship', e.target.value); e.target.value = ''; }} className={`px-3 h-8 ${R.ctl} bg-white/10 dark:bg-gray-900/10 text-white dark:text-gray-900 text-[12px] font-medium outline-none border-none`}>
                     <option value="" className="text-gray-900">Set priority…</option>
@@ -6787,6 +7158,14 @@ export default function App() {
                   )}
                   <button onClick={handleBulkDelete} className={`px-3 h-8 ${R.ctl} bg-red-600 text-white text-[12px] font-semibold hover:bg-red-700 transition-colors`}>Delete</button>
                 </div>
+              </div>
+            )}
+
+            {/* V3 F1 — active natural-language filter chip */}
+            {nlFilter && nlFilter.entity !== 'deals' && (
+              <div className="flex items-center gap-2 p-3 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-lg text-[13px] font-medium text-indigo-900 dark:text-indigo-200">
+                AI filter: <span className="font-bold">&ldquo;{nlFilter._query}&rdquo;</span>
+                <button onClick={() => setNlFilter(null)} className="ml-auto px-2 py-0.5 rounded-full bg-white dark:bg-gray-900 border border-indigo-200 dark:border-indigo-700 text-[12px]">Clear ×</button>
               </div>
             )}
 
@@ -7974,6 +8353,191 @@ export default function App() {
         })()}
 
         {/* VIEW: GLOBAL TASKS */}
+        {/* V3 CLUSTER B — CAREER HUB: applications, goals, school network, diversity */}
+        {appStep === 'CAREER' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Career Hub</h1>
+                <p className="text-[13px] text-gray-500">Applications, goals, and the network behind them.</p>
+              </div>
+              {/* F20 — network diversity donut */}
+              {(() => {
+                const withRole = clients.filter(c => c.network_role);
+                if (!withRole.length) return null;
+                const counts = NETWORK_ROLES.map(r => withRole.filter(c => c.network_role === r).length);
+                const total = withRole.length;
+                const COLORS = ['#8B5CF6', '#06B6D4', '#3B82F6', '#10B981', '#F59E0B', '#F43F5E'];
+                let acc = 0;
+                const stops = counts.map((n, i) => {
+                  const from = (acc / total) * 360; acc += n;
+                  const to = (acc / total) * 360;
+                  return `${COLORS[i]} ${from}deg ${to}deg`;
+                }).join(', ');
+                return (
+                  <div className="flex items-center gap-3" title="Network diversity by role">
+                    <div className="w-14 h-14 rounded-full relative" style={{ background: `conic-gradient(${stops})` }}>
+                      <div className="absolute inset-2 rounded-full bg-white dark:bg-gray-950 grid place-items-center text-[10px] font-bold text-gray-500">{total}</div>
+                    </div>
+                    <div className="text-[10.5px] space-y-0.5">
+                      {NETWORK_ROLES.map((r, i) => counts[i] > 0 && (
+                        <div key={r} className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full" style={{ background: COLORS[i] }} />
+                          <span className="text-gray-500 capitalize">{r} {counts[i]}</span>
+                        </div>
+                      )).filter(Boolean).slice(0, 3)}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <Tabs
+              value={careerTab}
+              onChange={setCareerTab}
+              tabs={[
+                { key: 'applications', label: 'Applications', count: applications.filter(a => !['rejected', 'withdrawn'].includes(a.status)).length },
+                { key: 'goals', label: 'Career Goals', count: careerGoals.filter(g => g.status === 'active').length },
+                { key: 'school', label: 'School Network' },
+              ]}
+            />
+
+            {/* F13 — APPLICATIONS KANBAN */}
+            {careerTab === 'applications' && (
+              <>
+                {canEdit && <QuickAddBar placeholder="Track an application… type a company and press Enter" onAdd={handleQuickAddApplication} />}
+                <div className="flex gap-4 overflow-x-auto pb-4" style={{ scrollSnapType: 'x mandatory' }}>
+                  {APPLICATION_STAGES.map(stage => {
+                    const stageApps = applications.filter(a => a.status === stage);
+                    return (
+                      <div key={stage} className="flex-shrink-0 w-[280px] bg-gray-200/50 dark:bg-gray-800/60 rounded-2xl flex flex-col border border-gray-100 dark:border-gray-800"
+                        style={{ scrollSnapAlign: 'start' }}
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={e => { e.preventDefault(); const id = e.dataTransfer.getData('text/app-id'); const a = applications.find(x => String(x.id) === id); if (a) handleMoveApplication(a, stage); }}>
+                        <div className="p-3.5 flex items-center justify-between">
+                          <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: APP_STAGE_META[stage].color }}>{APP_STAGE_META[stage].label}</span>
+                          <span className="text-[11px] font-mono text-gray-400">{stageApps.length}</span>
+                        </div>
+                        <div className="px-3 pb-3 space-y-2 min-h-[100px] max-h-[56vh] overflow-y-auto">
+                          {stageApps.map(app => {
+                            const referrer = app.referral_client_id ? clients.find(c => c.id === app.referral_client_id) : null;
+                            return (
+                              <div key={app.id} draggable onDragStart={e => e.dataTransfer.setData('text/app-id', String(app.id))}
+                                className={`bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 border-l-4 p-3 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-all ${justAddedId === app.id ? 'bg-green-50 dark:bg-green-950/30' : ''}`}
+                                style={{ borderLeftColor: APP_STAGE_META[stage].color }}
+                                onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, items: [
+                                  ...(app.job_url ? [{ label: 'Open Job Posting', action: () => window.open(app.job_url, '_blank', 'noopener') }] : []),
+                                  { label: 'Set Job URL', action: () => { const u = prompt('Job posting URL:', app.job_url || ''); if (u !== null) handleUpdateApplication(app, { job_url: u || null }); } },
+                                  { label: 'Link Referrer', action: () => { const name = prompt('Referrer name (must match a relationship):'); const c = name && clients.find(x => x.name.toLowerCase() === name.toLowerCase()); if (c) handleUpdateApplication(app, { referral_client_id: c.id }); else if (name) showToast('No relationship by that name', 'error'); } },
+                                  { divider: true },
+                                  { label: 'Delete', danger: true, action: () => handleDeleteApplication(app) },
+                                ] }); }}>
+                                <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100 leading-tight">{app.company_name}</p>
+                                {app.role_title
+                                  ? <p className="text-[11.5px] text-gray-500 mt-0.5">{app.role_title}</p>
+                                  : canEdit && <button onClick={() => { const r = prompt('Role title:'); if (r) handleUpdateApplication(app, { role_title: r }); }} className="text-[11px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 mt-0.5">+ add role</button>}
+                                <div className="flex items-center justify-between mt-2">
+                                  {referrer ? (
+                                    <button onClick={() => { setViewingClient(referrer); setAppStep('CLIENTS'); }} className="text-[10.5px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">via {referrer.name}</button>
+                                  ) : <span className="text-[10.5px] text-gray-400">no referral</span>}
+                                  <span className="text-[10px] text-gray-400">{app.applied_date || ''}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {stageApps.length === 0 && <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl h-16 grid place-items-center text-[11px] text-gray-400">Drop here</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {/* F18 — CAREER GOALS */}
+            {careerTab === 'goals' && (
+              <div className="max-w-2xl space-y-4">
+                {canEdit && (
+                  <form onSubmit={e => { e.preventDefault(); const g = e.target.elements.goal.value.trim(); if (g) { handleAddCareerGoal(g, e.target.elements.tdate.value); e.target.reset(); } }}
+                    className="flex flex-wrap gap-2">
+                    <input name="goal" placeholder='e.g. "Break into product management"' className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 flex-1 min-w-[220px] px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-gray-400" required />
+                    <input name="tdate" type="date" className="dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none" />
+                    <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Add goal</button>
+                  </form>
+                )}
+                {careerGoals.length === 0 && <p className="text-[13px] text-gray-400 py-8 text-center">No goals yet. Name the destination, then link the people who can help you get there.</p>}
+                {careerGoals.map(goal => {
+                  const linked = (goal.linked_client_ids || []).map(id => clients.find(c => c.id === id)).filter(Boolean);
+                  const doneTone = goal.status === 'achieved';
+                  return (
+                    <div key={goal.id} className={`rounded-2xl border p-5 ${doneTone ? 'border-green-200 dark:border-green-900 bg-green-50/40 dark:bg-green-950/20' : 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className={`text-[15px] font-bold ${doneTone ? 'text-green-800 dark:text-green-300' : 'text-gray-900 dark:text-gray-100'}`}>{goal.goal}</p>
+                          <p className="text-[11.5px] text-gray-400 mt-0.5">{goal.target_date ? `Target: ${goal.target_date}` : 'No target date'} · {linked.length} linked {linked.length === 1 ? 'person' : 'people'}</p>
+                        </div>
+                        <div className="flex gap-2 text-[11px] font-semibold shrink-0">
+                          <button onClick={() => handleUpdateGoalStatus(goal, doneTone ? 'active' : 'achieved')} className={doneTone ? 'text-gray-400' : 'text-green-600 hover:underline'}>{doneTone ? 'Reopen' : 'Mark achieved'}</button>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-3">
+                        {linked.map(c => (
+                          <button key={c.id} onClick={() => { setViewingClient(c); setAppStep('CLIENTS'); }}
+                            className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100">{c.name}</button>
+                        ))}
+                        {canEdit && (
+                          <select onChange={e => { const id = Number(e.target.value); if (id) handleToggleGoalClient(goal, id); e.target.value = ''; }}
+                            className="dark:bg-gray-800 dark:text-gray-100 px-2 py-0.5 text-[11px] border border-dashed border-gray-300 dark:border-gray-600 rounded-full outline-none">
+                            <option value="">+ link person</option>
+                            {clients.filter(c => !(goal.linked_client_ids || []).includes(c.id)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* F15 — SCHOOL NETWORK */}
+            {careerTab === 'school' && (() => {
+              const withSchool = clients.filter(c => c.school);
+              const bySchool = {};
+              withSchool.forEach(c => { (bySchool[c.school] = bySchool[c.school] || []).push(c); });
+              const schools = Object.entries(bySchool).sort((a, b) => b[1].length - a[1].length);
+              return (
+                <div className="space-y-5 max-w-3xl">
+                  {schools.length === 0 && (
+                    <p className="text-[13px] text-gray-400 py-8 text-center">
+                      No schools recorded yet. Add a school on a relationship&apos;s edit form and your alumni network appears here.
+                    </p>
+                  )}
+                  {schools.map(([school, people]) => (
+                    <div key={school} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-[15px] font-bold text-gray-900 dark:text-gray-100">{school}</h3>
+                        <span className="text-[11px] font-mono text-gray-400">{people.length}</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {people.map(c => (
+                          <button key={c.id} onClick={() => { setViewingClient(c); setAppStep('CLIENTS'); }}
+                            className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 text-left">
+                            <span className="w-8 h-8 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 grid place-items-center text-[11px] font-bold shrink-0">{(c.name || '?').slice(0, 2).toUpperCase()}</span>
+                            <span className="min-w-0">
+                              <span className="block text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{c.name}</span>
+                              <span className="block text-[11px] text-gray-400 truncate">{c.role || c.company_name || c.network_role || ''}</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {/* V2.0 F34 — TODAY / FOCUS MODE: only what matters right now */}
         {appStep === 'TODAY' && (() => {
           const weekAhead = new Date(Date.now() + 7 * 864e5).toISOString().split('T')[0];
@@ -8600,6 +9164,11 @@ export default function App() {
                 </div>
                 <div className="ml-auto flex flex-wrap items-center gap-2">
                   {/* V4 Part 3 — cross-campaign replies entry point, badge-counted */}
+                  {/* V3 F4 — AI drafts a whole sequence as an editable canvas */}
+                  <button onClick={handleAiDraftSequence} disabled={aiBusy}
+                    className="px-3 py-1.5 rounded-xl text-[12px] font-semibold border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-950/60 transition-colors disabled:opacity-50">
+                    {aiBusy ? 'Drafting…' : 'Generate with AI'}
+                  </button>
                   <button onClick={() => { setWhoRepliedSeqFilter(null); setShowWhoRepliedView(true); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold border border-green-200 dark:border-green-900 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-950/60 transition-colors">
                     Who Has Replied?
                     {allRepliesCount > 0 && <span className="px-1.5 py-0.5 rounded-full bg-green-600 text-white text-[10px] font-bold">{allRepliesCount}</span>}
@@ -9602,6 +10171,59 @@ export default function App() {
               </div>
             </div>
 
+            {/* V3 F5 — FUZZY DUPLICATE DETECTION (Levenshtein + company/initial heuristics) */}
+            {(() => {
+              const dismissed = (() => { try { return JSON.parse(localStorage.getItem('crm_dupes_dismissed') || '[]'); } catch { return []; } })();
+              const pairs = findFuzzyDuplicates(clients).filter(p => !dismissed.includes(`${p.a.id}-${p.b.id}`));
+              if (!pairs.length) return null;
+              return (
+                <div className="bg-white p-6 sm:p-8 rounded-2xl border border-amber-200 shadow-sm">
+                  <h2 className="text-[15px] font-bold text-gray-900 mb-1">Possible Duplicates</h2>
+                  <p className="text-[12px] text-gray-500 mb-4">Fuzzy name matching found these likely duplicates — merge or dismiss.</p>
+                  <div className="space-y-2">
+                    {pairs.map(p => (
+                      <div key={`${p.a.id}-${p.b.id}`} className="flex flex-wrap items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50 text-[13px]">
+                        <span className="font-semibold text-gray-900">{p.a.name}</span>
+                        <span className="text-gray-300">≈</span>
+                        <span className="font-semibold text-gray-900">{p.b.name}</span>
+                        <span className="text-[11px] text-gray-400">({p.reason})</span>
+                        <span className="ml-auto flex gap-3 text-[12px] font-semibold">
+                          <button onClick={() => { setMergeSource(p.b); setMergeTarget(p.a); setMergeStep(2); setMergeFieldChoices({}); setShowMergeTool(true); }} className="text-indigo-600 hover:underline">Merge</button>
+                          <button onClick={() => { try { localStorage.setItem('crm_dupes_dismissed', JSON.stringify([...dismissed, `${p.a.id}-${p.b.id}`])); } catch {}; setClients(prev => [...prev]); }} className="text-gray-400 hover:text-gray-700">Dismiss</button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* V3 F19 — ELEVATOR PITCH / BIO (merge tags {{my_pitch}} / {{my_bio}}) */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <h2 className="text-[15px] font-bold text-gray-900 mb-1">Your Pitch &amp; Bio</h2>
+              <p className="text-[12px] text-gray-500 mb-4">Stored once, inserted anywhere with <code className="font-mono">{'{{my_pitch}}'}</code> and <code className="font-mono">{'{{my_bio}}'}</code> in any email or template.</p>
+              <form onSubmit={async e => {
+                e.preventDefault();
+                const elevator_pitch = e.target.elements.pitch.value.trim() || null;
+                const one_line_bio = e.target.elements.bio.value.trim() || null;
+                const { error } = await supabase.from('profiles').update({ elevator_pitch, one_line_bio }).eq('id', user.id);
+                if (error) showToast(error.message, 'error');
+                else { setProfile(prev => ({ ...prev, elevator_pitch, one_line_bio })); showToast('Pitch & bio saved.'); }
+              }} className="space-y-3">
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">One-line bio <span className="font-normal text-gray-400">— who you are in one sentence</span></label>
+                  <input name="bio" defaultValue={profile?.one_line_bio || ''} placeholder="I'm a junior CS student at Berkeley exploring product roles."
+                    className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">30-second pitch</label>
+                  <textarea name="pitch" rows={3} defaultValue={profile?.elevator_pitch || ''} placeholder="What you're working on, what you're looking for, and the one thing that makes you memorable."
+                    className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400 resize-none" />
+                </div>
+                <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Save</button>
+              </form>
+            </div>
+
             {/* V2.0 F47 — DATA HEALTH SCORE */}
             {clients.length > 0 && (
               <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
@@ -9682,6 +10304,11 @@ export default function App() {
               <span className="text-gray-400 capitalize">{activeProfileTab}</span>
             </nav>
             <div className="flex items-center gap-2 shrink-0">
+              {/* V3 F2 — one-click pre-meeting brief */}
+              <button type="button" onClick={() => handleGenerateBrief(viewingClient)} disabled={aiBusy}
+                className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800 rounded-xl hover:bg-violet-100 dark:hover:bg-violet-950/70 transition-colors disabled:opacity-50">
+                {aiBusy ? 'Thinking…' : 'AI Brief'}
+              </button>
               <button type="button" onClick={() => { setEmailTo(viewingClient.email || ''); setShowEmailComposer(true); }} className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">Send Email</button>
               <button type="button" onClick={() => handleExportPDF(viewingClient)} className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Export PDF</button>
               {canEdit && (
@@ -9713,7 +10340,22 @@ export default function App() {
                       {clientsWithScores.find(c => c.id === viewingClient.id)?.leadScore ?? 0}
                     </span>
                     <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{viewingClient.status}</span>
+                    {/* V3 F11 — network role badge */}
+                    {viewingClient.network_role && NETWORK_ROLE_META[viewingClient.network_role] && (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${NETWORK_ROLE_META[viewingClient.network_role].chip}`}>
+                        {NETWORK_ROLE_META[viewingClient.network_role].label}
+                      </span>
+                    )}
                   </div>
+                  {/* V3 F27 — their local time (prevents 3am cold emails) */}
+                  {viewingClient.timezone && (() => {
+                    try {
+                      const theirTime = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZone: viewingClient.timezone }).format(new Date());
+                      const theirHour = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: viewingClient.timezone }).format(new Date()));
+                      const asleep = theirHour < 7 || theirHour >= 22;
+                      return <p className={`text-[11px] mt-0.5 ${asleep ? 'text-amber-600 font-semibold' : 'text-gray-400'}`}>It&apos;s {theirTime} for them{asleep ? ' — probably offline' : ''}</p>;
+                    } catch { return null; }
+                  })()}
                 </div>
                 {/* V2.0 F7 — relationship strength arc */}
                 <StrengthArc score={computeStrength(
@@ -9794,6 +10436,67 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                );
+              })()}
+
+              {/* V3 F2 — generated meeting brief (persisted to meeting_briefs) */}
+              {meetingBrief && meetingBrief.clientId === viewingClient.id && (
+                <div className="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 rounded-xl p-3.5">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[11px] font-bold text-violet-700 dark:text-violet-300 uppercase tracking-wider">Meeting Brief</p>
+                    <button onClick={() => setMeetingBrief(null)} className="text-[11px] font-semibold text-violet-400 hover:text-violet-700">Close</button>
+                  </div>
+                  <p className="text-[12.5px] text-violet-900 dark:text-violet-200 whitespace-pre-wrap leading-relaxed">{meetingBrief.brief}</p>
+                </div>
+              )}
+
+              {/* V3 F14 — referral chain: the introductions that led here, and onward */}
+              {(() => {
+                const chainUp = [];
+                let cur = viewingClient;
+                for (let i = 0; i < 4 && cur?.referred_by_client_id; i++) {
+                  const parent = clients.find(c => c.id === cur.referred_by_client_id);
+                  if (!parent || chainUp.includes(parent)) break;
+                  chainUp.unshift(parent);
+                  cur = parent;
+                }
+                const referred = clients.filter(c => c.referred_by_client_id === viewingClient.id);
+                if (!chainUp.length && !referred.length) return null;
+                return (
+                  <div className="rounded-xl border border-gray-100 dark:border-gray-800 p-3">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Referral Chain</p>
+                    <div className="flex flex-wrap items-center gap-1 text-[12.5px]">
+                      {chainUp.map(p => (
+                        <span key={p.id} className="inline-flex items-center gap-1">
+                          <button onClick={() => setViewingClient(p)} className="font-semibold text-gray-700 dark:text-gray-300 hover:underline">{p.name}</button>
+                          <span className="text-gray-300 dark:text-gray-600">→</span>
+                        </span>
+                      ))}
+                      <span className="font-bold text-gray-900 dark:text-gray-100 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40">{viewingClient.name}</span>
+                      {referred.map(p => (
+                        <span key={p.id} className="inline-flex items-center gap-1">
+                          <span className="text-gray-300 dark:text-gray-600">→</span>
+                          <button onClick={() => setViewingClient(p)} className="font-semibold text-gray-700 dark:text-gray-300 hover:underline">{p.name}</button>
+                        </span>
+                      ))}
+                    </div>
+                    {/* V3 F21 — ask this person for a warm intro to someone they're connected to */}
+                    {viewingClient.email && (() => {
+                      const introTargets = clients.filter(c => c.id !== viewingClient.id && c.company_name && viewingClient.company_name && c.company_name.toLowerCase() === viewingClient.company_name.toLowerCase());
+                      const target = introTargets[0] || referred[0];
+                      return (
+                        <button onClick={() => {
+                          const first = viewingClient.name.split(' ')[0];
+                          setEmailTo(viewingClient.email);
+                          setEmailSubject('A small introduction favor?');
+                          setEmailBody(`Hi ${first},\n\nI'm hoping for a small favor. I'm trying to connect with ${target ? target.name : '[person/company]'}${target?.company_name ? ` at ${target.company_name}` : ''}, and I thought of you as someone who might know the right person.\n\nWould you be willing to make an introduction? Happy to send a short blurb you can forward so it's zero work on your end.\n\nEither way, thank you!\n\nBest,`);
+                          setShowEmailComposer(true);
+                        }} className="mt-2 text-[11.5px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline">
+                          Draft warm intro request →
+                        </button>
+                      );
+                    })()}
                   </div>
                 );
               })()}
@@ -9929,6 +10632,7 @@ export default function App() {
                 tabs={[
                   { key: 'activity', label: 'Activity' },
                   { key: 'notes', label: 'Notes', count: profileNotes.length },
+                  { key: 'interviews', label: 'Interviews', count: infoInterviews.filter(iv => iv.client_id === viewingClient.id).length },
                   { key: 'tasks', label: 'Tasks', count: tasks.filter(t => t.client_id === viewingClient.id).length },
                   { key: 'files', label: 'Files' },
                   { key: 'deals', label: 'Deals', count: deals.filter(d => d.client_id === viewingClient.id).length },
@@ -10051,6 +10755,64 @@ export default function App() {
               )}
 
               {/* TAB: ACTIVITY — ENHANCED ACTIVITY LOGGING */}
+              {/* V3 F12 — INFORMATIONAL INTERVIEW TRACKER (prep → takeaways → thank-you) */}
+              {activeProfileTab === 'interviews' && (() => {
+                const myInterviews = infoInterviews.filter(iv => iv.client_id === viewingClient.id);
+                return (
+                  <div className="space-y-4">
+                    {canEdit && (
+                      <form onSubmit={e => {
+                        e.preventDefault();
+                        handleAddInfoInterview(viewingClient.id, {
+                          scheduled_date: e.target.elements.ivdate.value || null,
+                          questions_prepared: e.target.elements.ivq.value.trim() || null,
+                        });
+                        e.target.reset();
+                      }} className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 p-4 space-y-2">
+                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Plan an informational interview</p>
+                        <div className="flex flex-wrap gap-2">
+                          <input name="ivdate" type="date" className="dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
+                          <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-lg hover:opacity-90 ml-auto">Create</button>
+                        </div>
+                        <textarea name="ivq" rows={3} placeholder={'Questions to prepare — e.g.\n• How did you get into this field?\n• What would you do differently at my stage?'}
+                          className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none resize-none" />
+                      </form>
+                    )}
+                    {myInterviews.length === 0 && <p className="text-[13px] text-gray-400 py-6 text-center">No interviews tracked with {viewingClient.name.split(' ')[0]} yet.</p>}
+                    {myInterviews.map(iv => (
+                      <div key={iv.id} className="rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100">{iv.scheduled_date ? `Interview · ${iv.scheduled_date}` : 'Interview (undated)'}</p>
+                          <label className="flex items-center gap-1.5 text-[11.5px] font-semibold cursor-pointer select-none">
+                            <input type="checkbox" checked={iv.follow_up_sent} onChange={() => handleUpdateInfoInterview(iv, { follow_up_sent: !iv.follow_up_sent })}
+                              className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+                            <span className={iv.follow_up_sent ? 'text-green-600' : 'text-amber-600'}>{iv.follow_up_sent ? 'Thank-you sent' : 'Thank-you pending'}</span>
+                          </label>
+                        </div>
+                        {iv.questions_prepared && (
+                          <div>
+                            <p className="text-[10.5px] font-bold text-gray-400 uppercase tracking-wider mb-1">Prepared questions</p>
+                            <p className="text-[12.5px] text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{iv.questions_prepared}</p>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-[10.5px] font-bold text-gray-400 uppercase tracking-wider mb-1">Key takeaways</p>
+                          {iv.key_takeaways
+                            ? <p className="text-[12.5px] text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{iv.key_takeaways}</p>
+                            : canEdit && (
+                              <form onSubmit={e => { e.preventDefault(); const v = e.target.elements.tk.value.trim(); if (v) handleUpdateInfoInterview(iv, { key_takeaways: v }); }}>
+                                <textarea name="tk" rows={2} placeholder="What did you learn? Who did they suggest you talk to next?"
+                                  className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[12.5px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none resize-none" />
+                                <button type="submit" className="mt-1 text-[11.5px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline">Save takeaways</button>
+                              </form>
+                            )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {/* V2.0 F13 — NOTES TAB (pinnable, distinct from activities/quick_note) */}
               {activeProfileTab === 'notes' && (
                 <div className="space-y-4">
@@ -10061,6 +10823,18 @@ export default function App() {
                         className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 flex-1 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-gray-400 resize-none" />
                       <button onClick={handleAddNote} disabled={!newNoteBody.trim()}
                         className="self-end px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90 disabled:opacity-40">Add</button>
+                    </div>
+                  )}
+                  {/* V3 F22 — endorsement quick-tags: one tap records who's been valuable */}
+                  {canEdit && (
+                    <div className="flex flex-wrap items-center gap-1.5 -mt-2">
+                      <span className="text-[10.5px] text-gray-400">Endorse:</span>
+                      {ENDORSEMENT_TAGS.map(tag => (
+                        <button key={tag} onClick={() => setNewNoteBody(b => `${b}${b && !b.endsWith(' ') ? ' ' : ''}[${tag}] `)}
+                          className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70">
+                          {tag}
+                        </button>
+                      ))}
                     </div>
                   )}
                   {/* V2.0 F42 — @mention helper: click a member to insert; they get notified */}
@@ -10084,9 +10858,11 @@ export default function App() {
                     <div key={note.id} className={`rounded-xl border p-3.5 ${note.pinned ? 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20' : 'border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40'}`}>
                       <div className="flex items-start justify-between gap-3">
                         <p className="text-[13px] text-gray-800 dark:text-gray-200 whitespace-pre-wrap flex-1">
-                          {/* V2.0 F42 — @mentions render as highlighted chips */}
-                          {note.body.split(/(@[\w.\-@]+)/g).map((part, i) => part.startsWith('@')
+                          {/* V2.0 F42 + V3 F22 — @mentions and [endorsements] render as chips */}
+                          {note.body.split(/(@[\w.\-@]+|\[[^\]]+\])/g).map((part, i) => part.startsWith('@')
                             ? <span key={i} className="px-1 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-semibold">{part}</span>
+                            : part.startsWith('[') && part.endsWith(']')
+                            ? <span key={i} className="px-1 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-semibold">{part.slice(1, -1)}</span>
                             : part)}
                         </p>
                         {canEdit && (
@@ -10110,6 +10886,25 @@ export default function App() {
                   deals={deals.filter(d => d.client_id === viewingClient.id)}
                   tasks={tasks.filter(t => t.client_id === viewingClient.id)}
                 />
+                {/* V3 F3 — sentiment trend across the last 10 activities (oldest→newest) */}
+                {(() => {
+                  const recent = activities.filter(a => a.client_id === viewingClient.id)
+                    .sort((a, b) => (a.activity_date < b.activity_date ? -1 : 1)).slice(-10);
+                  if (recent.length < 3) return null;
+                  return (
+                    <div className="flex items-center gap-2 px-1">
+                      <span className="text-[10.5px] font-bold text-gray-400 uppercase tracking-wider">Sentiment trend</span>
+                      <div className="flex items-end gap-1">
+                        {recent.map(a => {
+                          const s = sentimentOf(a.description);
+                          const h = s === 'positive' ? 16 : s === 'neutral' ? 9 : 4;
+                          return <span key={a.id} className={`w-2 rounded-sm ${SENTIMENT_DOT[s]}`} style={{ height: h }} title={`${a.activity_date}: ${s}`} />;
+                        })}
+                      </div>
+                      <span className="text-[10.5px] text-gray-400">older → newer</span>
+                    </div>
+                  );
+                })()}
                 <div className="flex items-center justify-between">
                   <span className="text-[12px] font-bold text-gray-400 uppercase tracking-wider">Activity Timeline</span>
                   <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
@@ -10138,6 +10933,8 @@ export default function App() {
                       <div key={act.id} className="p-3 border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 rounded-xl group relative">
                         <div className="flex justify-between items-start mb-2">
                           <div className="flex items-center gap-2">
+                            {/* V3 F3 — keyword sentiment dot */}
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${SENTIMENT_DOT[sentimentOf(act.description)]}`} title={`Sentiment: ${sentimentOf(act.description)}`} />
                             <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded uppercase">{act.activity_type}</span>
                             <span className="text-[11px] font-semibold text-gray-400">{act.activity_date}</span>
                           </div>
@@ -10257,6 +11054,32 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Birthday</label>
                   <input type="date" value={editingClient.birthday || ''} onChange={e => setEditingClient({...editingClient, birthday: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-600 focus:outline-none" />
+                </div>
+                {/* V3 F11/F15/F27/F40 — career networking + channel fields */}
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Network Role</label>
+                  <select value={editingClient.network_role || ''} onChange={e => setEditingClient({...editingClient, network_role: e.target.value || null})} className="dark:bg-gray-800 dark:text-gray-100 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none">
+                    <option value="">—</option>
+                    {NETWORK_ROLES.map(r => <option key={r} value={r}>{NETWORK_ROLE_META[r].label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">School <span className="font-normal text-gray-400">(alumni network)</span></label>
+                  <input type="text" placeholder="e.g. UC Berkeley" value={editingClient.school || ''} onChange={e => setEditingClient({...editingClient, school: e.target.value})} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none focus:border-gray-400" />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Timezone</label>
+                  <select value={editingClient.timezone || ''} onChange={e => setEditingClient({...editingClient, timezone: e.target.value || null})} className="dark:bg-gray-800 dark:text-gray-100 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none">
+                    <option value="">—</option>
+                    {['America/Los_Angeles','America/Denver','America/Chicago','America/New_York','Europe/London','Europe/Paris','Europe/Berlin','Asia/Ho_Chi_Minh','Asia/Singapore','Asia/Tokyo','Australia/Sydney'].map(tz => <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Preferred Channel</label>
+                  <select value={editingClient.preferred_channel || ''} onChange={e => setEditingClient({...editingClient, preferred_channel: e.target.value || null})} className="dark:bg-gray-800 dark:text-gray-100 w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-900 focus:outline-none">
+                    <option value="">—</option>
+                    {['email', 'linkedin', 'phone', 'text'].map(ch => <option key={ch} value={ch}>{ch}</option>)}
+                  </select>
                 </div>
                 {/* PART F — company fields */}
                 <div>
@@ -10671,6 +11494,14 @@ export default function App() {
                   </div>
                 );
               })()}
+
+              {/* V3 F6 — AI icebreakers referencing their role/company */}
+              {viewingClient && (viewingClient.company_name || viewingClient.role) && (
+                <button type="button" onClick={() => handleAiIcebreakers(viewingClient)} disabled={aiBusy}
+                  className="text-[12px] font-semibold text-violet-600 dark:text-violet-400 hover:underline disabled:opacity-50">
+                  {aiBusy ? 'Writing…' : `AI icebreakers for ${viewingClient.name.split(' ')[0]} →`}
+                </button>
+              )}
 
               {/* V2.0 F22 — device preview: desktop + phone frame side by side */}
               <div>
@@ -11242,6 +12073,7 @@ export default function App() {
       {showCmdPalette && user && (
         <CommandPalette
           onClose={() => setShowCmdPalette(false)}
+          onAskAI={handleNlSearch}
           items={[
             { type: 'action', label: 'Create new relationship', action: () => { setAppStep('CLIENTS'); setTimeout(() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' }), 150); } },
             { type: 'action', label: 'Create new deal', action: () => { setAppStep('DEALS'); resetDealForm(); setShowDealForm(true); } },
@@ -11291,6 +12123,20 @@ export default function App() {
                 className="px-5 py-2.5 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">
                 Take me to it
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* V3 F10 — AI COMPARISON RESULT */}
+      {compareResult && (
+        <div className="fixed inset-0 z-[207] bg-black/40 backdrop-blur-sm flex items-center justify-center px-4" onClick={() => setCompareResult(null)}>
+          <div className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
+            <p className="text-[11px] font-bold text-violet-600 dark:text-violet-400 uppercase tracking-wider mb-1">AI Comparison</p>
+            <h3 className="text-[17px] font-bold text-gray-900 dark:text-gray-100 mb-3">{compareResult.a} vs {compareResult.b}</h3>
+            <p className="text-[13.5px] text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{compareResult.text}</p>
+            <div className="flex justify-end mt-4">
+              <button onClick={() => setCompareResult(null)} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Close</button>
             </div>
           </div>
         </div>
