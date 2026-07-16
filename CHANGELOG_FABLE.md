@@ -471,3 +471,19 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **F27 Unsubscribe injection: already live since v5** — the runner appends the footer link (`index.ts:258`) and `/track/unsub/:token` upserts `unsubscribes` + stops active enrollments. Verified, not rebuilt.
 - **F28 Template library:** extended `SEQ_TEMPLATES` 4 → 8 (added Re-Engagement, Event Follow-Up, Referral Request, Quarterly Check-In) with written subject/body copy + merge tags; existing gallery + one-click import handles them.
 - `next build` green.
+
+## Clusters E–F — Tasks, productivity & reporting (F29–F40)
+- **F29 Priorities:** urgent/high/medium/low with colored chips (urgent pulses red); chip click cycles priority; priority filter pills; list auto-sorts priority-then-due-date. `PRIORITY_META` + CHECK-constrained column.
+- **F30 Due-time reminders:** 60s interval; tasks due within 30 min raise a fixed top banner ("Task due in N min: …") with View/Dismiss.
+- **F31 Subtasks:** checklist per task (add/toggle/delete), "n/m + progress bar" indicator on rows and board cards, inline expansion; `+ checklist` starter for empty tasks.
+- **F32 Task templates:** two built-ins (`New Client Onboarding` 0/3/7/14/30d, `Follow-Up Blitz` 0/2/5d) applied from the profile Tasks tab — creates all tasks with priorities and due dates relative to today. (The `task_templates` table exists for future user-defined sets; built-ins are code-side.)
+- **F33 Board view:** List/Board switcher; To Do / In Progress / Done columns; HTML5 drag between columns; `task_status` kept in sync with legacy `status` (done⇄pending) so every other view stays correct.
+- **F34 Today view:** new sidebar entry (all 3 navs) — tasks due/overdue (checkable inline), deals closing this week, High-priority relationships silent 30d+, birthdays within 7 days with one-click drafts. No noise.
+- **F35 KPI trend arrows:** 4 dashboard cards (New Relationships, Activities, Deals Won $, Emails Auto-Sent) comparing last 30d vs prior 30d with ▲/▼ percentage.
+- **F36 GitHub-style heatmap:** 53×7 contribution grid of activities/day (365 days, Sunday-aligned, 4 intensity shades, hover tooltips) + current-streak counter, in Reports.
+- **F37 Revenue analytics:** Won-this-month, Won:Lost ratio, avg deal size, 6-month trend bars, revenue by source (client join), currency-normalized.
+- **F38 Growth chart:** 12 weekly bars of total relationships + "+N" weekly net-new labels.
+- **F39 Automation ROI:** auto-sent count, reply rate, meetings booked (Meeting activity within 7 days of a reply), hours saved (sends × 2min) — with methodology note.
+- **F40 Report PDF:** "Download Report" opens a print-optimized page (overview stats, won deals with close reasons, pipeline by stage) that auto-triggers Print → Save as PDF.
+- **F19 (from C):** Win/Loss reasons frequency table now renders in Reports.
+- `next build` green.
