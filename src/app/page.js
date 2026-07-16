@@ -551,6 +551,220 @@ const WHATS_NEW = [
   },
 ];
 
+// V3 F53–F58 — interactive network graph: force-directed, dependency-free.
+// Nodes = relationships; edges = referrals + shared company + shared school.
+function NetworkGraph({ clients, onOpen }) {
+  const svgRef = useRef(null);
+  const [positions, setPositions] = useState({});
+  const [colorBy, setColorBy] = useState('role'); // 'role' | 'company'  (F54)
+  const [pathTarget, setPathTarget] = useState(''); // F55
+  const [showIsolated, setShowIsolated] = useState(false); // F57
+  const [timeCutoff, setTimeCutoff] = useState(100); // F56 — % of the date range
+  const [view, setView] = useState({ x: 0, y: 0, k: 1 });
+  const dragRef = useRef(null);
+
+  // Build edges once per clients change
+  const { nodes, edges, isolatedIds } = useMemo(() => {
+    const nodes = clients.filter(c => c.name);
+    const edges = [];
+    const seen = new Set();
+    const add = (a, b, kind) => {
+      const k = a < b ? `${a}-${b}` : `${b}-${a}`;
+      if (a !== b && !seen.has(k)) { seen.add(k); edges.push({ a, b, kind }); }
+    };
+    nodes.forEach(c => { if (c.referred_by_client_id) add(c.id, c.referred_by_client_id, 'referral'); });
+    const byCompany = {}, bySchool = {};
+    nodes.forEach(c => {
+      const co = (c.company_name || '').toLowerCase().trim();
+      const sc = (c.school || '').toLowerCase().trim();
+      if (co) (byCompany[co] = byCompany[co] || []).push(c.id);
+      if (sc) (bySchool[sc] = bySchool[sc] || []).push(c.id);
+    });
+    Object.values(byCompany).forEach(ids => { for (let i = 1; i < ids.length; i++) add(ids[0], ids[i], 'company'); });
+    Object.values(bySchool).forEach(ids => { for (let i = 1; i < ids.length; i++) add(ids[0], ids[i], 'school'); });
+    const connected = new Set(edges.flatMap(e => [e.a, e.b]));
+    const isolatedIds = new Set(nodes.filter(n => !connected.has(n.id)).map(n => n.id));
+    return { nodes, edges, isolatedIds };
+  }, [clients]);
+
+  // F56 — time cutoff filters nodes by created_at percentile
+  const visibleNodes = useMemo(() => {
+    if (timeCutoff >= 100) return nodes;
+    const dates = nodes.map(n => new Date(n.created_at || 0).getTime()).sort((a, b) => a - b);
+    if (!dates.length) return nodes;
+    const cut = dates[Math.max(0, Math.floor((dates.length - 1) * (timeCutoff / 100)))];
+    return nodes.filter(n => new Date(n.created_at || 0).getTime() <= cut);
+  }, [nodes, timeCutoff]);
+  const visibleIds = useMemo(() => new Set(visibleNodes.map(n => n.id)), [visibleNodes]);
+  const visibleEdges = useMemo(() => edges.filter(e => visibleIds.has(e.a) && visibleIds.has(e.b)), [edges, visibleIds]);
+
+  // Force simulation — runs to convergence whenever the visible set changes
+  useEffect(() => {
+    const W = 900, H = 620;
+    const pos = {};
+    visibleNodes.forEach((n, i) => {
+      const angle = (i / Math.max(visibleNodes.length, 1)) * Math.PI * 2;
+      pos[n.id] = { x: W / 2 + Math.cos(angle) * 220 + (i % 7) * 3, y: H / 2 + Math.sin(angle) * 220 + (i % 5) * 3, vx: 0, vy: 0 };
+    });
+    const adj = visibleEdges.map(e => [e.a, e.b]);
+    for (let tick = 0; tick < 250; tick++) {
+      const alpha = 1 - tick / 250;
+      // repulsion (O(n²) — fine at CRM scale)
+      const ids = Object.keys(pos);
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          const A = pos[ids[i]], B = pos[ids[j]];
+          let dx = A.x - B.x, dy = A.y - B.y;
+          let d2 = dx * dx + dy * dy || 1;
+          if (d2 < 40000) {
+            const f = (2600 / d2) * alpha;
+            const d = Math.sqrt(d2);
+            dx /= d; dy /= d;
+            A.vx += dx * f; A.vy += dy * f;
+            B.vx -= dx * f; B.vy -= dy * f;
+          }
+        }
+      }
+      // springs
+      adj.forEach(([a, b]) => {
+        const A = pos[a], B = pos[b];
+        if (!A || !B) return;
+        const dx = B.x - A.x, dy = B.y - A.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const f = ((d - 110) / d) * 0.04 * alpha;
+        A.vx += dx * f; A.vy += dy * f;
+        B.vx -= dx * f; B.vy -= dy * f;
+      });
+      // centering + integrate
+      Object.values(pos).forEach(p => {
+        p.vx += (W / 2 - p.x) * 0.002 * alpha;
+        p.vy += (H / 2 - p.y) * 0.002 * alpha;
+        p.x += p.vx; p.y += p.vy;
+        p.vx *= 0.85; p.vy *= 0.85;
+      });
+    }
+    setPositions(pos);
+  }, [visibleNodes, visibleEdges]);
+
+  // F55 — BFS shortest path to a name/company match
+  const highlightPath = useMemo(() => {
+    const q = pathTarget.toLowerCase().trim();
+    if (!q) return new Set();
+    const target = visibleNodes.find(n => n.name.toLowerCase().includes(q) || (n.company_name || '').toLowerCase().includes(q));
+    if (!target) return new Set();
+    const adj = {};
+    visibleEdges.forEach(e => { (adj[e.a] = adj[e.a] || []).push(e.b); (adj[e.b] = adj[e.b] || []).push(e.a); });
+    // BFS from every other node to target: highlight target's whole shortest tree from the most-connected hub? Simpler: from target, mark its component within 3 hops.
+    const marked = new Set([target.id]);
+    let frontier = [target.id];
+    for (let hop = 0; hop < 3; hop++) {
+      const next = [];
+      frontier.forEach(id => (adj[id] || []).forEach(nb => { if (!marked.has(nb)) { marked.add(nb); next.push(nb); } }));
+      frontier = next;
+    }
+    return marked;
+  }, [pathTarget, visibleNodes, visibleEdges]);
+
+  const companyColors = useMemo(() => {
+    const PALETTE = ['#8B5CF6', '#06B6D4', '#10B981', '#F59E0B', '#EC4899', '#3B82F6', '#F97316', '#14B8A6'];
+    const counts = {};
+    visibleNodes.forEach(n => { const co = (n.company_name || '').trim(); if (co) counts[co] = (counts[co] || 0) + 1; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const map = {};
+    top.forEach(([co], i) => { map[co] = PALETTE[i]; });
+    return map;
+  }, [visibleNodes]);
+
+  const nodeColor = (n) => {
+    if (colorBy === 'company') return companyColors[(n.company_name || '').trim()] || '#9CA3AF';
+    const ROLE_COLORS = { mentor: '#8B5CF6', mentee: '#06B6D4', peer: '#3B82F6', recruiter: '#10B981', alumni: '#F59E0B', professor: '#F43F5E' };
+    return ROLE_COLORS[n.network_role] || '#9CA3AF';
+  };
+
+  // F58 — export current SVG as PNG
+  function exportPNG() {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const xml = new XMLSerializer().serializeToString(svg);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1800; canvas.height = 1240;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const a = document.createElement('a');
+      a.download = 'my-network.png';
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
+          {[['role', 'Color by role'], ['company', 'Color by company']].map(([v, label]) => (
+            <button key={v} onClick={() => setColorBy(v)} className={`px-3 py-1 text-[12px] font-semibold rounded-md transition-all ${colorBy === v ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500'}`}>{label}</button>
+          ))}
+        </div>
+        <input value={pathTarget} onChange={e => setPathTarget(e.target.value)} placeholder="How am I connected to… (name/company)"
+          className="dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 px-3 h-8 text-[12.5px] border border-gray-200 dark:border-gray-700 rounded-lg outline-none focus:border-gray-400 w-64" />
+        <label className="flex items-center gap-1.5 text-[12px] font-semibold text-gray-500 cursor-pointer select-none">
+          <input type="checkbox" checked={showIsolated} onChange={e => setShowIsolated(e.target.checked)} className="rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+          Highlight isolated ({isolatedIds.size})
+        </label>
+        <button onClick={exportPNG} className="ml-auto px-3 h-8 rounded-lg text-[12px] font-semibold bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:opacity-90">Export PNG</button>
+      </div>
+
+      {/* F56 — growth timeline scrubber */}
+      <div className="flex items-center gap-3">
+        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider shrink-0">Network over time</span>
+        <input type="range" min="5" max="100" value={timeCutoff} onChange={e => setTimeCutoff(Number(e.target.value))} className="flex-1 accent-gray-900 dark:accent-white" />
+        <span className="text-[11px] font-mono text-gray-400 w-20 text-right">{visibleNodes.length}/{nodes.length} people</span>
+      </div>
+
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden"
+        onWheel={e => { setView(v => ({ ...v, k: Math.max(0.4, Math.min(3, v.k * (e.deltaY > 0 ? 0.92 : 1.08))) })); }}
+        onMouseDown={e => { dragRef.current = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y }; }}
+        onMouseMove={e => { if (dragRef.current) setView(v => ({ ...v, x: dragRef.current.ox + (e.clientX - dragRef.current.sx) / v.k, y: dragRef.current.oy + (e.clientY - dragRef.current.sy) / v.k })); }}
+        onMouseUp={() => { dragRef.current = null; }}
+        onMouseLeave={() => { dragRef.current = null; }}>
+        <svg ref={svgRef} viewBox="0 0 900 620" className="w-full h-[62vh] cursor-grab active:cursor-grabbing select-none">
+          <g transform={`translate(${450 + view.x * view.k}, ${310 + view.y * view.k}) scale(${view.k}) translate(-450, -310)`}>
+            {visibleEdges.map((e, i) => {
+              const A = positions[e.a], B = positions[e.b];
+              if (!A || !B) return null;
+              const inPath = highlightPath.size > 0 && highlightPath.has(e.a) && highlightPath.has(e.b);
+              return <line key={i} x1={A.x} y1={A.y} x2={B.x} y2={B.y}
+                stroke={inPath ? '#8B5CF6' : e.kind === 'referral' ? '#94A3B8' : e.kind === 'school' ? '#FCD34D' : '#CBD5E1'}
+                strokeWidth={inPath ? 2.5 : e.kind === 'referral' ? 1.8 : 1} strokeDasharray={e.kind === 'referral' ? '' : '4 3'} opacity={highlightPath.size > 0 && !inPath ? 0.15 : 0.7} />;
+            })}
+            {visibleNodes.map(n => {
+              const p = positions[n.id];
+              if (!p) return null;
+              const dim = highlightPath.size > 0 && !highlightPath.has(n.id);
+              const isolated = isolatedIds.has(n.id);
+              return (
+                <g key={n.id} transform={`translate(${p.x}, ${p.y})`} className="cursor-pointer" onClick={() => onOpen(n)} opacity={dim ? 0.2 : 1}>
+                  {showIsolated && isolated && <circle r="16" fill="none" stroke="#F59E0B" strokeWidth="2" strokeDasharray="3 3" />}
+                  <circle r="10" fill={nodeColor(n)} stroke="white" strokeWidth="2" />
+                  <text y="24" textAnchor="middle" className="fill-gray-600 dark:fill-gray-300" style={{ fontSize: 10, fontWeight: 600 }}>{n.name.split(' ')[0]}</text>
+                </g>
+              );
+            })}
+          </g>
+        </svg>
+      </div>
+      <p className="text-[11px] text-gray-400">
+        Solid lines = referrals · dashed gray = same company · dashed gold = same school. Scroll to zoom, drag to pan, click a node to open the profile.
+      </p>
+    </div>
+  );
+}
+
 // V3 F3 — lightweight keyword sentiment (client-side; no API call)
 const POSITIVE_WORDS = ['great', 'excited', 'interested', 'love', 'perfect', 'yes', 'agreed', 'thanks', 'thank you', 'awesome', 'helpful', 'won', 'signed', 'intro', 'referred', 'connected', 'happy', 'good call', 'productive'];
 const NEGATIVE_WORDS = ['not interested', 'no budget', 'declined', 'rejected', 'unsubscribe', 'stop', 'cancel', 'frustrated', 'delay', 'ghosted', 'no response', 'lost', 'concern', 'issue', 'problem', 'bad'];
@@ -1607,6 +1821,8 @@ export default function App() {
   const [aiBusy, setAiBusy] = useState(false); // V3 — any AI call in flight
   const [meetingBrief, setMeetingBrief] = useState(null); // V3 F2 — { clientId, brief }
   const [compareResult, setCompareResult] = useState(null); // V3 F10
+  const [proposals, setProposals] = useState([]); // V3 F59
+  const [editingProposalId, setEditingProposalId] = useState(null); // open editor in deal view
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState({ clients: [], activities: [] });
 
@@ -2160,6 +2376,7 @@ export default function App() {
       fetchActivityFeed(),
       fetchImportHistory(),
       fetchCareerData(session.user.id),
+      fetchProposals(session.user.id),
       fetchWebhooks(session.user.id),
       fetchGoals(session.user.id),
       fetchSavedViews(session.user.id),
@@ -2305,6 +2522,51 @@ export default function App() {
       compareWith: packFor(b),
     });
     if (result) setCompareResult({ a: a.name, b: b.name, text: result });
+  }
+
+  // V3 F59/F60/F62/F65 — proposals
+  async function fetchProposals(userId) {
+    const { data } = await supabase.from('proposals').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+    if (data) setProposals(data);
+  }
+  async function handleCreateProposal(deal) {
+    const client = clients.find(c => c.id === deal.client_id);
+    const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+    const sections = [
+      { heading: 'Introduction', body: `Prepared for ${client?.name || 'you'}${client?.company_name ? ` at ${client.company_name}` : ''}.\n\n[Why this engagement makes sense — one short paragraph.]` },
+      { heading: 'Scope of Work', body: '[What exactly you will deliver, as concrete bullets.]' },
+      { heading: 'Pricing', body: `${fmtCurrency(deal.value, deal.currency)}${deal.is_recurring ? ` per ${deal.billing_cycle || 'month'}` : ' (one-time)'}.\n\n[Payment terms.]` },
+      { heading: 'Terms', body: '[Timeline, revisions, and what happens after signing.]' },
+    ];
+    const { data, error } = await supabase.from('proposals')
+      .insert([{ deal_id: deal.id, user_id: user.id, title: `Proposal — ${deal.title}`, sections, shared_token: token, valid_until: new Date(Date.now() + 14 * 864e5).toISOString().split('T')[0] }]).select();
+    if (error || !data) { showToast(error?.message || 'Could not create proposal', 'error'); return; }
+    setProposals(prev => [data[0], ...prev]);
+    setEditingProposalId(data[0].id);
+    logAudit('created_proposal', 'proposal', data[0].id);
+  }
+  async function handleSaveProposal(prop, patch) {
+    // F62 — snapshot the outgoing sections into versions before overwriting
+    const versions = patch.sections
+      ? [...(prop.versions || []), { saved_at: new Date().toISOString(), sections: prop.sections }].slice(-10)
+      : prop.versions;
+    const { error } = await supabase.from('proposals').update({ ...patch, versions, updated_at: new Date().toISOString() }).eq('id', prop.id);
+    if (error) { showToast(error.message, 'error'); return; }
+    setProposals(prev => prev.map(p => p.id === prop.id ? { ...p, ...patch, versions } : p));
+  }
+  async function handleDeleteProposal(prop) {
+    setProposals(prev => prev.filter(p => p.id !== prop.id));
+    if (editingProposalId === prop.id) setEditingProposalId(null);
+    const timer = setTimeout(async () => {
+      const { error } = await supabase.from('proposals').delete().eq('id', prop.id);
+      if (error) { setProposals(prev => [prop, ...prev]); showToast(error.message, 'error'); }
+    }, 5200);
+    showUndoableToast('Proposal deleted', () => { clearTimeout(timer); setProposals(prev => [prop, ...prev]); });
+  }
+
+  // V3 F77 — audit trail for consequential actions (fire-and-forget)
+  function logAudit(action, entity_type = null, entity_id = null) {
+    try { supabase.from('audit_log').insert([{ user_id: user.id, action, entity_type, entity_id: entity_id != null ? String(entity_id) : null }]).then(() => {}); } catch {}
   }
 
   // V3 Cluster B — career networking fetches + handlers
@@ -5925,6 +6187,7 @@ export default function App() {
               ['DASHBOARD', 'Overview'],
               ['TODAY', 'Today'],
               ['CAREER', 'Career Hub'],
+              ['NETWORK', 'Network Map'],
               ['CLIENTS', 'Relationships'],
               ['DEALS', 'Deals'],
               ['N8N', 'Email Automation'],
@@ -6020,6 +6283,7 @@ export default function App() {
                     ['DASHBOARD', 'Overview'],
                     ['TODAY', 'Today'],
               ['CAREER', 'Career Hub'],
+              ['NETWORK', 'Network Map'],
                     ['CLIENTS', 'Relationships'],
                     ['DEALS', 'Deals'],
                     ['GLOBAL_TASKS', 'Tasks'],
@@ -6113,6 +6377,7 @@ export default function App() {
                 ['DASHBOARD', 'Overview'],
                 ['TODAY', 'Today'],
               ['CAREER', 'Career Hub'],
+              ['NETWORK', 'Network Map'],
                 ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
                 ['N8N', 'Email Automation'],
@@ -8353,6 +8618,21 @@ export default function App() {
         })()}
 
         {/* VIEW: GLOBAL TASKS */}
+        {/* V3 F53–F58 — NETWORK MAP: force-directed graph of the whole network */}
+        {appStep === 'NETWORK' && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Network Map</h1>
+              <p className="text-[13px] text-gray-500">Every relationship, connected by referrals, companies, and schools.</p>
+            </div>
+            {clients.length < 2 ? (
+              <p className="text-[13px] text-gray-400 py-10 text-center">Add a few relationships and connections will appear here.</p>
+            ) : (
+              <NetworkGraph clients={clients} onOpen={(c) => { setViewingClient(c); setAppStep('CLIENTS'); }} />
+            )}
+          </div>
+        )}
+
         {/* V3 CLUSTER B — CAREER HUB: applications, goals, school network, diversity */}
         {appStep === 'CAREER' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -11277,6 +11557,68 @@ export default function App() {
                 </button>
               </div>
             </form>
+
+            {/* V3 F59/F60/F62/F65 — proposals for this deal */}
+            {editingDeal && (
+              <div className="max-w-2xl mx-auto w-full px-4 sm:px-6 pb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Proposals</p>
+                  <button type="button" onClick={() => handleCreateProposal(editingDeal)} className="text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">+ New proposal</button>
+                </div>
+                <div className="space-y-3">
+                  {proposals.filter(p => p.deal_id === editingDeal.id).map(prop => {
+                    const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/p/${prop.shared_token}` : '';
+                    const expiringSoon = prop.valid_until && !prop.signed_at && Math.round((new Date(prop.valid_until) - new Date(todayStr)) / 864e5) <= 2;
+                    const open = editingProposalId === prop.id;
+                    return (
+                      <div key={prop.id} className={`rounded-xl border p-4 ${prop.signed_at ? 'border-green-200 dark:border-green-900 bg-green-50/40 dark:bg-green-950/20' : 'border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/40'}`}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-[13px] font-bold text-gray-900 dark:text-gray-100">{prop.title}</p>
+                          {prop.signed_at
+                            ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-600 text-white">SIGNED by {prop.signer_name}</span>
+                            : expiringSoon
+                            ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300">Expires {prop.valid_until}</span>
+                            : <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 uppercase">{prop.status}</span>}
+                          {(prop.versions || []).length > 0 && <span className="text-[10px] text-gray-400">v{(prop.versions || []).length + 1}</span>}
+                          <span className="ml-auto flex gap-2.5 text-[11.5px] font-semibold">
+                            <button type="button" onClick={() => { navigator.clipboard?.writeText(shareUrl); showToast('Share link copied'); }} className="text-indigo-600 dark:text-indigo-400 hover:underline">Copy link</button>
+                            <a href={shareUrl} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Preview</a>
+                            {!prop.signed_at && <button type="button" onClick={() => setEditingProposalId(open ? null : prop.id)} className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">{open ? 'Close' : 'Edit'}</button>}
+                            <button type="button" onClick={() => handleDeleteProposal(prop)} className="text-gray-400 hover:text-red-600">Delete</button>
+                          </span>
+                        </div>
+                        {open && !prop.signed_at && (
+                          <div className="mt-3 space-y-3" onClick={e => e.stopPropagation()}>
+                            <div className="flex flex-wrap gap-2 items-center">
+                              <input defaultValue={prop.title} onBlur={e => e.target.value.trim() !== prop.title && handleSaveProposal(prop, { title: e.target.value.trim() })}
+                                className="dark:bg-gray-800 dark:text-gray-100 flex-1 min-w-[200px] px-3 py-1.5 text-[13px] font-semibold border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
+                              <label className="text-[11px] text-gray-400 flex items-center gap-1.5">Valid until
+                                <input type="date" defaultValue={prop.valid_until || ''} onBlur={e => e.target.value !== prop.valid_until && handleSaveProposal(prop, { valid_until: e.target.value || null })}
+                                  className="dark:bg-gray-800 dark:text-gray-100 px-2 py-1 text-[12px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none" />
+                              </label>
+                            </div>
+                            {(prop.sections || []).map((sec, i) => (
+                              <div key={i}>
+                                <input defaultValue={sec.heading} placeholder="Section heading"
+                                  onBlur={e => { const sections = [...prop.sections]; sections[i] = { ...sections[i], heading: e.target.value }; if (e.target.value !== sec.heading) handleSaveProposal(prop, { sections }); }}
+                                  className="dark:bg-gray-800 dark:text-gray-100 w-full px-3 py-1.5 text-[12.5px] font-bold border border-gray-200 dark:border-gray-700 rounded-t-lg focus:outline-none" />
+                                <textarea defaultValue={sec.body} rows={3}
+                                  onBlur={e => { const sections = [...prop.sections]; sections[i] = { ...sections[i], body: e.target.value }; if (e.target.value !== sec.body) handleSaveProposal(prop, { sections }); }}
+                                  className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[12.5px] border border-t-0 border-gray-200 dark:border-gray-700 rounded-b-lg focus:outline-none resize-y" />
+                              </div>
+                            ))}
+                            <p className="text-[10.5px] text-gray-400">Edits save on blur; each save snapshots the previous version (v-history above). The share link renders a clean signable page.</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {proposals.filter(p => p.deal_id === editingDeal.id).length === 0 && (
+                    <p className="text-[12px] text-gray-400">No proposals yet — create one and share the signable link.</p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* V2.0 F16 — deal activity feed (auto-logged events) */}
             {editingDeal && (() => {

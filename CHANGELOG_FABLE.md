@@ -540,3 +540,20 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **F10 Compare:** select exactly 2 → "Compare (AI)" in the bulk bar → side-by-side verdict modal with a this-week priority recommendation.
 - **F9:** already existed (browser SpeechRecognition) — verified, untouched.
 - `next build` green.
+
+## Cluster F — Network visualization (F53–F58)
+- **F53 Network Map** (new sidebar view): dependency-free force-directed SVG graph — nodes = every relationship, edges = referrals (solid) + shared company (dashed gray) + shared school (dashed gold). Custom 250-tick simulation (repulsion + springs + centering; O(n²) is fine at CRM scale). Wheel-zoom, drag-pan, click-through to profiles.
+- **F54 Company clusters:** "Color by company" mode assigns palette colors to the top-8 companies.
+- **F55 Connection finder:** type a name/company → the target's 3-hop neighborhood highlights, everything else dims.
+- **F56 Growth timeline:** scrubber filters nodes by created_at percentile and re-runs the layout — watch the network grow.
+- **F57 Isolated contacts:** toggle rings every node with zero edges (intro candidates).
+- **F58 PNG export:** serializes the SVG through a canvas → downloadable `my-network.png`.
+
+## Cluster G core — Proposals & e-signature (F59/F60/F62/F65)
+- **F59 Builder:** "+ New proposal" in the deal view seeds Introduction/Scope/Pricing/Terms from the deal (client name, currency-formatted value, recurring cadence), 32-char share token, 14-day default validity. Sections edit inline (save-on-blur), title/valid-until editable.
+- **F60 E-signature:** public page `/p/[token]` — clean reading layout, print-to-PDF, **HTML5 canvas signature pad** (mouse + touch), name + signature POST → timestamped, status → signed, one-time (409 on re-sign, 410 past expiry). Signed state renders a confirmation block.
+- **Security:** public access goes through the new `proposal-public` edge function (service-key, exact-token lookup, 16-char minimum, 200KB signature cap) — deliberately NO anon RLS policy on proposals, which would have allowed enumeration. Function source committed + deployed.
+- **F62 Versions:** every sections-save snapshots the outgoing content into `versions` (last 10), surfaced as a vN chip.
+- **F65 Expiry:** unsigned proposals within 2 days of `valid_until` show a red "Expires" chip; the public page returns a polite expired state and refuses signatures (410).
+- **F77 (early):** `logAudit` helper landed with proposal creation as the first audited action.
+- `next build` green.
