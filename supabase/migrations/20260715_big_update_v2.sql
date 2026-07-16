@@ -151,3 +151,15 @@ ALTER TABLE public.import_history ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "own imports" ON public.import_history;
 CREATE POLICY "own imports" ON public.import_history
   FOR ALL USING ((select auth.uid()) = user_id);
+
+-- F43 (applied separately as big_update_v2_shared_tags) — workspace members can
+-- SEE each other's shared tags.
+DROP POLICY IF EXISTS "shared tags visible to workspace" ON public.tags;
+CREATE POLICY "shared tags visible to workspace" ON public.tags
+  FOR SELECT USING (
+    is_shared = true AND user_id IN (
+      SELECT wm2.user_id FROM public.workspace_members wm1
+      JOIN public.workspace_members wm2 ON wm1.workspace_id = wm2.workspace_id
+      WHERE wm1.user_id = (select auth.uid())
+    )
+  );

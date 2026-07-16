@@ -487,3 +487,16 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **F40 Report PDF:** "Download Report" opens a print-optimized page (overview stats, won deals with close reasons, pipeline by stage) that auto-triggers Print → Save as PDF.
 - **F19 (from C):** Win/Loss reasons frequency table now renders in Reports.
 - `next build` green.
+
+## Clusters G–I — Team, data & polish (F41–F50)
+- **F41 Team feed:** `activity_feed` logging on won deals + created relationships (`logFeed`, failure-isolated); Overview widget "Team Feed" (or "Recent Wins" solo) with member names resolved defensively, typed dots, relative times.
+- **F42 @Mentions:** member chips under the note composer (click to insert `@username`); saving a note that mentions a member inserts a `type='mention'` notification; note bodies render `@tokens` as highlighted indigo chips.
+- **F43 Shared tags:** Private/Shared toggle per tag in Settings (workspace only), "shared" indicator on every TagPill, and a **new RLS SELECT policy** (applied live + mirrored into the migration file) letting workspace members see each other's shared tags.
+- **F44 Leaderboard:** top-3 members this month by feed actions (wins highlighted), computed from the workspace-readable activity_feed — respects RLS without needing cross-member table access.
+- **F45 Bulk edit:** floating bulk bar gains "Set priority…" (clients.relationship — the actual priority field) and "Set source…" (existing values + clear) selects; `handleBulkField` updates every selected row in one call.
+- **F46 Import history:** both CSV imports (relationships + cold contacts) log `import_history` rows with created ids; Settings section lists each import with **Undo import** (confirm → bulk delete by saved ids).
+- **F47 Data health:** Settings card — % with email/phone/company/LinkedIn/tag/≥1 activity as color-coded bars (green>80/yellow≥50/red); clicking a bar jumps to Relationships filtered to rows **missing** that field (new filter step + dismissible chip).
+- **F48 Export with custom fields:** CSV export now emits Company/Source plus one column per `custom_field_definitions` entry, values joined from `custom_field_values`; all cells properly quoted.
+- **F49 Shortcut sheet:** the old small modal is now a full-screen two-column reference grouped by context (Global/Relationships/Deals/Automation/Tasks/Toasts) with `<kbd>` keys — same `?` binding and Esc dismiss; sidebar `?` button unchanged.
+- **F50 What's New:** `WHATS_NEW` array in code; modal auto-shows once per version (localStorage `crm_whatsnew_seen`), sidebar "What's New" entry with a pulsing dot until seen. Sidebar Search now opens the F1 palette (consistency).
+- Note: a prior crashed continuation of this same session had committed partial E–G work (`d07835b`) and left stale git locks (verified no live git process, then removed); current tree audited — no duplicate implementations, single source for every feature, build green.

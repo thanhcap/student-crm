@@ -526,6 +526,23 @@ function SwimlaneTimeline({ activities, deals, tasks }) {
   );
 }
 
+// V2.0 F50 — What's New: bump `version` per deploy; the modal auto-shows once
+// per version (localStorage) and stays reachable from the sidebar badge.
+const WHATS_NEW = [
+  {
+    version: '2.0', date: '2026-07-16', title: 'The Big Update',
+    items: [
+      'Command palette (Cmd+K) that searches everything and runs actions',
+      'Relationship intelligence: strength meter, swimlane timeline, days-silent tracking, lists',
+      'Deals: forecast chart, aging warnings, close countdowns, win/loss reasons',
+      'Email: A/B performance dashboard, spam score, device preview, step heatmap',
+      'Tasks: priorities, subtasks, board view, and a distraction-free Today view',
+      'Team feed, @mentions in notes, leaderboard',
+      'Undo for deletes, right-click menus, quick-add bars — and 30+ more',
+    ],
+  },
+];
+
 // V2.0 F29 — task priority levels
 const TASK_PRIORITIES = ['urgent', 'high', 'medium', 'low'];
 const PRIORITY_META = {
@@ -623,6 +640,8 @@ function TagPill({ tag, onRemove }) {
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
       style={{ backgroundColor: tag.color + '22', color: tag.color, border: `1px solid ${tag.color}44` }}>
       {tag.name}
+      {/* V2.0 F43 — shared tags are workspace-visible */}
+      {tag.is_shared && <span className="text-[8.5px] font-bold uppercase tracking-wide opacity-70" title="Visible to all workspace members">shared</span>}
       {onRemove && <button onClick={() => onRemove(tag.id)} className="hover:opacity-70 ml-0.5">×</button>}
     </span>
   );
@@ -1830,6 +1849,14 @@ export default function App() {
     setDarkMode(saved);
     document.documentElement.classList.toggle('dark', saved);
   }, []);
+
+  // V2.0 F50 — auto-show What's New once per version, after login
+  useEffect(() => {
+    if (!user) return;
+    try {
+      if (localStorage.getItem('crm_whatsnew_seen') !== WHATS_NEW[0].version) setShowWhatsNew(true);
+    } catch {}
+  }, [user?.id]);
 
   function toggleDarkMode() {
     const next = !darkMode;
@@ -3179,6 +3206,9 @@ export default function App() {
     const { data, error } = await supabase.from('cold_contacts').insert(inserts).select();
     if (data && !error) {
       setColdContacts(prev => [...data, ...prev]);
+      // V2.0 F46 — log for undo from Settings
+      supabase.from('import_history').insert([{ user_id: user.id, type: 'cold_contacts', filename: 'Cold contacts CSV', row_count: data.length, imported_ids: data.map(r => r.id) }])
+        .select().then(({ data: ih }) => { if (ih) setImportHistory(prev => [ih[0], ...prev]); });
       const skipped = (coldImportPreview || []).length - data.length;
       const invalid = (coldImportPreview || []).filter(r => r.error && r.error !== 'Duplicate in file').length;
       showToast(`${data.length} added, ${skipped - invalid} duplicates skipped, ${invalid} invalid email${invalid === 1 ? '' : 's'}.`, 'success');
@@ -4520,6 +4550,15 @@ export default function App() {
     showUndoableToast('Note deleted', () => { clearTimeout(timer); setProfileNotes(prev => [note, ...prev]); });
   }
 
+  // V2.0 F45 — generalized bulk edit: one call updates a field on every selected row.
+  // NOTE: clients.relationship IS the priority field (High/Medium/Low).
+  async function handleBulkField(field, value) {
+    const { error } = await supabase.from('clients').update({ [field]: value }).in('id', selectedClientIds);
+    if (error) { showToast(error.message, 'error'); return; }
+    setClients(prev => prev.map(c => selectedClientIds.includes(c.id) ? { ...c, [field]: value } : c));
+    showToast(`Updated ${selectedClientIds.length} relationships.`);
+  }
+
   // V2.0 F14 — list CRUD + membership
   async function handleCreateList(name) {
     const { data, error } = await supabase.from('relationship_lists').insert([{ user_id: user.id, name }]).select();
@@ -4894,15 +4933,17 @@ export default function App() {
 
   const handleExportCSV = () => {
     if (clients.length === 0) return;
-    const headers = ['Name', 'Email', 'Phone', 'Country', 'Status', 'Priority', 'LinkedIn', 'Birthday', 'Notes'];
+    // V2.0 F48 — user-defined custom fields export as real columns
+    const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const headers = ['Name', 'Email', 'Phone', 'Country', 'Status', 'Priority', 'Company', 'Source', 'LinkedIn', 'Birthday', 'Notes',
+      ...customFieldDefs.map(d => d.name)];
     const csvContent = [
-      headers.join(','),
+      headers.map(q).join(','),
       ...clients.map(c => [
-        `"${(c.name || '').replace(/"/g, '""')}"`, `"${(c.email || '').replace(/"/g, '""')}"`,
-        `"${(c.phone_number || '').replace(/"/g, '""')}"`, `"${(c.country || '').replace(/"/g, '""')}"`,
-        `"${(c.status || '').replace(/"/g, '""')}"`, `"${(c.relationship || '').replace(/"/g, '""')}"`,
-        `"${(c.linkedin_url || '').replace(/"/g, '""')}"`, `"${(c.birthday || '').replace(/"/g, '""')}"`,
-        `"${(c.note_conversation || '').replace(/"/g, '""')}"`
+        q(c.name), q(c.email), q(c.phone_number), q(c.country),
+        q(c.status), q(c.relationship), q(c.company_name), q(c.source),
+        q(c.linkedin_url), q(c.birthday), q(c.note_conversation),
+        ...customFieldDefs.map(d => q(customFieldValues.find(v => v.client_id === c.id && v.field_definition_id === d.id)?.value)),
       ].join(','))
     ].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -4965,6 +5006,9 @@ export default function App() {
     const { data, error } = await supabase.from('clients').insert(inserts).select();
     if (data && !error) {
       setClients(prev => [...data, ...prev]);
+      // V2.0 F46 — log the import so it can be undone from Settings
+      supabase.from('import_history').insert([{ user_id: user.id, type: 'relationships', filename: 'CSV import', row_count: data.length, imported_ids: data.map(r => r.id) }])
+        .select().then(({ data: ih }) => { if (ih) setImportHistory(prev => [ih[0], ...prev]); });
       showToast(`Imported ${data.length} relationships. ${importPreviewData.length - data.length} skipped.`, 'success');
       setShowImportPreview(false);
       setImportPreviewData([]);
@@ -5078,6 +5122,12 @@ export default function App() {
   const filteredAndSortedClients = useMemo(() => (clientsWithScores || [])
     .filter(Boolean)
     .filter(client => !filterListId || (listMembers[filterListId] || []).includes(client.id)) // V2.0 F14
+    .filter(client => { // V2.0 F47 — data-health drill-down: rows MISSING the field
+      if (!filterMissingField) return true;
+      if (filterMissingField === 'tag') return (clientTagMap[client.id] || []).length === 0;
+      if (filterMissingField === 'activity') return !activities.some(a => a.client_id === client.id);
+      return !client[filterMissingField];
+    })
     .filter(client => matchesClientFilters(client, {
       search: searchTerm, priority: filterPriority, status: filterStatus, tagIds: filterTags,
       source: filterSource, health: filterHealth, dateAdded: filterDateAdded,
@@ -5101,7 +5151,7 @@ export default function App() {
         return sortBy === 'last_contact_desc' ? (la < lb ? 1 : -1) : (la < lb ? -1 : 1);
       }
       return 0;
-    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterSource, deals, activities, lastActivityByClient, filterListId, listMembers]);
+    }), [clientsWithScores, searchTerm, filterPriority, filterStatus, sortBy, filterTags, clientTagMap, filterHealth, healthByClientId, filterDateAdded, filterHasDeals, filterHasActivity, filterScore, filterSource, deals, activities, lastActivityByClient, filterListId, listMembers, filterMissingField]);
 
   const activeFilterCount = [
     filterPriority !== 'All', filterStatus !== 'All', filterDateAdded, filterHasDeals,
@@ -5567,9 +5617,16 @@ export default function App() {
           </nav>
           {/* Utilities + user block */}
           <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-800 space-y-0.5">
-            <button onClick={() => setShowGlobalSearch(true)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
+            <button onClick={() => setShowCmdPalette(true)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
               <span>Search</span>
               <span className="text-[10px] font-semibold border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 rounded text-gray-400">⌘K</span>
+            </button>
+            {/* V2.0 F50 — What's New badge (pulsing dot until the current version is seen) */}
+            <button onClick={() => setShowWhatsNew(true)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
+              <span>What&apos;s New</span>
+              {(typeof window !== 'undefined' && localStorage.getItem('crm_whatsnew_seen') !== WHATS_NEW[0].version) && (
+                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+              )}
             </button>
             <div className="relative">
               <button onClick={() => setShowNotifications(!showNotifications)} className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-medium text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all">
@@ -6712,6 +6769,15 @@ export default function App() {
                       {sequences.map(s => <option key={s.id} value={s.id} className="text-gray-900">{s.name}</option>)}
                     </select>
                   )}
+                  {/* V2.0 F45 — bulk edit priority + source */}
+                  <select onChange={e => { if (e.target.value) handleBulkField('relationship', e.target.value); e.target.value = ''; }} className={`px-3 h-8 ${R.ctl} bg-white/10 dark:bg-gray-900/10 text-white dark:text-gray-900 text-[12px] font-medium outline-none border-none`}>
+                    <option value="" className="text-gray-900">Set priority…</option>
+                    {['High', 'Medium', 'Low'].map(p => <option key={p} value={p} className="text-gray-900">{p}</option>)}
+                  </select>
+                  <select onChange={e => { if (e.target.value) handleBulkField('source', e.target.value === '(clear)' ? null : e.target.value); e.target.value = ''; }} className={`px-3 h-8 ${R.ctl} bg-white/10 dark:bg-gray-900/10 text-white dark:text-gray-900 text-[12px] font-medium outline-none border-none`}>
+                    <option value="" className="text-gray-900">Set source…</option>
+                    {[...new Set(clients.map(c => c.source).filter(Boolean)), '(clear)'].map(s => <option key={s} value={s} className="text-gray-900">{s}</option>)}
+                  </select>
                   {/* V2.0 F14 — add selection to a list */}
                   {relationshipLists.length > 0 && (
                     <select onChange={e => { if (e.target.value) handleAddSelectedToList(Number(e.target.value)); e.target.value = ''; }} className={`px-3 h-8 ${R.ctl} bg-white/10 dark:bg-gray-900/10 text-white dark:text-gray-900 text-[12px] font-medium outline-none border-none`}>
@@ -6721,6 +6787,14 @@ export default function App() {
                   )}
                   <button onClick={handleBulkDelete} className={`px-3 h-8 ${R.ctl} bg-red-600 text-white text-[12px] font-semibold hover:bg-red-700 transition-colors`}>Delete</button>
                 </div>
+              </div>
+            )}
+
+            {/* V2.0 F47 — active data-health drill-down chip */}
+            {filterMissingField && (
+              <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg text-[13px] font-medium text-amber-900 dark:text-amber-200">
+                Showing relationships missing: <span className="font-bold">{filterMissingField === 'tag' ? 'a tag' : filterMissingField === 'activity' ? 'any activity' : filterMissingField.replace(/_/g, ' ')}</span>
+                <button onClick={() => setFilterMissingField(null)} className="ml-auto px-2 py-0.5 rounded-full bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-700 text-[12px]">Clear ×</button>
               </div>
             )}
 
@@ -9358,6 +9432,16 @@ export default function App() {
                       <span className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
                       <span className="text-[13px] font-semibold text-gray-900 flex-1">{t.name}</span>
                       <span className="text-[11px] text-gray-400">{count} relationship{count === 1 ? '' : 's'}</span>
+                      {/* V2.0 F43 — toggle workspace visibility */}
+                      {workspace && (
+                        <button onClick={async () => {
+                          const { error } = await supabase.from('tags').update({ is_shared: !t.is_shared }).eq('id', t.id);
+                          if (!error) setTags(prev => prev.map(x => x.id === t.id ? { ...x, is_shared: !t.is_shared } : x));
+                        }} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${t.is_shared ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-400 hover:text-gray-700'}`}
+                          title={t.is_shared ? 'Shared with the workspace — click to make private' : 'Private — click to share with the workspace'}>
+                          {t.is_shared ? 'Shared' : 'Private'}
+                        </button>
+                      )}
                       <button onClick={() => handleDeleteTag(t)} className="text-[12px] font-medium text-red-500 hover:text-red-700">Delete</button>
                     </div>
                   );
@@ -9517,6 +9601,56 @@ export default function App() {
                 )}
               </div>
             </div>
+
+            {/* V2.0 F47 — DATA HEALTH SCORE */}
+            {clients.length > 0 && (
+              <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                <h2 className="text-[15px] font-bold text-gray-900 mb-1">Data Health</h2>
+                <p className="text-[12px] text-gray-500 mb-4">How complete your relationship records are. Click a bar to see who&apos;s missing that field.</p>
+                <div className="space-y-3">
+                  {[
+                    ['email', 'Has email', c => !!c.email],
+                    ['phone_number', 'Has phone', c => !!c.phone_number],
+                    ['company_name', 'Has company', c => !!c.company_name],
+                    ['linkedin_url', 'Has LinkedIn', c => !!c.linkedin_url],
+                    ['tag', 'Has a tag', c => (clientTagMap[c.id] || []).length > 0],
+                    ['activity', 'Has ≥1 activity', c => activities.some(a => a.client_id === c.id)],
+                  ].map(([key, label, test]) => {
+                    const n = clients.filter(test).length;
+                    const p = Math.round((n / clients.length) * 100);
+                    const color = p > 80 ? 'bg-green-500' : p >= 50 ? 'bg-yellow-500' : 'bg-red-500';
+                    return (
+                      <button key={key} className="w-full text-left group" onClick={() => { setFilterMissingField(key); setAppStep('CLIENTS'); }}>
+                        <div className="flex justify-between text-[12px] mb-1">
+                          <span className="font-medium text-gray-700 group-hover:text-gray-900">{label}</span>
+                          <span className="text-gray-400">{p}% ({n}/{clients.length})</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                          <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${p}%` }} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* V2.0 F46 — IMPORT HISTORY & UNDO */}
+            {importHistory.length > 0 && (
+              <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                <h2 className="text-[15px] font-bold text-gray-900 mb-1">Import History</h2>
+                <p className="text-[12px] text-gray-500 mb-4">Every CSV import, undoable in one click.</p>
+                <div className="space-y-2">
+                  {importHistory.map(imp => (
+                    <div key={imp.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50/50 text-[13px]">
+                      <span className="font-semibold text-gray-900">{imp.filename || 'CSV import'}</span>
+                      <span className="text-gray-400">{imp.type === 'cold_contacts' ? 'cold contacts' : 'relationships'} · {imp.row_count} rows · {timeAgo(imp.created_at)}</span>
+                      <button onClick={() => handleUndoImport(imp)} className="ml-auto text-[12px] font-semibold text-red-500 hover:text-red-700">Undo import</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Danger Zone Block */}
             <div className="bg-red-50 p-6 sm:p-8 rounded-2xl border border-red-100">
@@ -9929,11 +10063,32 @@ export default function App() {
                         className="self-end px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90 disabled:opacity-40">Add</button>
                     </div>
                   )}
+                  {/* V2.0 F42 — @mention helper: click a member to insert; they get notified */}
+                  {canEdit && workspace && workspaceMembers.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 -mt-2">
+                      <span className="text-[10.5px] text-gray-400">Mention:</span>
+                      {workspaceMembers.filter(m => m.user_id && m.user_id !== user.id).map(m => {
+                        const uname = m.username || m.profiles?.username || m.invited_email;
+                        if (!uname) return null;
+                        return (
+                          <button key={m.id} onClick={() => setNewNoteBody(b => `${b}${b && !b.endsWith(' ') ? ' ' : ''}@${uname} `)}
+                            className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/70">
+                            @{uname}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                   {profileNotes.length === 0 && <p className="text-[13px] text-gray-400 py-6 text-center">No notes yet. Notes are private jottings — pin the ones that matter.</p>}
                   {profileNotes.map(note => (
                     <div key={note.id} className={`rounded-xl border p-3.5 ${note.pinned ? 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20' : 'border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/40'}`}>
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-[13px] text-gray-800 dark:text-gray-200 whitespace-pre-wrap flex-1">{note.body}</p>
+                        <p className="text-[13px] text-gray-800 dark:text-gray-200 whitespace-pre-wrap flex-1">
+                          {/* V2.0 F42 — @mentions render as highlighted chips */}
+                          {note.body.split(/(@[\w.\-@]+)/g).map((part, i) => part.startsWith('@')
+                            ? <span key={i} className="px-1 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-semibold">{part}</span>
+                            : part)}
+                        </p>
                         {canEdit && (
                           <div className="flex gap-2 shrink-0 text-[11px] font-semibold">
                             <button onClick={() => handleTogglePinNote(note)} className={note.pinned ? 'text-amber-600' : 'text-gray-400 hover:text-amber-600'}>{note.pinned ? 'Pinned' : 'Pin'}</button>
@@ -11009,33 +11164,54 @@ export default function App() {
       )}
 
       {/* KEYBOARD HELP MODAL (Feature 28) */}
+      {/* V2.0 F49 — full-screen keyboard shortcut reference (was a small modal) */}
       {showKeyboardHelp && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[140] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowKeyboardHelp(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 dark:bg-gray-800/40 flex items-center justify-between">
-              <h3 className="text-[15px] font-bold text-gray-900">Keyboard Shortcuts</h3>
-              <button onClick={() => setShowKeyboardHelp(false)} className="font-bold text-gray-400 hover:text-gray-800 text-lg">&times;</button>
-            </div>
-            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6 text-[13px]">
-              <div>
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">Navigation</h4>
-                {[['Alt+1', 'Dashboard'], ['Alt+2', 'Relationships'], ['Alt+3', 'Tasks'], ['Alt+4', 'Reports'], ['Alt+5', 'Calendar']].map(([k, d]) => (
-                  <div key={k} className="flex justify-between items-center py-1.5">
-                    <span className="text-gray-600">{d}</span>
-                    <kbd className="text-[11px] font-bold bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 text-gray-600">{k}</kbd>
-                  </div>
-                ))}
-              </div>
-              <div>
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">Actions</h4>
-                {[['⌘K / Ctrl+K', 'Global search'], ['⌘N / Ctrl+N', 'New relationship (on Relationships page)'], ['?', 'Show shortcuts'], ['Esc', 'Close / dismiss']].map(([k, d]) => (
-                  <div key={k} className="flex justify-between items-center py-1.5 gap-3">
-                    <span className="text-gray-600">{d}</span>
-                    <kbd className="text-[11px] font-bold bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5 text-gray-600 whitespace-nowrap">{k}</kbd>
-                  </div>
-                ))}
-              </div>
-            </div>
+        <div className="fixed inset-0 bg-white dark:bg-gray-950 z-[140] overflow-y-auto animate-in fade-in duration-150">
+          <div className="sticky top-0 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800 px-6 sm:px-10 py-5 flex items-center justify-between">
+            <h2 className="text-[20px] font-bold tracking-tight text-gray-900 dark:text-gray-100">Keyboard Shortcuts</h2>
+            <button onClick={() => setShowKeyboardHelp(false)} className="text-[13px] font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">Close (Esc)</button>
+          </div>
+          <div className="max-w-4xl mx-auto px-6 sm:px-10 py-10 grid grid-cols-1 md:grid-cols-2 gap-x-16 gap-y-10">
+            {[
+              ['Global', [
+                ['Cmd/Ctrl + K', 'Command palette — search & run anything'],
+                ['?', 'This shortcuts reference'],
+                ['Esc', 'Close overlays / dismiss'],
+                ['Alt + 1…5', 'Jump to Overview / Relationships / Tasks / Reports / Calendar'],
+              ]],
+              ['Relationships', [
+                ['Cmd/Ctrl + N', 'New relationship (on the Relationships page)'],
+                ['Right-click a row', 'Context menu: profile, email, edit, delete'],
+                ['Type in the quick-add bar + Enter', 'Create instantly, no form'],
+              ]],
+              ['Deals', [
+                ['Right-click a card', 'Mark Won / Lost, edit, delete'],
+                ['Drag a card', 'Move between stages'],
+              ]],
+              ['Email Automation', [
+                ['Double-click an email node', 'Open the step editor'],
+                ['Right-click steps', 'Node actions on the canvas'],
+              ]],
+              ['Tasks', [
+                ['Click a priority chip', 'Cycle urgent → high → medium → low'],
+                ['Drag a board card', 'Move To Do / In Progress / Done'],
+              ]],
+              ['Toasts', [
+                ['Undo button', 'Reverses deletes for 5 seconds'],
+              ]],
+            ].map(([group, rows]) => (
+              <section key={group}>
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-gray-400 mb-4">{group}</h3>
+                <div className="space-y-2.5">
+                  {rows.map(([k, d]) => (
+                    <div key={k} className="flex items-center justify-between gap-6">
+                      <span className="text-[13.5px] text-gray-700 dark:text-gray-300">{d}</span>
+                      <kbd className="shrink-0 text-[11px] font-bold bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 text-gray-600 dark:text-gray-300 whitespace-nowrap">{k}</kbd>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
           </div>
         </div>
       )}
@@ -11090,6 +11266,34 @@ export default function App() {
       {/* V2.0 F3 — CONTEXT MENU */}
       {contextMenu && (
         <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenu.items} onClose={() => setContextMenu(null)} />
+      )}
+
+      {/* V2.0 F50 — WHAT'S NEW modal (once per version + sidebar badge) */}
+      {showWhatsNew && (
+        <div className="fixed inset-0 z-[206] bg-black/40 backdrop-blur-sm flex items-center justify-center px-4"
+             onClick={() => { try { localStorage.setItem('crm_whatsnew_seen', WHATS_NEW[0].version); } catch {}; setShowWhatsNew(false); }}>
+          <div className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
+            <div className="px-6 pt-6 pb-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-indigo-500 mb-1">Version {WHATS_NEW[0].version} · {WHATS_NEW[0].date}</p>
+              <h3 className="text-[20px] font-bold tracking-tight text-gray-900 dark:text-gray-100">{WHATS_NEW[0].title}</h3>
+            </div>
+            <div className="px-6 pb-2 max-h-[46vh] overflow-y-auto">
+              <ul className="space-y-2.5">
+                {WHATS_NEW[0].items.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2.5 text-[13.5px] text-gray-700 dark:text-gray-300">
+                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />{item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="px-6 py-4 flex justify-end">
+              <button onClick={() => { try { localStorage.setItem('crm_whatsnew_seen', WHATS_NEW[0].version); } catch {}; setShowWhatsNew(false); }}
+                className="px-5 py-2.5 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">
+                Take me to it
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* V2.0 F19 — WIN/LOSS REASON CAPTURE (after a deal moves to Won/Lost) */}
