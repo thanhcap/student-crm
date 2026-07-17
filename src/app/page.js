@@ -4,6 +4,9 @@ import React, { useState, useEffect, useRef, useMemo, useLayoutEffect } from 're
 import Papa from 'papaparse';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/navigation';
+// DEEP UPDATE v1 — the two flagship features live in their own modules
+import NetworkGraphDeep from './components/NetworkGraphDeep';
+import EmailCommandCenter from './components/EmailCommandCenter';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 // V9 marketing home — outer-space system (root page is outside the (marketing)
@@ -9173,17 +9176,25 @@ export default function App() {
 
         {/* VIEW: GLOBAL TASKS */}
         {/* V3 F53–F58 — NETWORK MAP: force-directed graph of the whole network */}
+        {/* DEEP v1 FEATURE 1 — full interactive network graph (replaces the V3 mini-map) */}
         {appStep === 'NETWORK' && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Network Map</h1>
-              <p className="text-[13px] text-gray-500">Every relationship, connected by referrals, companies, and schools.</p>
-            </div>
-            {clients.length < 2 ? (
-              <p className="text-[13px] text-gray-400 py-10 text-center">Add a few relationships and connections will appear here.</p>
-            ) : (
-              <NetworkGraph clients={clients} onOpen={(c) => { setViewingClient(c); setAppStep('CLIENTS'); }} />
-            )}
+          <div className="animate-in fade-in duration-300">
+            <NetworkGraphDeep
+              clients={clients}
+              deals={deals}
+              activities={activities}
+              user={user}
+              showToast={showToast}
+              onOpenClient={(c, opts) => {
+                setViewingClient(c);
+                if (opts?.tab) setActiveProfileTab(opts.tab);
+                setAppStep('CLIENTS');
+              }}
+              onAddRelationship={() => {
+                setAppStep('CLIENTS');
+                setTimeout(() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' }), 150);
+              }}
+            />
           </div>
         )}
 
@@ -10014,6 +10025,8 @@ export default function App() {
                     onChange={setSeqView}
                     tabs={[
                       { key: 'sequences', label: 'Sequences' },
+                      { key: 'inbox', label: 'Inbox' }, // DEEP v1 — command center
+                      { key: 'analytics', label: 'Analytics' }, // DEEP v1
                       { key: 'contacts', label: 'Cold Contacts', count: coldContacts.length },
                       { key: 'unsubs', label: 'Unsubscribes' },
                     ]}
@@ -10247,6 +10260,41 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* DEEP v1 FEATURE 2 — EMAIL COMMAND CENTER (inbox + analytics tabs) */}
+              {(seqView === 'inbox' || seqView === 'analytics') && (
+                <EmailCommandCenter
+                  tab={seqView}
+                  user={user}
+                  clients={clients}
+                  coldContacts={coldContacts}
+                  activities={activities}
+                  sequences={sequences}
+                  sequenceSteps={sequenceSteps}
+                  sequenceSends={sequenceSends}
+                  sequenceEnrollments={sequenceEnrollments}
+                  gmailConn={gmailConn}
+                  gmailSyncing={gmailSyncing}
+                  onSyncNow={handleGmailSyncNow}
+                  profile={profile}
+                  resolveMergeTags={resolveMergeTags}
+                  buildComposeUrl={buildGmailComposeUrl}
+                  showToast={showToast}
+                  onOpenClient={(c) => { setViewingClient(c); setAppStep('CLIENTS'); }}
+                  onConvertCold={convertColdToRelationship}
+                  onStopEnrollment={handleStopEnrollment}
+                  onGoToBuilder={() => setSeqView('sequences')}
+                  onLogOutbound={async (clientId, description, type = 'Email') => {
+                    const { data, error } = await supabase.from('activities').insert([{
+                      client_id: clientId, user_id: user.id, activity_type: type,
+                      activity_date: new Date().toISOString().split('T')[0],
+                      description, // non-null, no outcome column — ground truth
+                    }]).select();
+                    if (error) showToast(error.message, 'error');
+                    else if (data) setActivities(prev => [data[0], ...prev]);
+                  }}
+                />
               )}
 
               {/* CSV IMPORT PREVIEW — full-screen view */}
