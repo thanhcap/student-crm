@@ -817,6 +817,29 @@ function findFuzzyDuplicates(clients) {
   return pairs.slice(0, 10);
 }
 
+// V3 F87/F90 — achievements: earn conditions computed from live data.
+const BADGE_DEFS = [
+  { key: 'first_relationship', label: 'First Relationship', desc: 'Added your first person', test: (d) => d.clients.length >= 1 },
+  { key: 'network_50', label: 'Network of 50', desc: '50 relationships tracked', test: (d) => d.clients.length >= 50 },
+  { key: 'network_100', label: 'Century Network', desc: '100 relationships tracked', test: (d) => d.clients.length >= 100 },
+  { key: 'first_deal_won', label: 'First Deal Won', desc: 'Closed your first deal', test: (d) => d.deals.some(x => x.stage === 'Won') },
+  { key: 'deals_10_won', label: 'Ten Wins', desc: '10 deals won', test: (d) => d.deals.filter(x => x.stage === 'Won').length >= 10 },
+  { key: 'streak_7', label: 'One-Week Streak', desc: '7 days of activity in a row', test: (d) => (d.profile?.current_streak || 0) >= 7 },
+  { key: 'streak_30', label: 'Monthly Streak', desc: '30 days of activity in a row', test: (d) => (d.profile?.current_streak || 0) >= 30 },
+  { key: 'first_referral_chain', label: 'First Referral Chain', desc: 'Someone you know referred someone new', test: (d) => d.clients.some(c => c.referred_by_client_id) },
+  { key: 'sends_100', label: 'Hundred Emails', desc: '100 emails auto-sent', test: (d) => d.sends.filter(s => s.channel === 'email').length >= 100 },
+  { key: 'first_interview', label: 'First Info Interview', desc: 'Logged an informational interview', test: (d) => d.infoInterviews.length >= 1 },
+  { key: 'first_offer', label: 'Offer!', desc: 'An application reached Offer', test: (d) => d.applications.some(a => a.status === 'offer') },
+];
+
+// V3 F88 — weekly challenge rotation (deterministic by ISO week)
+const WEEKLY_CHALLENGES = [
+  { key: 'dormant5', label: 'Reach out to 5 dormant relationships', target: 5, metric: 'activities' },
+  { key: 'log10', label: 'Log 10 activities this week', target: 10, metric: 'activities' },
+  { key: 'add3', label: 'Add 3 new relationships this week', target: 3, metric: 'new_clients' },
+  { key: 'tasks7', label: 'Complete 7 tasks this week', target: 7, metric: 'tasks_done' },
+];
+
 // V3 F11 — network roles (the career-networking lens on a relationship)
 const NETWORK_ROLES = ['mentor', 'mentee', 'peer', 'recruiter', 'alumni', 'professor'];
 const NETWORK_ROLE_META = {
@@ -1823,6 +1846,12 @@ export default function App() {
   const [compareResult, setCompareResult] = useState(null); // V3 F10
   const [proposals, setProposals] = useState([]); // V3 F59
   const [editingProposalId, setEditingProposalId] = useState(null); // open editor in deal view
+  const [mfaFactors, setMfaFactors] = useState([]); // V3 F75
+  const [mfaEnroll, setMfaEnroll] = useState(null); // enrollment in progress (QR shown)
+  const [mfaGate, setMfaGate] = useState(false); // V3 F75 — login-time TOTP challenge required
+  const [auditEntries, setAuditEntries] = useState([]); // V3 F77
+  const [achievements, setAchievements] = useState([]); // V3 F87
+  const [celebration, setCelebration] = useState(null); // V3 F87/F90 — { label } confetti moment
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState({ clients: [], activities: [] });
 
@@ -2172,6 +2201,26 @@ export default function App() {
     document.documentElement.classList.toggle('dark', saved);
   }, []);
 
+  // V3 F81 — register the service worker (installable + shell works offline)
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  }, []);
+
+  // V3 F82 — offline snapshot: persist a light copy so an offline boot can
+  // still show who to call and what's due.
+  useEffect(() => {
+    if (!user || !clients.length) return;
+    try {
+      localStorage.setItem('crm_offline_snapshot', JSON.stringify({
+        saved_at: new Date().toISOString(),
+        clients: clients.slice(0, 300).map(c => ({ id: c.id, name: c.name, email: c.email, phone_number: c.phone_number, company_name: c.company_name, status: c.status })),
+        tasks: tasks.filter(t => t.status === 'pending').slice(0, 100).map(t => ({ id: t.id, title: t.title, due_date: t.due_date })),
+      }));
+    } catch {}
+  }, [user?.id, clients, tasks]);
+
   // V2.0 F50 — auto-show What's New once per version, after login
   useEffect(() => {
     if (!user) return;
@@ -2377,6 +2426,12 @@ export default function App() {
       fetchImportHistory(),
       fetchCareerData(session.user.id),
       fetchProposals(session.user.id),
+      // V3 F75/F77 — MFA state + audit trail
+      supabase.auth.mfa.listFactors().then(({ data }) => setMfaFactors(data?.totp || [])),
+      supabase.auth.mfa.getAuthenticatorAssuranceLevel().then(({ data }) => {
+        if (data && data.nextLevel === 'aal2' && data.currentLevel !== 'aal2') setMfaGate(true);
+      }),
+      supabase.from('audit_log').select('*').order('created_at', { ascending: false }).limit(50).then(({ data }) => { if (data) setAuditEntries(data); }),
       fetchWebhooks(session.user.id),
       fetchGoals(session.user.id),
       fetchSavedViews(session.user.id),
@@ -2564,9 +2619,59 @@ export default function App() {
     showUndoableToast('Proposal deleted', () => { clearTimeout(timer); setProposals(prev => [prop, ...prev]); });
   }
 
+  // V3 F87/F90 — award any newly-earned badges (checked whenever core data settles)
+  useEffect(() => {
+    if (!user || !clients.length) return;
+    let cancelled = false;
+    (async () => {
+      const { data: existing } = await supabase.from('achievements').select('badge_key');
+      if (cancelled) return;
+      const have = new Set((existing || []).map(a => a.badge_key));
+      setAchievements(existing || []);
+      const ctx = { clients, deals, sends: sequenceSends, profile, infoInterviews, applications };
+      for (const badge of BADGE_DEFS) {
+        if (have.has(badge.key)) continue;
+        let earned = false;
+        try { earned = badge.test(ctx); } catch {}
+        if (earned) {
+          const { data } = await supabase.from('achievements').insert([{ user_id: user.id, badge_key: badge.key }]).select();
+          if (data && !cancelled) {
+            setAchievements(prev => [...prev, data[0]]);
+            setCelebration({ label: badge.label, desc: badge.desc });
+            setTimeout(() => setCelebration(null), 4200);
+            break; // one celebration at a time — the next loads next session
+          }
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, clients.length, deals, sequenceSends.length, infoInterviews.length, applications]);
+
+  // V3 F96 — dry-run: which existing records WOULD trigger this rule (no actions executed)
+  function dryRunRule(rule) {
+    let matches = [];
+    switch (rule.trigger_type) {
+      case 'source_is': matches = clients.filter(c => c.source === rule.trigger_value).map(c => c.name); break;
+      case 'relationship_stage_changed':
+      case 'stage_is': matches = clients.filter(c => c.status === rule.trigger_value).map(c => c.name); break;
+      case 'deal_stage_change': matches = deals.filter(d => d.stage === rule.trigger_value).map(d => `${d.title} (deal)`); break;
+      case 'tag_applied': {
+        const tag = tags.find(t => t.id === rule.trigger_value || t.name === rule.trigger_value);
+        matches = tag ? clients.filter(c => (clientTagMap[c.id] || []).includes(tag.id)).map(c => c.name) : [];
+        break;
+      }
+      default: matches = [];
+    }
+    if (!matches.length) showToast(`Dry run: no current records match "${rule.name}". It will still fire on future events.`);
+    else showToast(`Dry run: ${matches.length} would trigger — ${matches.slice(0, 5).join(', ')}${matches.length > 5 ? '…' : ''}`);
+  }
+
   // V3 F77 — audit trail for consequential actions (fire-and-forget)
   function logAudit(action, entity_type = null, entity_id = null) {
-    try { supabase.from('audit_log').insert([{ user_id: user.id, action, entity_type, entity_id: entity_id != null ? String(entity_id) : null }]).then(() => {}); } catch {}
+    try {
+      supabase.from('audit_log').insert([{ user_id: user.id, action, entity_type, entity_id: entity_id != null ? String(entity_id) : null }])
+        .select().then(({ data }) => { if (data) setAuditEntries(prev => [data[0], ...prev].slice(0, 50)); });
+    } catch {}
   }
 
   // V3 Cluster B — career networking fetches + handlers
@@ -3293,6 +3398,9 @@ export default function App() {
     const matching = automationRules.filter(r =>
       r.enabled && r.trigger_type === triggerType && r.trigger_value === String(triggerValue));
     for (const rule of matching) {
+      // V3 F95 — every firing is logged (trust + debugging)
+      supabase.from('automation_runs').insert([{ rule_id: rule.id, user_id: user.id, result: `${rule.action_type} for client ${clientId}` }]).then(() => {});
+      supabase.from('automation_rules').update({ last_run_at: new Date().toISOString(), run_count: (rule.run_count || 0) + 1 }).eq('id', rule.id).then(() => {});
       if (rule.action_type === 'create_task') {
         const due = new Date();
         due.setDate(due.getDate() + (parseInt(rule.action_value?.days_offset) || 1));
@@ -5126,6 +5234,7 @@ export default function App() {
     const { error } = await supabase.from('clients').update({ [field]: value }).in('id', selectedClientIds);
     if (error) { showToast(error.message, 'error'); return; }
     setClients(prev => prev.map(c => selectedClientIds.includes(c.id) ? { ...c, [field]: value } : c));
+    logAudit(`bulk_edit_${field}`, 'clients', selectedClientIds.join(',')); // V3 F77
     showToast(`Updated ${selectedClientIds.length} relationships.`);
   }
 
@@ -5225,6 +5334,7 @@ export default function App() {
             showToast(`Could not delete "${clientName}": ${error.message}`, 'error');
           } else if (deleted) {
             dispatchWebhook('client.deleted', deleted);
+            logAudit('deleted_relationship', 'client', clientId); // V3 F77
           }
         }, 5200);
         showUndoableToast(`Deleted "${clientName}"`, () => {
@@ -6702,6 +6812,45 @@ export default function App() {
               );
             })()}
 
+            {/* V3 F88/F89 — weekly challenge + personal best */}
+            {(() => {
+              const now = new Date();
+              const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7)); monday.setHours(0, 0, 0, 0);
+              const mondayKey = monday.toISOString().split('T')[0];
+              const weekNo = Math.floor(monday.getTime() / (7 * 864e5));
+              const challenge = WEEKLY_CHALLENGES[weekNo % WEEKLY_CHALLENGES.length];
+              let progress = 0;
+              if (challenge.metric === 'activities') progress = activities.filter(a => a.activity_date >= mondayKey).length;
+              if (challenge.metric === 'new_clients') progress = clients.filter(c => (c.created_at || '').split('T')[0] >= mondayKey).length;
+              if (challenge.metric === 'tasks_done') progress = tasks.filter(t => t.status === 'done' && t.due_date >= mondayKey).length;
+              const pct = Math.min(100, Math.round((progress / challenge.target) * 100));
+              // F89 — best week ever (activities per ISO week)
+              const byWeek = {};
+              activities.forEach(a => {
+                if (!a.activity_date) return;
+                const d = new Date(a.activity_date); d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+                const k = d.toISOString().split('T')[0];
+                byWeek[k] = (byWeek[k] || 0) + 1;
+              });
+              const best = Math.max(...Object.values(byWeek), 0);
+              const thisWeek = byWeek[mondayKey] || 0;
+              return (
+                <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">This Week&apos;s Challenge</h3>
+                    <span className="text-[11px] text-gray-400">Personal best: <span className="font-bold text-gray-700 dark:text-gray-200">{best}</span> activities/week · this week: <span className="font-bold text-gray-700 dark:text-gray-200">{thisWeek}</span></span>
+                  </div>
+                  <p className="text-[14px] font-semibold text-gray-900 dark:text-gray-100 mb-2">{challenge.label}</p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-2.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                      <div className={`h-full transition-all duration-700 ${pct >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-[12px] font-bold text-gray-700 dark:text-gray-200 shrink-0">{progress}/{challenge.target}{pct >= 100 ? ' — done!' : ''}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* V3 F7 — AT RISK: trending cold, not just already-cold (silence + declining frequency + no open deal) */}
             {(() => {
               const d30 = new Date(Date.now() - 30 * 864e5).toISOString().split('T')[0];
@@ -7495,7 +7644,22 @@ export default function App() {
                     {paginatedClients.map(client => {
                       const isSelected = selectedClientIds.includes(client.id);
                       return (
-                        <div key={client.id} className={`relative p-4 rounded-xl border ${isSelected ? 'border-gray-400 bg-gray-50' : 'border-gray-200 bg-white'}`}>
+                        <div key={client.id} className={`relative p-4 rounded-xl border transition-transform ${isSelected ? 'border-gray-400 bg-gray-50' : 'border-gray-200 bg-white'}`}
+                          /* V3 F83 — swipe right = log activity, swipe left = quick actions */
+                          onTouchStart={e => { e.currentTarget.dataset.sx = e.touches[0].clientX; e.currentTarget.dataset.sy = e.touches[0].clientY; }}
+                          onTouchEnd={e => {
+                            const sx = Number(e.currentTarget.dataset.sx || 0), sy = Number(e.currentTarget.dataset.sy || 0);
+                            const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+                            if (Math.abs(dx) < 60 || Math.abs(dy) > 50) return; // not a horizontal swipe
+                            if (dx > 0) { setViewingClient(client); setActiveProfileTab('activity'); }
+                            else setContextMenu({ x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY, items: [
+                              { label: 'View Profile', action: () => setViewingClient(client) },
+                              { label: 'Send Email', action: () => { setViewingClient(client); setEmailTo(client.email || ''); setShowEmailComposer(true); } },
+                              { label: 'Edit', action: () => openEditClient(client) },
+                              { divider: true },
+                              { label: 'Delete', danger: true, action: () => handleDeleteClient(client.id) },
+                            ] });
+                          }}>
                           <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(client.id)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 absolute top-4 left-4 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
                           <div className="pl-8">
                             <p className="text-[14px] font-bold text-gray-900">{client.name} {client.quick_note && <span className="text-[10px] font-bold uppercase tracking-wide text-amber-500">Note</span>}</p>
@@ -10143,6 +10307,32 @@ export default function App() {
                 </div>
                 <button onClick={() => setShowRuleForm(!showRuleForm)} className="px-3 py-1.5 text-[12px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm shrink-0">{showRuleForm ? 'Close' : 'Add Rule'}</button>
               </div>
+              {/* V3 F92 — one-click recipe gallery (common patterns, no hand-building) */}
+              <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  { name: 'LinkedIn leads are High priority', trigger_type: 'source_is', trigger_value: 'LinkedIn', action_type: 'set_priority', action_value: { priority: 'High' } },
+                  { name: 'Celebrate every Won deal', trigger_type: 'deal_stage_change', trigger_value: 'Won', action_type: 'send_notification', action_value: { message: 'Deal won — go ring the bell.' } },
+                  { name: 'Won deal → onboarding task', trigger_type: 'deal_stage_change', trigger_value: 'Won', action_type: 'create_task', action_value: { title: 'Kick off onboarding', days_offset: 1 } },
+                  { name: 'Referral arrives → thank the referrer', trigger_type: 'source_is', trigger_value: 'Referral', action_type: 'create_task', action_value: { title: 'Thank the person who referred them', days_offset: 1 } },
+                ].map(recipe => {
+                  const exists = automationRules.some(r => r.trigger_type === recipe.trigger_type && r.trigger_value === recipe.trigger_value && r.action_type === recipe.action_type);
+                  return (
+                    <button key={recipe.name} disabled={exists}
+                      onClick={async () => {
+                        const { data, error } = await supabase.from('automation_rules')
+                          .insert([{ user_id: user.id, name: recipe.name, trigger_type: recipe.trigger_type, trigger_value: recipe.trigger_value, action_type: recipe.action_type, action_value: recipe.action_value, enabled: true }]).select();
+                        if (error) { showToast(error.message, 'error'); return; }
+                        setAutomationRules(prev => [data[0], ...prev]);
+                        showToast(`Recipe added: ${recipe.name}`);
+                      }}
+                      className={`text-left p-3 rounded-lg border text-[12px] transition-colors ${exists ? 'border-gray-100 bg-gray-50 text-gray-300 cursor-default' : 'border-dashed border-gray-300 hover:border-indigo-400 hover:bg-indigo-50/40 text-gray-700'}`}>
+                      <span className="font-semibold block">{exists ? '✓ ' : '+ '}{recipe.name}</span>
+                      <span className="text-[11px] text-gray-400">{exists ? 'Already installed' : 'One click to install'}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
               <div className="space-y-2 mb-4">
                 {automationRules.length === 0 ? (
                   <p className="text-[13px] text-gray-400 italic p-4 bg-gray-50 border border-gray-100 rounded-lg text-center">No automation rules yet.</p>
@@ -10165,7 +10355,9 @@ export default function App() {
                         <p className="text-[13px] font-semibold text-gray-900">{r.name}</p>
                         <p className="text-[11px] text-gray-500 truncate">When: {triggerLabel} → Then: {actionLabel}</p>
                       </div>
-                      {(r.run_count || 0) > 0 && <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full shrink-0">ran ×{r.run_count}</span>}
+                      {(r.run_count || 0) > 0 && <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full shrink-0" title={r.last_run_at ? `Last ran ${timeAgo(r.last_run_at)}` : ''}>ran ×{r.run_count}</span>}
+                      {/* V3 F96 — preview matches without executing */}
+                      <button onClick={() => dryRunRule(r)} className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0" title="Which current records would trigger this rule (no actions run)">Dry run</button>
                       <button onClick={() => handleToggleRule(r)} className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 transition-colors ${r.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>{r.enabled ? 'On' : 'Off'}</button>
                       <button onClick={() => handleDeleteRule(r.id)} className="text-[12px] font-medium text-red-500 hover:text-red-700 shrink-0">Delete</button>
                     </div>
@@ -10394,6 +10586,103 @@ export default function App() {
             {/* Password Security Block */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-5">Security & Authentication</h2>
+
+              {/* V3 F75 — TOTP two-factor authentication (Supabase MFA) */}
+              <div className="mb-6 p-4 rounded-xl border border-gray-200 bg-gray-50/50 max-w-md">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-[13px] font-bold text-gray-900">Two-Factor Authentication</p>
+                  {mfaFactors.length > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-600 text-white">ENABLED</span>}
+                </div>
+                <p className="text-[12px] text-gray-500 mb-3">A 6-digit code from your authenticator app is required at every sign-in.</p>
+                {mfaFactors.length === 0 && !mfaEnroll && (
+                  <button onClick={async () => {
+                    const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
+                    if (error) { showToast(error.message, 'error'); return; }
+                    setMfaEnroll(data);
+                  }} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90">Enable 2FA</button>
+                )}
+                {mfaEnroll && (
+                  <div className="space-y-3">
+                    <p className="text-[12px] text-gray-600">1. Scan with Google Authenticator / 1Password / Authy:</p>
+                    <div className="bg-white p-3 rounded-xl border border-gray-200 w-fit" dangerouslySetInnerHTML={{ __html: mfaEnroll.totp?.qr_code || '' }} />
+                    <p className="text-[11px] text-gray-400 font-mono break-all">Secret: {mfaEnroll.totp?.secret}</p>
+                    <form onSubmit={async e => {
+                      e.preventDefault();
+                      const code = e.target.elements.code.value.trim();
+                      const { data: ch, error: ce } = await supabase.auth.mfa.challenge({ factorId: mfaEnroll.id });
+                      if (ce) { showToast(ce.message, 'error'); return; }
+                      const { error: ve } = await supabase.auth.mfa.verify({ factorId: mfaEnroll.id, challengeId: ch.id, code });
+                      if (ve) { showToast(`Wrong code: ${ve.message}`, 'error'); return; }
+                      setMfaEnroll(null);
+                      const { data: f } = await supabase.auth.mfa.listFactors();
+                      setMfaFactors(f?.totp || []);
+                      logAudit('enabled_2fa');
+                      showToast('2FA enabled — codes required at every sign-in.');
+                    }} className="flex gap-2">
+                      <input name="code" placeholder="6-digit code" inputMode="numeric" pattern="[0-9]{6}" required
+                        className="dark:bg-gray-800 dark:text-gray-100 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none w-32 font-mono" />
+                      <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90">Verify & enable</button>
+                      <button type="button" onClick={() => setMfaEnroll(null)} className="px-3 py-2 text-[12px] text-gray-400 hover:text-gray-700">Cancel</button>
+                    </form>
+                  </div>
+                )}
+                {mfaFactors.length > 0 && (
+                  <button onClick={async () => {
+                    const { error } = await supabase.auth.mfa.unenroll({ factorId: mfaFactors[0].id });
+                    if (error) { showToast(error.message, 'error'); return; }
+                    setMfaFactors([]);
+                    logAudit('disabled_2fa');
+                    showToast('2FA disabled.');
+                  }} className="text-[12px] font-semibold text-red-500 hover:text-red-700">Disable 2FA</button>
+                )}
+              </div>
+
+              {/* V3 F76 — session management (client-visible scope) */}
+              <div className="mb-6 p-4 rounded-xl border border-gray-200 bg-gray-50/50 max-w-md">
+                <p className="text-[13px] font-bold text-gray-900 mb-1">Sessions</p>
+                <p className="text-[12px] text-gray-500 mb-3">This device: {typeof navigator !== 'undefined' ? navigator.userAgent.replace(/^Mozilla\/5\.0 /, '').slice(0, 70) : ''}…</p>
+                <button onClick={async () => {
+                  logAudit('signed_out_everywhere');
+                  await supabase.auth.signOut({ scope: 'global' });
+                }} className="px-4 py-2 text-[13px] font-semibold text-red-600 border border-red-200 rounded-xl hover:bg-red-50">Sign out everywhere</button>
+                <p className="text-[10.5px] text-gray-400 mt-2">Revokes every session on every device, including this one. (Per-device session listing isn&apos;t exposed client-side by Supabase Auth.)</p>
+              </div>
+
+              {/* V3 F79 — full data export */}
+              <div className="mb-6 p-4 rounded-xl border border-gray-200 bg-gray-50/50 max-w-md">
+                <p className="text-[13px] font-bold text-gray-900 mb-1">Export All My Data</p>
+                <p className="text-[12px] text-gray-500 mb-3">Everything — relationships, deals, activities, tasks, notes, sequences, applications — as one JSON file.</p>
+                <button onClick={async () => {
+                  showToast('Gathering your data…');
+                  const tablesToExport = ['clients', 'deals', 'activities', 'tasks', 'relationship_notes', 'email_sequences', 'sequence_steps', 'cold_contacts', 'applications', 'career_goals', 'info_interviews', 'proposals', 'tags', 'relationship_lists'];
+                  const out = { exported_at: new Date().toISOString(), account: user.email };
+                  for (const t of tablesToExport) {
+                    const { data } = await supabase.from(t).select('*').limit(5000);
+                    out[t] = data || [];
+                  }
+                  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+                  const a = document.createElement('a');
+                  a.href = URL.createObjectURL(blob);
+                  a.download = `crm-export-${todayStr}.json`;
+                  a.click();
+                  logAudit('exported_all_data');
+                }} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90">Download my data</button>
+              </div>
+
+              {/* V3 F77 — audit log viewer */}
+              <details className="mb-2 max-w-md">
+                <summary className="text-[13px] font-bold text-gray-900 cursor-pointer select-none">Audit Log</summary>
+                <div className="mt-2 space-y-1 max-h-56 overflow-y-auto">
+                  {auditEntries.length === 0 && <p className="text-[12px] text-gray-400">Nothing logged yet — deletes, bulk edits, exports and security changes appear here.</p>}
+                  {auditEntries.map(a => (
+                    <div key={a.id} className="flex justify-between gap-3 text-[12px] py-1 border-b border-gray-100 last:border-0">
+                      <span className="text-gray-700">{a.action.replace(/_/g, ' ')}{a.entity_type ? ` · ${a.entity_type} ${a.entity_id ?? ''}` : ''}</span>
+                      <span className="text-gray-400 shrink-0">{timeAgo(a.created_at)}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+
               <form onSubmit={handleUpdatePassword} className="space-y-4 max-w-md">
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Current Password</label>
@@ -10477,6 +10766,25 @@ export default function App() {
                 </div>
               );
             })()}
+
+            {/* V3 F87 — badge shelf */}
+            {achievements.length > 0 && (
+              <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm">
+                <h2 className="text-[15px] font-bold text-gray-900 mb-4">Your Badges</h2>
+                <div className="flex flex-wrap gap-3">
+                  {achievements.map(a => {
+                    const def = BADGE_DEFS.find(b => b.key === a.badge_key);
+                    if (!def) return null;
+                    return (
+                      <div key={a.badge_key} className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50/60" title={`${def.desc} · earned ${timeAgo(a.earned_at)}`}>
+                        <span className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 grid place-items-center text-white text-[11px] font-black">★</span>
+                        <span className="text-[12.5px] font-bold text-amber-900">{def.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* V3 F19 — ELEVATOR PITCH / BIO (merge tags {{my_pitch}} / {{my_bio}}) */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
@@ -12466,6 +12774,52 @@ export default function App() {
                 Take me to it
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* V3 F87/F90 — CELEBRATION: CSS-only confetti + badge toast */}
+      {celebration && (
+        <div className="fixed inset-0 z-[250] pointer-events-none overflow-hidden" aria-hidden>
+          {[...Array(24)].map((_, i) => (
+            <span key={i} className="absolute w-2 h-3 rounded-[2px] confetti-piece"
+              style={{
+                left: `${(i * 41) % 100}%`,
+                background: ['#8B5CF6', '#06B6D4', '#10B981', '#F59E0B', '#EC4899'][i % 5],
+                animationDelay: `${(i % 8) * 0.12}s`,
+                animationDuration: `${2.6 + (i % 5) * 0.3}s`,
+              }} />
+          ))}
+          <div className="absolute bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-2xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-2xl text-center animate-in zoom-in-95 fade-in">
+            <p className="text-[14px] font-bold">Badge earned: {celebration.label}</p>
+            <p className="text-[11.5px] opacity-70">{celebration.desc}</p>
+          </div>
+        </div>
+      )}
+
+      {/* V3 F75 — MFA GATE: 2FA users must verify a TOTP code before using the app */}
+      {mfaGate && user && (
+        <div className="fixed inset-0 z-[300] bg-white dark:bg-gray-950 flex items-center justify-center px-4">
+          <div className="w-full max-w-sm text-center">
+            <h2 className="text-[20px] font-bold text-gray-900 dark:text-gray-100 mb-1">Two-factor check</h2>
+            <p className="text-[13px] text-gray-500 mb-6">Enter the 6-digit code from your authenticator app.</p>
+            <form onSubmit={async e => {
+              e.preventDefault();
+              const code = e.target.elements.code.value.trim();
+              const { data: f } = await supabase.auth.mfa.listFactors();
+              const factor = f?.totp?.[0];
+              if (!factor) { setMfaGate(false); return; }
+              const { data: ch, error: ce } = await supabase.auth.mfa.challenge({ factorId: factor.id });
+              if (ce) { showToast(ce.message, 'error'); return; }
+              const { error: ve } = await supabase.auth.mfa.verify({ factorId: factor.id, challengeId: ch.id, code });
+              if (ve) { showToast('Wrong code — try again.', 'error'); return; }
+              setMfaGate(false);
+            }} className="flex flex-col items-center gap-3">
+              <input name="code" autoFocus placeholder="000000" inputMode="numeric" pattern="[0-9]{6}" required
+                className="dark:bg-gray-800 dark:text-gray-100 text-center tracking-[0.3em] font-mono text-[20px] px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-gray-400 w-48" />
+              <button type="submit" className="px-6 py-2.5 text-[14px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90">Verify</button>
+              <button type="button" onClick={handleLogout} className="text-[12px] text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">Sign out instead</button>
+            </form>
           </div>
         </div>
       )}

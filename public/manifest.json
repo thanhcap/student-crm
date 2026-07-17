@@ -1,0 +1,13 @@
+{
+  "name": "Relationship CRM",
+  "short_name": "CRM",
+  "description": "Your network, supercharged — relationships, outreach, and career networking.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FBFBFD",
+  "theme_color": "#111114",
+  "icons": [
+    { "src": "/favicon.png", "sizes": "256x256", "type": "image/png", "purpose": "any" },
+    { "src": "/favicon.png", "sizes": "256x256", "type": "image/png", "purpose": "maskable" }
+  ]
+}

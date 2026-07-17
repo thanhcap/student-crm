@@ -196,3 +196,10 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 
 /* V2.0 F6 — toast countdown bar */
 @keyframes toast-drain { from { width: 100%; } to { width: 0%; } }
+
+/* V3 F87/F90 — CSS-only confetti */
+@keyframes confetti-fall {
+  0%   { transform: translateY(-8vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(105vh) rotate(680deg); opacity: 0.6; }
+}
+.confetti-piece { top: -20px; animation: confetti-fall linear forwards; }

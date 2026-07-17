@@ -557,3 +557,28 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **F65 Expiry:** unsigned proposals within 2 days of `valid_until` show a red "Expires" chip; the public page returns a polite expired state and refuses signatures (410).
 - **F77 (early):** `logAudit` helper landed with proposal creation as the first audited action.
 - `next build` green.
+
+## Clusters I+J+K+L — Security, PWA, gamification, automation (F75–F96 core)
+**Cluster I — Security & compliance**
+- **F75 Two-Factor Auth (TOTP):** Settings → Security enrolls via Supabase MFA (`mfa.enroll` → QR + manual secret → verify 6-digit code). Factors listed with unenroll. Login gate: if the session's AAL is `aal1` but a verified TOTP factor exists, a full-screen overlay demands the code before the app renders (`mfaGate`).
+- **F76 Sessions:** "Active sessions" panel shows the current session (browser/OS parsed from UA, last sign-in) + **Sign out everywhere** (`signOut({ scope: 'global' })`).
+- **F77 Audit log:** `logAudit(action, entityType, entityId)` now fires on deletes (relationship/deal/task), bulk edits, role changes, proposal create/sign, data export, 2FA enroll/unenroll. Settings → Security renders the last 50 entries with relative timestamps.
+- **F79 Data export:** "Download all my data" pulls every user-scoped table (relationships, deals, activities, tasks, sequences, applications, goals, interviews, proposals…) into one human-readable JSON download; the export itself is audited.
+- **F80 Deletion grace period:** delete-account now requires typing DELETE, stamps `profiles.deletion_requested_at`, and shows a red banner with a **Cancel deletion** button for the 24h grace window (permanent removal is the documented follow-up job, not a silent hard delete).
+
+**Cluster J — Mobile & offline (PWA)**
+- **F81 Installable PWA:** `public/manifest.json` (standalone, theme colors, maskable icon) + `metadata.manifest` in layout. Add-to-Home-Screen works on Android/iOS Safari.
+- **F82 Offline read mode:** `public/sw.js` — network-first shell caching + cache-first `/_next/static`; **Supabase API responses are never cached** (stale CRM data is worse than none). The app snapshots relationships/tasks to localStorage and renders that snapshot read-only when offline.
+- **F83 Swipe gestures:** on mobile widths, swipe right on a relationship card = quick Log Activity; swipe left = quick-actions row (call/email/profile). Touch-only, no effect on desktop.
+
+**Cluster K — Gamification**
+- **F87 Achievement badges:** `BADGE_DEFS` (First Relationship, 10/50/100 Relationships, First Deal Won, 10 Deals Won, First Referral Chain, 7-Day Streak, First Sequence, Network Mapper). An award effect diffs earned vs eligible after data loads, inserts into `achievements` (UNIQUE dedup), toasts + celebrates. Badge shelf in Settings shows earned (colored, dated) vs locked (gray).
+- **F88/F89 Weekly challenge + personal best:** dashboard card rotates a Monday-seeded challenge ("Reach out to 5 dormant relationships…") with a live progress bar computed from this week's activities, next to "Your best week: N activities (this week: M)".
+- **F90 Celebrations:** CSS-only confetti overlay (`.confetti-piece`, no library) fires on badge unlocks and round-number milestones.
+- **F7 (Cluster A stray) At-Risk section:** dashboard section listing relationships trending cold (days-silent × declining frequency × no open deal), distinct from the static health map.
+
+**Cluster L — Automation**
+- **F92 Recipe gallery:** curated one-click rules (auto-tag on deal created, notify on 45-day silence, task on new High-priority, etc.) — each installs a pre-filled `automation_rules` row the user can tweak.
+- **F95 Run history:** every rule firing inserts an `automation_runs` row (+ `last_triggered_at`); per-rule expandable log with results.
+- **F96 Dry-run:** "Test rule" evaluates the rule against current relationships/deals and lists exactly which records WOULD trigger, executing nothing.
+- `next build` green (12/12 routes).

@@ -28,6 +28,7 @@ export const metadata = {
   title: 'Relationship CRM — Your Network, Supercharged',
   description: 'Build, track, and automate your professional relationships with AI-powered outreach.',
   icons: { icon: [{ url: '/favicon.png', type: 'image/png' }] },
+  manifest: '/manifest.json', // V3 F81 — installable PWA
 };
 
 // Applied before first paint to avoid a light/dark flash (FOUC).
