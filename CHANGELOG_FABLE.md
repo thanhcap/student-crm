@@ -612,3 +612,41 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 
 **Deferred honestly (not shipped in v3):** F23-F25/F28-F31 booking pages + Google Calendar two-way sync (needs new OAuth scope), F33 inline reply bodies (runner stores ids, not bodies), F36 Slack digest, F38 multi-inbox, F39/F41 receipt/OOO automation, F44/F48-F49/F51 deal splits/FX/docs/comments, F63/F64/F66 invoices/Stripe/zip-download, F67-F70/F72-F73 saved-search alerts/smart segments/ranking/boolean search, F78 scheduled backup emails, F84-F86 quick-capture/web-push/mobile composer, F91 reflections, F93-F94 multi-branch automations/Sheets. Tables for several of these (booking_slots, bookings, contract_templates, saved_search_alerts) already exist from the consolidated migration, so they're UI-only follow-ups.
 - `next build` green.
+
+# ============ THE DEEP UPDATE v1 (branch big-update/deep-v1) ============
+Two features, built end to end: the Network Graph and the Email Command Center.
+
+## §0 — Recon + support migration
+- Verified live (not recreated): `relationship_connections`, `graph_positions`, `email_inbox`, `sequence_analytics_daily`, `reply_snippets`, plus `clients.school/network_role/avatar_emoji`. All RLS-enabled.
+- `20260717_deep_v1.sql` (applied + committed): unique `(user_id, gmail_message_id)` on email_inbox (sync dedupe), unique `(user_id, client_id)` on graph_positions (position upserts), unique `(user_id, shortcut)` on reply_snippets, plus list/hydration indexes.
+- No d3/date-fns added — the force simulation is hand-rolled per spec.
+
+## §1 — Network Graph (`src/app/components/NetworkGraphDeep.js`, replaces the V3 mini-map at the Network nav item)
+- **Edges from 4 sources** merged by `buildGraphData`: referrals (solid violet, thick), manual `relationship_connections` (solid, color per type: knows/works with/mentors/introduced/studied with), shared company (dashed gray, groups of 2–12), shared school (dashed blue, 2–15). Degree drives node radius `8 + min(degree*2, 20)`.
+- **Physics:** hand-rolled force sim (repulsion 8000, springs len 120, center gravity, damping 0.85, velocity clamp, annealing alpha) in a rAF loop that settles and idles. O(n²) pair repulsion — fine at the 500-node cap.
+- **Positions persist:** hydrated from `graph_positions`, drag pins the node and saves debounced (800ms batch upsert). Pin/unpin from the detail panel (amber dot marks pinned). "Re-layout" wipes saved positions and re-runs cold.
+- **Zoom/pan:** wheel zoom-to-cursor, background drag pan, +/− buttons, Fit-to-screen (bbox framing). Transform-matrix based.
+- **Color modes:** Priority / Network role / Stage / **Cluster** — the last runs real label-propagation community detection (8 iterations, shuffled order); the legend lists clusters with size + dominant company/school, click to highlight+frame.
+- **Layouts:** Force / Radial (concentric degree rings) / Grid / By-company blobs.
+- **Filters + search:** priority/role/stage filters fade non-matches to 10% and hide their edges; search pulses matches (SVG animate) and auto-frames them.
+- **Hover focus:** neighbors + touching edges stay full-opacity, everything else dims.
+- **Node detail panel:** slides in without leaving the graph — company link, role/priority/school chips, clickable direct connections (jump+frame), open deals, last activity, Open profile / Log activity / **Draw connection** (click a second node → type picker → optimistic `relationship_connections` insert, rollback on error; manual edges deletable inline).
+- **Insights panel:** top-5 most connected, isolated count (click to highlight), bridge people (neighbors spanning ≥2 communities), largest cluster, longest referral-chain reach (BFS) — every insight clickable.
+- **Export:** PNG at 2× with title/date header (SVG→canvas), and connections CSV.
+- **States:** loading skeleton (pulsing graph shape), true empty state with CTA, sparse note (<3 people), 500-node cap notice, load-error banner, full dark mode, mobile = read-only banner (drag/zoom disabled).
+- **Manual test:** open Network → drag a node, reload (position kept) → search a name (pulse+frame) → Color: Cluster → click a node → Draw connection → click another → pick "Mentors" → edge appears violet-less/amber per type → Insights → Export PNG downloads.
+
+## §2 — Email Command Center (`src/app/components/EmailCommandCenter.js`, two new tabs in Email Automation: Inbox + Analytics)
+- **Inbox, three panes.** Left rail: All / Unread / Needs reply (received with no outbound email logged after) / Starred / five classifications / per-campaign — all with live counts. Middle: thread rows with avatar, unread dot, star toggle (optimistic + rollback), classification chip, relative time, body preview; newest-first; "Load more" pagination (40/page, metadata-only query — bodies load lazily per message). Right: full body, sender details, which campaign/step it replied to (send_id → sequence_sends → sequence_steps), and actions: classify override (persisted), Convert to relationship (cold), Log meeting booked, Stop their sequence, Open thread in Gmail (targets `gmail_thread_id`), Open profile.
+- **Reply composer (2.3):** pre-filled To/Re:, merge tags resolved against the matched contact, `:shortcut ` typed inline expands from `reply_snippets`, snippet picker + "Save as snippet", **Send opens Gmail web compose (never mailto)** and logs an outbound `activities` row (`activity_type='Email'`, `activity_date`, non-null description) which clears Needs-reply.
+- **Snippets (2.8):** CRUD modal; 4 starters (`:thanks` `:booking` `:notnow` `:intro`) seeded once per user (idempotent upsert on the new unique index).
+- **Analytics (2.6):** all 8 panels, pure SVG, real data: ① KPI cards (Sent/Open/Click/Reply/Meetings/Unsub) with 30-vs-prior-30 trend arrows + sparklines; ② reply-rate 30-day line chart with axis/gridlines/hover tooltip, reading `sequence_analytics_daily`; ③ 7×24 best-send-time heatmap (reply rate per slot, winner ringed, ≥3-send threshold); ④ per-sequence comparison table with mini bars + BEST highlight; ⑤ subject-line leaderboard by open rate with sample sizes (via step_id → step subject, A/B aware); ⑥ Sent→Opened→Clicked→Replied→Meetings funnel with drop-off %; ⑦ classification donut; ⑧ hours-saved ROI card (sends × 2min + meetings).
+- **Rollup (2.7):** `rollupSequenceAnalytics` buckets `sequence_sends` per sequence/day and chunk-upserts into `sequence_analytics_daily` (`onConflict sequence_id,day`) — runs once per session when Analytics opens, doubling as the historical backfill.
+- **States:** Gmail-not-connected banner, skeleton rows/cards, inbox empty + filter-empty, analytics zero-send CTA to the builder, load-error with retry. Full dark mode; mobile collapses to a single pane with back-navigation.
+
+## §3 — gmail-sync v9 (deployed + committed at `supabase/functions/gmail-sync/index.ts`)
+- Keeps every v8 behavior (activities for matched traffic, auto-stop-on-reply, token refresh/reauth flags).
+- **New:** matches cold contacts too; inbound messages fetched `format=full`, body extracted (text/plain → de-tagged html → snippet), classified (same deterministic classifier as the client — OOO/not-interested/referral/interested/question), and upserted into `email_inbox` deduped on `(user_id, gmail_message_id)` with thread id, preview, full body (100KB cap), and the latest tracked send/sequence linked.
+- **Classification side-effects:** out_of_office → active enrollments pushed +7 days (paused, not stopped); not_interested → enrollments stopped, cold contact marked unsubscribed + `unsubscribes` upsert; real replies → auto-stop now covers cold-contact enrollments as well.
+- **Manual test:** Sync replies now → reply lands in Inbox with classification; an OOO reply moves `next_send_at` a week out instead of marking replied; a "not interested" reply stops the enrollment and unsubscribes the address.
+- `next build` green (12/12 routes).
