@@ -582,3 +582,33 @@ from cold_contacts cc where cc.status='prospect' limit 1;
 - **F95 Run history:** every rule firing inserts an `automation_runs` row (+ `last_triggered_at`); per-rule expandable log with results.
 - **F96 Dry-run:** "Test rule" evaluates the rule against current relationships/deals and lists exactly which records WOULD trigger, executing nothing.
 - `next build` green (12/12 routes).
+
+## Clusters C/D/E/H strays + Cluster M — finishing pass
+**Communication (D)**
+- **F34 SMS logging:** "Text / SMS" is now an activity type on the log form + timeline filter.
+- **F35 WhatsApp:** phone numbers on a profile get a one-click `wa.me` chat badge (digits-only URL, ≥7-digit guard).
+- **F37 Email signature:** stored in Settings → Pitch & Bio, auto-appended to every composed email (skipped if the draft already contains it).
+- **F42 Call scripts:** Settings library (`call_scripts` table) with `{{name}}`/`{{first_name}}` tags; logging a Call offers a script picker with resolved talking points + one-click insert.
+
+**Calendar (C)**
+- **F32 .ics export:** right-click any task → "Export .ics" downloads a standards-compliant VEVENT for any calendar app.
+
+**Deals (E)**
+- **F43 Stakeholders:** deal edit view tracks multiple people per deal with roles (decision maker / champion / blocker / stakeholder), backed by `deal_stakeholders`.
+- **F46 Deal templates:** save the current deal form as a template; one-click chips prefill title/value/probability/stage (`deal_templates`).
+- **F47 Probability suggestion:** on stages with ≥3 historically settled deals, a one-click "Suggested: N%" computed from your real win rate at that stage (`deal_events`).
+- **F50 Pipeline velocity:** Reports chart of average days spent per stage (from `stage_changed` events), calling out where deals sit longest.
+- **F52 Similar won deals:** open deals show your 3 closest-value past wins — "you've closed deals like this before."
+
+**Search & geography (H)**
+- **F71 Recently viewed:** last-5 profiles strip at the top of the dashboard (localStorage, survives reload).
+- **F74 Where is my network:** Reports country breakdown bar list.
+
+**Cluster M — customization (F97–F100)**
+- **F97 Dashboard arrangement:** "Customize" on the dashboard reorders (↑/↓) and hides any of the 10 widget blocks; persisted per-user in `dashboard_layout`, applied via flex order so nothing re-mounts.
+- **F98 Accent color:** Settings swatch picker (`profiles.accent_color`) recolors primary buttons + indigo accents app-wide via a `data-accent` CSS hook; dark-mode surfaces untouched; one-click reset.
+- **F99 Onboarding tour:** brand-new (empty) accounts get a one-time 5-step tour (sidebar, ⌘K, career hub, automation, first contact) ending on the Add Relationship form; skippable, never re-shows.
+- **F100 API docs:** the Settings API reference now renders a personalized, copyable curl example using the real app origin and your key's actual prefix.
+
+**Deferred honestly (not shipped in v3):** F23-F25/F28-F31 booking pages + Google Calendar two-way sync (needs new OAuth scope), F33 inline reply bodies (runner stores ids, not bodies), F36 Slack digest, F38 multi-inbox, F39/F41 receipt/OOO automation, F44/F48-F49/F51 deal splits/FX/docs/comments, F63/F64/F66 invoices/Stripe/zip-download, F67-F70/F72-F73 saved-search alerts/smart segments/ranking/boolean search, F78 scheduled backup emails, F84-F86 quick-capture/web-push/mobile composer, F91 reflections, F93-F94 multi-branch automations/Sheets. Tables for several of these (booking_slots, bookings, contract_templates, saved_search_alerts) already exist from the consolidated migration, so they're UI-only follow-ups.
+- `next build` green.

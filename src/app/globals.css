@@ -203,3 +203,12 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   100% { transform: translateY(105vh) rotate(680deg); opacity: 0.6; }
 }
 .confetti-piece { top: -20px; animation: confetti-fall linear forwards; }
+
+/* V3 F98 — custom accent color: when the html element carries data-accent,
+   the app's primary-action color (solid gray-900 buttons) and indigo accents
+   swap to the user's chosen color. Dark-mode surface classes (dark:bg-gray-900)
+   are separate class tokens and are NOT affected. */
+html[data-accent] button.bg-gray-900,
+html[data-accent] a.bg-gray-900 { background-color: var(--crm-accent) !important; }
+html[data-accent] .text-indigo-600 { color: var(--crm-accent) !important; }
+html[data-accent] .bg-indigo-600 { background-color: var(--crm-accent) !important; }

@@ -851,6 +851,190 @@ const NETWORK_ROLE_META = {
   professor: { label: 'Professor', chip: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300' },
 };
 
+// V3 F43 — multi-stakeholder deals: self-contained (fetches its own rows so the
+// deal form doesn't need more App-level state)
+const STAKEHOLDER_ROLE_META = {
+  decision_maker: { label: 'Decision maker', chip: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300' },
+  champion:       { label: 'Champion',       chip: 'bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-300' },
+  blocker:        { label: 'Blocker',        chip: 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' },
+  stakeholder:    { label: 'Stakeholder',    chip: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300' },
+};
+function DealStakeholders({ deal, clients, showToast, onOpenClient }) {
+  const [rows, setRows] = useState([]);
+  const [addId, setAddId] = useState('');
+  const [addRole, setAddRole] = useState('stakeholder');
+  useEffect(() => {
+    let live = true;
+    supabase.from('deal_stakeholders').select('*').eq('deal_id', deal.id)
+      .then(({ data }) => { if (live) setRows(data || []); });
+    return () => { live = false; };
+  }, [deal.id]);
+  const add = async () => {
+    if (!addId) return;
+    const row = { deal_id: deal.id, client_id: parseInt(addId, 10), role: addRole };
+    const { error } = await supabase.from('deal_stakeholders').insert([row]);
+    if (error) { showToast(error.message, 'error'); return; }
+    setRows(prev => [...prev, row]); setAddId('');
+  };
+  const remove = async (clientId) => {
+    await supabase.from('deal_stakeholders').delete().eq('deal_id', deal.id).eq('client_id', clientId);
+    setRows(prev => prev.filter(r => r.client_id !== clientId));
+  };
+  const taken = new Set([deal.client_id, ...rows.map(r => r.client_id)]);
+  return (
+    <div className="mt-6">
+      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Stakeholders</p>
+      <div className="space-y-1.5">
+        {rows.map(r => {
+          const c = clients.find(cl => cl.id === r.client_id);
+          const meta = STAKEHOLDER_ROLE_META[r.role] || STAKEHOLDER_ROLE_META.stakeholder;
+          return (
+            <div key={r.client_id} className="flex items-center gap-2 text-[13px] p-2 border border-gray-100 dark:border-gray-800 rounded-lg">
+              <button type="button" onClick={() => c && onOpenClient(c)} className="font-semibold text-gray-800 dark:text-gray-200 hover:underline">{c?.name || `#${r.client_id}`}</button>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${meta.chip}`}>{meta.label}</span>
+              <button type="button" onClick={() => remove(r.client_id)} className="ml-auto text-gray-300 hover:text-red-500 text-[12px]">×</button>
+            </div>
+          );
+        })}
+        {rows.length === 0 && <p className="text-[12px] text-gray-400">Only the primary contact so far — add the other people involved in this deal.</p>}
+      </div>
+      <div className="flex gap-1.5 mt-2 text-[12px]">
+        <select value={addId} onChange={e => setAddId(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 flex-1 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
+          <option value="">+ Add stakeholder…</option>
+          {clients.filter(c => !taken.has(c.id)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <select value={addRole} onChange={e => setAddRole(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg bg-white text-gray-700 focus:outline-none">
+          {Object.entries(STAKEHOLDER_ROLE_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <button type="button" onClick={add} disabled={!addId} className="px-3 py-1.5 font-semibold text-white bg-gray-900 rounded-lg disabled:opacity-40">Add</button>
+      </div>
+    </div>
+  );
+}
+
+// V3 F46 — deal templates: one-click prefill + save-current-as-template
+function DealTemplateBar({ userId, current, onApply, showToast }) {
+  const [templates, setTemplates] = useState([]);
+  useEffect(() => {
+    let live = true;
+    supabase.from('deal_templates').select('*').order('created_at', { ascending: false })
+      .then(({ data }) => { if (live) setTemplates(data || []); });
+    return () => { live = false; };
+  }, []);
+  const saveCurrent = async () => {
+    if (!current.title) { showToast('Give the deal a title first.', 'error'); return; }
+    const row = { user_id: userId, name: current.title, default_value: parseFloat(current.value) || null, default_probability: parseInt(current.probability, 10) || null, default_stage: current.stage };
+    const { data, error } = await supabase.from('deal_templates').insert([row]).select();
+    if (error) showToast(error.message, 'error');
+    else { setTemplates(prev => [data[0], ...prev]); showToast('Saved as template.'); }
+  };
+  const remove = async (id) => {
+    await supabase.from('deal_templates').delete().eq('id', id);
+    setTemplates(prev => prev.filter(t => t.id !== id));
+  };
+  if (!templates.length) return (
+    <button type="button" onClick={saveCurrent} className="text-[11px] font-semibold text-gray-400 hover:text-gray-700">Save as template</button>
+  );
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Templates:</span>
+      {templates.slice(0, 4).map(t => (
+        <span key={t.id} className="inline-flex items-center gap-1 text-[11px] font-semibold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-full pl-2.5 pr-1 py-0.5">
+          <button type="button" onClick={() => onApply(t)} className="hover:underline">{t.name}{t.default_value ? ` — $${Number(t.default_value).toLocaleString()}` : ''}</button>
+          <button type="button" onClick={() => remove(t.id)} className="text-gray-400 hover:text-red-500 px-0.5">×</button>
+        </span>
+      ))}
+      <button type="button" onClick={saveCurrent} className="text-[11px] font-semibold text-gray-400 hover:text-gray-700 ml-1">+ Save current</button>
+    </div>
+  );
+}
+
+// V3 F42 — call/voicemail script picker: shown on the activity form when the
+// user is about to log a Call, so talking points are one click away
+function CallScriptPicker({ clientName, onInsert }) {
+  const [scripts, setScripts] = useState(null);
+  const [pickedId, setPickedId] = useState('');
+  useEffect(() => {
+    let live = true;
+    supabase.from('call_scripts').select('*').order('created_at', { ascending: false })
+      .then(({ data }) => { if (live) setScripts(data || []); });
+    return () => { live = false; };
+  }, []);
+  if (!scripts?.length) return null;
+  const picked = scripts.find(s => String(s.id) === pickedId);
+  const resolved = picked ? picked.script.replace(/{{name}}/g, clientName || '').replace(/{{first_name}}/g, (clientName || '').split(' ')[0]) : '';
+  return (
+    <div className="p-2 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 rounded-lg text-[12px]">
+      <div className="flex items-center gap-2">
+        <span className="font-bold text-blue-700 dark:text-blue-300 shrink-0">Call script:</span>
+        <select value={pickedId} onChange={e => setPickedId(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 flex-1 px-2 py-1 border border-blue-200 dark:border-blue-800 rounded bg-white text-gray-700 focus:outline-none">
+          <option value="">— pick talking points —</option>
+          {scripts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        {picked && <button type="button" onClick={() => onInsert(resolved)} className="shrink-0 px-2 py-1 font-semibold text-white bg-blue-600 rounded">Insert</button>}
+      </div>
+      {picked && <p className="mt-1.5 text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{resolved}</p>}
+    </div>
+  );
+}
+
+// V3 F42 — manage saved call/voicemail scripts (Settings)
+function CallScriptsManager({ userId, showToast }) {
+  const [scripts, setScripts] = useState([]);
+  const [name, setName] = useState('');
+  const [body, setBody] = useState('');
+  useEffect(() => {
+    let live = true;
+    supabase.from('call_scripts').select('*').order('created_at', { ascending: false })
+      .then(({ data }) => { if (live) setScripts(data || []); });
+    return () => { live = false; };
+  }, []);
+  const add = async (e) => {
+    e.preventDefault();
+    if (!name.trim() || !body.trim()) return;
+    const { data, error } = await supabase.from('call_scripts').insert([{ user_id: userId, name: name.trim(), script: body.trim() }]).select();
+    if (error) showToast(error.message, 'error');
+    else { setScripts(prev => [data[0], ...prev]); setName(''); setBody(''); showToast('Script saved.'); }
+  };
+  const remove = async (id) => {
+    await supabase.from('call_scripts').delete().eq('id', id);
+    setScripts(prev => prev.filter(s => s.id !== id));
+  };
+  return (
+    <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+      <h2 className="text-[15px] font-bold text-gray-900 mb-1">Call &amp; Voicemail Scripts</h2>
+      <p className="text-[12px] text-gray-500 mb-4">Talking points offered right on the activity form when you log a call. <code className="font-mono">{'{{name}}'}</code> and <code className="font-mono">{'{{first_name}}'}</code> resolve to the person you&apos;re calling.</p>
+      <form onSubmit={add} className="space-y-2 mb-4">
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Script name — e.g. Informational interview voicemail"
+          className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
+        <textarea value={body} onChange={e => setBody(e.target.value)} rows={3} placeholder={'Hi {{first_name}}, this is … — I\'m reaching out because …'}
+          className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400 resize-none" />
+        <button type="submit" disabled={!name.trim() || !body.trim()} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm disabled:opacity-40">Add script</button>
+      </form>
+      <div className="space-y-2">
+        {scripts.map(s => (
+          <div key={s.id} className="p-3 border border-gray-100 dark:border-gray-800 rounded-xl">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[13px] font-semibold text-gray-800 dark:text-gray-200">{s.name}</p>
+              <button onClick={() => remove(s.id)} className="text-[12px] text-gray-300 hover:text-red-500">Delete</button>
+            </div>
+            <p className="text-[12px] text-gray-500 whitespace-pre-wrap mt-1">{s.script}</p>
+          </div>
+        ))}
+        {scripts.length === 0 && <p className="text-[12px] text-gray-400">No scripts yet — the first one shows up on the Log Call form.</p>}
+      </div>
+    </div>
+  );
+}
+
+// V3 F97 — dashboard widgets that can be reordered/hidden (order here = default)
+const DASH_WIDGETS = [
+  ['kpi', 'KPI cards'], ['birthdays', 'Birthdays'], ['recent', 'Recently viewed'],
+  ['challenge', 'Weekly challenge'], ['at_risk', 'At risk'], ['team', 'Team feed'],
+  ['onboarding', 'Getting started'], ['charts', 'Charts & tasks'],
+  ['widgets', 'Streak · goals · leads'], ['lists', 'Latest relationships & deals'],
+];
+
 // V3 F13 — application pipeline stages (kanban columns)
 const APPLICATION_STAGES = ['researching', 'applied', 'phone_screen', 'interview', 'offer', 'rejected'];
 const APP_STAGE_META = {
@@ -1799,6 +1983,10 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [viewingClient, setViewingClient] = useState(null);
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState([]); // V3 F71
+  const [dashLayout, setDashLayout] = useState(null); // V3 F97 — [{key, hidden}]
+  const [showDashCustomize, setShowDashCustomize] = useState(false);
+  const [tourStep, setTourStep] = useState(null); // V3 F99 — null = tour off
   const fileInputRef = useRef(null);
   const [selectedClientIds, setSelectedClientIds] = useState([]);
 
@@ -2221,6 +2409,53 @@ export default function App() {
     } catch {}
   }, [user?.id, clients, tasks]);
 
+  // V3 F97 — dashboard widget arrangement: merged layout, CSS order + hide
+  const dashMerged = (() => {
+    const defaults = DASH_WIDGETS.map(([k]) => k);
+    const saved = Array.isArray(dashLayout) ? dashLayout.filter(w => defaults.includes(w.key)) : [];
+    return [...saved, ...defaults.filter(k => !saved.some(w => w.key === k)).map(k => ({ key: k, hidden: false }))];
+  })();
+  function dashStyle(key) {
+    const i = dashMerged.findIndex(w => w.key === key);
+    return { order: i + 1, display: dashMerged[i]?.hidden ? 'none' : undefined };
+  }
+  async function saveDashLayout(next) {
+    setDashLayout(next);
+    const { error } = await supabase.from('dashboard_layout').upsert([{ user_id: user.id, widget_order: next }]);
+    if (error) showToast(error.message, 'error');
+  }
+  useEffect(() => {
+    if (!user) return;
+    supabase.from('dashboard_layout').select('widget_order').eq('user_id', user.id).maybeSingle()
+      .then(({ data }) => { if (Array.isArray(data?.widget_order)) setDashLayout(data.widget_order); });
+  }, [user?.id]);
+
+  // V3 F98 — apply the saved accent color app-wide (see globals.css hooks)
+  useEffect(() => {
+    const el = document.documentElement;
+    if (profile?.accent_color) {
+      el.style.setProperty('--crm-accent', profile.accent_color);
+      el.setAttribute('data-accent', '1');
+    } else {
+      el.style.removeProperty('--crm-accent');
+      el.removeAttribute('data-accent');
+    }
+  }, [profile?.accent_color]);
+
+  // V3 F71 — recently viewed: remember the last 5 profiles opened
+  useEffect(() => {
+    if (!viewingClient?.id) return;
+    try {
+      const prev = JSON.parse(localStorage.getItem('crm_recently_viewed') || '[]');
+      const next = [{ id: viewingClient.id, at: Date.now() }, ...prev.filter(r => r.id !== viewingClient.id)].slice(0, 5);
+      localStorage.setItem('crm_recently_viewed', JSON.stringify(next));
+      setRecentlyViewedIds(next.map(r => r.id));
+    } catch {}
+  }, [viewingClient?.id]);
+  useEffect(() => {
+    try { setRecentlyViewedIds(JSON.parse(localStorage.getItem('crm_recently_viewed') || '[]').map(r => r.id)); } catch {}
+  }, [user?.id]);
+
   // V2.0 F50 — auto-show What's New once per version, after login
   useEffect(() => {
     if (!user) return;
@@ -2228,6 +2463,15 @@ export default function App() {
       if (localStorage.getItem('crm_whatsnew_seen') !== WHATS_NEW[0].version) setShowWhatsNew(true);
     } catch {}
   }, [user?.id]);
+
+  // V3 F99 — one-time guided tour for brand-new accounts (fires only once the
+  // first fetch has finished and the account is genuinely empty)
+  useEffect(() => {
+    if (!user || loadingClients) return;
+    try {
+      if (!localStorage.getItem('crm_tour_seen') && clients.length === 0) { setTourStep(0); setShowWhatsNew(false); }
+    } catch {}
+  }, [user?.id, loadingClients]);
 
   function toggleDarkMode() {
     const next = !darkMode;
@@ -3297,7 +3541,9 @@ export default function App() {
     e.preventDefault();
     if (!emailTo || !emailSubject || !emailBody) return;
     const subject = resolveMergeTags(emailSubject, viewingClient);
-    const body = resolveMergeTags(emailBody, viewingClient);
+    let body = resolveMergeTags(emailBody, viewingClient);
+    // V3 F37 — append saved signature unless the draft already contains it
+    if (profile?.email_signature && !body.includes(profile.email_signature)) body += `\n\n${profile.email_signature}`;
 
     const url = buildGmailComposeUrl({ to: emailTo, subject, body, from: gmailConn?.email_address });
     const tab = window.open(url, '_blank', 'noopener,noreferrer');
@@ -5505,6 +5751,23 @@ export default function App() {
     }
   }
 
+  // V3 F32 — export a task as a universal .ics calendar file
+  function downloadTaskIcs(task) {
+    const client = clients.find(c => c.id === task.client_id);
+    const d = (task.due_date || new Date().toISOString().split('T')[0]).replace(/-/g, '');
+    const esc = s => String(s || '').replace(/\\/g, '\\\\').replace(/[,;]/g, m => '\\' + m).replace(/\n/g, '\\n');
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//RelationshipCRM//EN', 'BEGIN:VEVENT',
+      `UID:task-${task.id}@relationship-crm`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z`,
+      `DTSTART;VALUE=DATE:${d}`, `SUMMARY:${esc(task.title)}`,
+      client ? `DESCRIPTION:${esc(`Relationship: ${client.name}`)}` : null,
+      'END:VEVENT', 'END:VCALENDAR'].filter(Boolean).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+    a.download = `${(task.title || 'task').slice(0, 40).replace(/[^a-z0-9]+/gi, '-')}.ics`;
+    a.click(); URL.revokeObjectURL(a.href);
+    showToast('.ics downloaded — import into any calendar.');
+  }
+
   async function handleToggleTask(taskId, currentStatus) {
     const newStatus = currentStatus === 'pending' ? 'done' : 'pending';
     const task = tasks.find(t => t.id === taskId);
@@ -6702,7 +6965,7 @@ export default function App() {
 
         {/* VIEW: DASHBOARD */}
         {appStep === 'DASHBOARD' && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             {/* EDITORIAL GREETING (Part 4.2) — a real sentence, computed live */}
             {(() => {
               const hour = new Date().getHours();
@@ -6718,12 +6981,37 @@ export default function App() {
               const sub = parts.length ? `You have ${parts.join(' and ')}.` : 'Nothing overdue — a good day to reach out to someone new.';
               return (
                 <div>
-                  <h1 className={`${T.h1} text-gray-900 dark:text-gray-100`}>{greet}, {nice}.</h1>
-                  <p className={`${T.body} text-black/50 dark:text-white/50 mt-1`}>{sub}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h1 className={`${T.h1} text-gray-900 dark:text-gray-100`}>{greet}, {nice}.</h1>
+                      <p className={`${T.body} text-black/50 dark:text-white/50 mt-1`}>{sub}</p>
+                    </div>
+                    {/* V3 F97 — customize widget arrangement */}
+                    <button onClick={() => setShowDashCustomize(v => !v)} className="shrink-0 text-[11px] font-semibold text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5">
+                      {showDashCustomize ? 'Done' : 'Customize'}
+                    </button>
+                  </div>
+                  {showDashCustomize && (
+                    <div className="mt-3 p-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl max-w-sm">
+                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Arrange dashboard</p>
+                      {dashMerged.map((w, i) => (
+                        <div key={w.key} className="flex items-center gap-1.5 text-[12px] py-1">
+                          <span className={`flex-1 font-medium ${w.hidden ? 'text-gray-300 dark:text-gray-600 line-through' : 'text-gray-700 dark:text-gray-200'}`}>
+                            {DASH_WIDGETS.find(([k]) => k === w.key)?.[1] || w.key}
+                          </span>
+                          <button disabled={i === 0} onClick={() => { const n = [...dashMerged]; [n[i - 1], n[i]] = [n[i], n[i - 1]]; saveDashLayout(n); }} className="px-1.5 py-0.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-20">↑</button>
+                          <button disabled={i === dashMerged.length - 1} onClick={() => { const n = [...dashMerged]; [n[i + 1], n[i]] = [n[i], n[i + 1]]; saveDashLayout(n); }} className="px-1.5 py-0.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-20">↓</button>
+                          <button onClick={() => saveDashLayout(dashMerged.map((x, xi) => xi === i ? { ...x, hidden: !x.hidden } : x))} className="px-1.5 py-0.5 text-[11px] font-semibold text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 w-11 text-right">{w.hidden ? 'Show' : 'Hide'}</button>
+                        </div>
+                      ))}
+                      <button onClick={() => saveDashLayout(DASH_WIDGETS.map(([k]) => ({ key: k, hidden: false })))} className="mt-2 text-[11px] font-semibold text-gray-400 hover:text-gray-700">Reset to default</button>
+                    </div>
+                  )}
                 </div>
               );
             })()}
 
+            <div className="min-w-0" style={dashStyle('kpi')}>
             {/* V2.0 F35 — KPI cards with vs-last-30-days trend arrows */}
             {(() => {
               const now = Date.now();
@@ -6773,7 +7061,9 @@ export default function App() {
                 </div>
               );
             })()}
+            </div>
 
+            <div className="min-w-0" style={dashStyle('birthdays')}>
             {/* V2.0 F12 — birthday reminders with one-click pre-drafted email */}
             {(() => {
               const windowDays = emailSettings?.birthday_reminder_days ?? 3;
@@ -6811,7 +7101,28 @@ export default function App() {
                 </div>
               );
             })()}
+            </div>
 
+            <div className="min-w-0" style={dashStyle('recent')}>
+            {/* V3 F71 — recently viewed strip */}
+            {recentlyViewedIds.length > 0 && (() => {
+              const recent = recentlyViewedIds.map(id => clients.find(c => c.id === id)).filter(Boolean);
+              if (!recent.length) return null;
+              return (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Recently viewed</span>
+                  {recent.map(c => (
+                    <button key={c.id} onClick={() => { setViewingClient(c); setAppStep('CLIENTS'); }}
+                      className="px-2.5 py-1 text-[12px] font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full hover:border-gray-400 transition-colors">
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            </div>
+
+            <div className="min-w-0" style={dashStyle('challenge')}>
             {/* V3 F88/F89 — weekly challenge + personal best */}
             {(() => {
               const now = new Date();
@@ -6850,7 +7161,9 @@ export default function App() {
                 </div>
               );
             })()}
+            </div>
 
+            <div className="min-w-0" style={dashStyle('at_risk')}>
             {/* V3 F7 — AT RISK: trending cold, not just already-cold (silence + declining frequency + no open deal) */}
             {(() => {
               const d30 = new Date(Date.now() - 30 * 864e5).toISOString().split('T')[0];
@@ -6885,7 +7198,9 @@ export default function App() {
                 </div>
               );
             })()}
+            </div>
 
+            <div className="min-w-0" style={dashStyle('team')}>
             {/* V2.0 F41 + F44 — team feed + leaderboard (feed solo-friendly too) */}
             {activityFeed.length > 0 && (() => {
               const memberName = (uid) => {
@@ -6940,7 +7255,9 @@ export default function App() {
                 </div>
               );
             })()}
+            </div>
 
+            <div className="min-w-0" style={dashStyle('onboarding')}>
             {/* ONBOARDING CHECKLIST (Feature 30) */}
             {!onboardingComplete && !onboardingDismissed && (
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow animate-in fade-in">
@@ -6969,7 +7286,9 @@ export default function App() {
                 </div>
               </div>
             )}
+            </div>
 
+            <div className="min-w-0" style={dashStyle('charts')}>
             {/* DASHBOARD TOP ROW: Charts and Tasks */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               
@@ -7057,7 +7376,9 @@ export default function App() {
                 <p className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100 mt-1">{fmtMoney(pipelineValue)}</p>
               </div>
             </div>
+            </div>
 
+            <div className="min-w-0" style={dashStyle('widgets')}>
             {/* NEW WIDGETS ROW: Streak, Goals, Top Leads, Health, Sources */}
             <div className="anim-stagger grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {/* Your Streak (Feature 17) */}
@@ -7201,7 +7522,9 @@ export default function App() {
                 })()}
               </div>
             </div>
+            </div>
 
+            <div className="min-w-0" style={dashStyle('lists')}>
             {/* DASHBOARD BOTTOM ROW: Lists */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               
@@ -7269,6 +7592,7 @@ export default function App() {
                   )}
                 </div>
               </div>
+            </div>
 
             </div>
           </div>
@@ -8153,6 +8477,72 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* V3 F50 — pipeline velocity: average days spent in each stage */}
+            {(() => {
+              const byDeal = {};
+              dealEvents.filter(ev => ev.event_type === 'stage_changed').forEach(ev => {
+                (byDeal[ev.deal_id] = byDeal[ev.deal_id] || []).push(ev);
+              });
+              const acc = {};
+              Object.entries(byDeal).forEach(([dealId, evs]) => {
+                evs.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                let prevTime = deals.find(d => String(d.id) === String(dealId))?.created_at;
+                evs.forEach(ev => {
+                  if (ev.old_value && prevTime) {
+                    const days = (new Date(ev.created_at) - new Date(prevTime)) / 864e5;
+                    if (days >= 0) (acc[ev.old_value] = acc[ev.old_value] || []).push(days);
+                  }
+                  prevTime = ev.created_at;
+                });
+              });
+              const rows = DEAL_STAGES.filter(s => !['Won', 'Lost'].includes(s))
+                .map(s => ({ stage: s, n: (acc[s] || []).length, avg: acc[s]?.length ? acc[s].reduce((a, b) => a + b, 0) / acc[s].length : null }));
+              if (!rows.some(r => r.avg != null)) return null;
+              const maxAvg = Math.max(...rows.map(r => r.avg || 0), 0.5);
+              const worst = rows.reduce((w, r) => (r.avg != null && (w == null || r.avg > w.avg) ? r : w), null);
+              return (
+                <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                  <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Pipeline Velocity</h3>
+                  <p className="text-[12px] text-gray-500 mb-4">Average days a deal spends in each stage{worst ? <> — deals sit longest in <span className="font-semibold text-gray-700 dark:text-gray-300">{worst.stage}</span></> : null}.</p>
+                  <div className="space-y-2">
+                    {rows.map(r => (
+                      <div key={r.stage} className="flex items-center gap-3 text-[12px]">
+                        <span className="w-28 shrink-0 font-medium text-gray-600 dark:text-gray-300">{r.stage}</span>
+                        <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+                          {r.avg != null && <div className="h-full bg-indigo-500/80 rounded" style={{ width: `${Math.max(r.avg / maxAvg * 100, 3)}%` }} />}
+                        </div>
+                        <span className="w-28 shrink-0 text-gray-500 tabular-nums">{r.avg != null ? `${r.avg.toFixed(1)}d avg · ${r.n}` : 'no data yet'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* V3 F74 — where is my network (country breakdown) */}
+            {clients.some(c => c.country) && (() => {
+              const byCountry = {};
+              clients.forEach(c => { const k = c.country || 'Unspecified'; byCountry[k] = (byCountry[k] || 0) + 1; });
+              const rows = Object.entries(byCountry).sort((a, b) => b[1] - a[1]).slice(0, 10);
+              const max = rows[0]?.[1] || 1;
+              return (
+                <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                  <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-4">Where Is My Network</h3>
+                  <div className="space-y-1.5">
+                    {rows.map(([country, n]) => (
+                      <div key={country} className="flex items-center gap-3 text-[12px]">
+                        <span className="w-32 shrink-0 font-medium text-gray-600 dark:text-gray-300 truncate">{country}</span>
+                        <div className="flex-1 h-3.5 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+                          <div className="h-full bg-teal-500/80 rounded" style={{ width: `${Math.max(n / max * 100, 3)}%` }} />
+                        </div>
+                        <span className="w-8 shrink-0 text-gray-500 tabular-nums text-right">{n}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               );
@@ -9201,6 +9591,7 @@ export default function App() {
                           { label: 'Cycle Priority', action: () => handleCycleTaskPriority(task) },
                           { label: 'View Relationship', action: () => { if (client) { setViewingClient(client); setAppStep('CLIENTS'); } } },
                           { label: 'Copy Title', action: () => { navigator.clipboard?.writeText(task.title); showToast('Copied'); } },
+                          { label: 'Export .ics', action: () => downloadTaskIcs(task) }, // V3 F32
                         ] }); }}>
                         <div className="flex items-center justify-between gap-3">
                           <div className="flex items-center gap-4 min-w-0">
@@ -10044,7 +10435,22 @@ export default function App() {
                   <p>GET  /api/v1/deals?stage= · POST /api/v1/deals {'{ client_id*, title*, value, stage, ... }'} · PATCH /api/v1/deals/:id</p>
                   <p>GET  /api/v1/tasks?status= · POST /api/v1/tasks {'{ client_id*, title*, due_date }'} · PATCH /api/v1/tasks/:id</p>
                   <p>POST /api/v1/sequences/:id/enroll {'{ client_id* }'}</p>
-                  <p className="font-sans text-gray-500">curl example: curl -H "Authorization: Bearer n8n_..." {'{origin}'}/api/v1/me</p>
+                  {/* V3 F100 — personalized, copyable curl (real origin + the user's key prefix) */}
+                  {(() => {
+                    const activeKey = apiKeys.find(k => !k.revoked);
+                    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://your-app';
+                    const curl = `curl -H "Authorization: Bearer ${activeKey ? `${activeKey.key_prefix}...your-full-key` : '<create-a-key-above>'}" ${origin}/api/v1/me`;
+                    return (
+                      <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-700 rounded-lg">
+                        <p className="font-sans text-gray-500 mb-1">Try it{activeKey ? ` with your key "${activeKey.name}"` : ' (create a key above first)'}:</p>
+                        <div className="flex items-start gap-2">
+                          <code className="flex-1 break-all">{curl}</code>
+                          <button onClick={() => { navigator.clipboard?.writeText(curl); showToast('curl command copied.'); }} className="shrink-0 font-sans px-2 py-0.5 text-[11px] font-semibold bg-gray-100 dark:bg-gray-700 rounded">Copy</button>
+                        </div>
+                        <p className="font-sans text-gray-400 mt-1">Full keys are shown only once at creation — substitute yours for the ellipsis.</p>
+                      </div>
+                    );
+                  })()}
                 </div>
               </details>
 
@@ -10794,9 +11200,10 @@ export default function App() {
                 e.preventDefault();
                 const elevator_pitch = e.target.elements.pitch.value.trim() || null;
                 const one_line_bio = e.target.elements.bio.value.trim() || null;
-                const { error } = await supabase.from('profiles').update({ elevator_pitch, one_line_bio }).eq('id', user.id);
+                const email_signature = e.target.elements.signature.value.trim() || null; // V3 F37
+                const { error } = await supabase.from('profiles').update({ elevator_pitch, one_line_bio, email_signature }).eq('id', user.id);
                 if (error) showToast(error.message, 'error');
-                else { setProfile(prev => ({ ...prev, elevator_pitch, one_line_bio })); showToast('Pitch & bio saved.'); }
+                else { setProfile(prev => ({ ...prev, elevator_pitch, one_line_bio, email_signature })); showToast('Pitch, bio & signature saved.'); }
               }} className="space-y-3">
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">One-line bio <span className="font-normal text-gray-400">— who you are in one sentence</span></label>
@@ -10808,8 +11215,37 @@ export default function App() {
                   <textarea name="pitch" rows={3} defaultValue={profile?.elevator_pitch || ''} placeholder="What you're working on, what you're looking for, and the one thing that makes you memorable."
                     className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400 resize-none" />
                 </div>
+                {/* V3 F37 — email signature, auto-appended to composed emails */}
+                <div>
+                  <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Email signature <span className="font-normal text-gray-400">— appended to every email you compose</span></label>
+                  <textarea name="signature" rows={3} defaultValue={profile?.email_signature || ''} placeholder={'Alex Nguyen\nCS @ Berkeley · linkedin.com/in/alexn'}
+                    className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] font-mono border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400 resize-none" />
+                </div>
                 <button type="submit" className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 shadow-sm">Save</button>
               </form>
+            </div>
+
+            {/* V3 F42 — CALL SCRIPT LIBRARY */}
+            <CallScriptsManager userId={user?.id} showToast={showToast} />
+
+            {/* V3 F98 — ACCENT COLOR */}
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+              <h2 className="text-[15px] font-bold text-gray-900 mb-1">Accent Color</h2>
+              <p className="text-[12px] text-gray-500 mb-4">Recolors buttons and highlights across the app. Pick one, or reset to the default ink.</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {[['#4F46E5', 'Indigo'], ['#059669', 'Emerald'], ['#E11D48', 'Rose'], ['#D97706', 'Amber'], ['#0284C7', 'Sky'], ['#7C3AED', 'Violet']].map(([hex, name]) => (
+                  <button key={hex} title={name} onClick={async () => {
+                    const { error } = await supabase.from('profiles').update({ accent_color: hex }).eq('id', user.id);
+                    if (error) showToast(error.message, 'error');
+                    else { setProfile(prev => ({ ...prev, accent_color: hex })); showToast(`Accent set to ${name}.`); }
+                  }} className={`w-9 h-9 rounded-full border-2 transition-transform hover:scale-110 ${profile?.accent_color === hex ? 'border-gray-900 dark:border-white scale-110' : 'border-transparent'}`} style={{ background: hex }} />
+                ))}
+                <button onClick={async () => {
+                  const { error } = await supabase.from('profiles').update({ accent_color: null }).eq('id', user.id);
+                  if (error) showToast(error.message, 'error');
+                  else { setProfile(prev => ({ ...prev, accent_color: null })); showToast('Accent reset to default.'); }
+                }} className="ml-1 px-3 py-1.5 text-[12px] font-semibold text-gray-500 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">Reset</button>
+              </div>
             </div>
 
             {/* V2.0 F47 — DATA HEALTH SCORE */}
@@ -11111,7 +11547,14 @@ export default function App() {
                 </div>
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Phone</span>
-                  <span className="font-semibold text-gray-800 dark:text-gray-200 block">{viewingClient.phone_number || 'Not provided'}</span>
+                  <span className="font-semibold text-gray-800 dark:text-gray-200 block">
+                    {viewingClient.phone_number || 'Not provided'}
+                    {/* V3 F35 — WhatsApp click-to-chat (wa.me needs digits only, country code included) */}
+                    {viewingClient.phone_number && viewingClient.phone_number.replace(/\D/g, '').length >= 7 && (
+                      <a href={`https://wa.me/${viewingClient.phone_number.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
+                        className="ml-2 text-[10px] font-bold text-green-700 bg-green-50 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800 px-1.5 py-0.5 rounded align-middle hover:bg-green-100">WhatsApp</a>
+                    )}
+                  </span>
                 </div>
                 <div className="space-y-0.5">
                   <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Birthday</span>
@@ -11496,7 +11939,7 @@ export default function App() {
                 <div className="flex items-center justify-between">
                   <span className="text-[12px] font-bold text-gray-400 uppercase tracking-wider">Activity Timeline</span>
                   <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-                    {['All', 'Note', 'Call', 'Email', 'Meeting'].map(t => (
+                    {['All', 'Note', 'Call', 'Email', 'Meeting', 'SMS'].map(t => (
                       <button key={t} onClick={() => setActivityFilterType(t)} className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded ${activityFilterType === t ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{t}</button>
                     ))}
                   </div>
@@ -11586,9 +12029,12 @@ export default function App() {
                       <option value="Call">Call</option>
                       <option value="Email">Email</option>
                       <option value="Meeting">Meeting</option>
+                      <option value="SMS">Text / SMS</option>
                     </select>
                     <input type="date" value={activityDate} onChange={e => setActivityDate(e.target.value)} className="dark:text-gray-100 p-1.5 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none bg-gray-50/50 dark:bg-gray-800/40 text-gray-600" />
                   </div>
+                  {/* V3 F42 — talking points when logging a call */}
+                  {activityType === 'Call' && <CallScriptPicker clientName={viewingClient.name} onInsert={txt => setActivityDesc(prev => prev ? `${prev}\n${txt}` : txt)} />}
                   <div className="flex flex-col sm:flex-row gap-2">
                     <textarea placeholder={voiceListening ? 'Listening... speak your note' : 'Record details, meeting minutes, or email content...'} value={activityDesc} onChange={e => setActivityDesc(e.target.value)} required rows={2} className={`flex-1 px-3 py-2 text-[13px] border rounded-lg focus:outline-none dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 ${voiceListening ? 'border-red-300 ring-1 ring-red-200' : 'border-gray-200 dark:border-gray-700 focus:border-gray-400'}`} />
                     {/* G3 — voice memo mic */}
@@ -11793,6 +12239,16 @@ export default function App() {
               <div className="w-16" />
             </div>
             <form onSubmit={handleCreateDeal} className="max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 space-y-4 text-[13px]">
+              {/* V3 F46 — deal templates */}
+              <DealTemplateBar userId={user?.id} showToast={showToast}
+                current={{ title: dealTitle, value: dealValue, probability: dealProbability, stage: dealStage }}
+                onApply={t => {
+                  setDealTitle(t.name || '');
+                  if (t.default_value != null) setDealValue(String(t.default_value));
+                  if (t.default_probability != null) setDealProbability(String(t.default_probability));
+                  if (t.default_stage) setDealStage(t.default_stage);
+                  showToast(`Template "${t.name}" applied.`);
+                }} />
               <div>
                 <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Title *</label>
                 <input type="text" required value={dealTitle} onChange={e => setDealTitle(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 min-h-[44px] md:min-h-0 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
@@ -11824,6 +12280,19 @@ export default function App() {
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Probability ({dealProbability}%)</label>
                   <input type="range" min="0" max="100" step="5" value={dealProbability} onChange={e => setDealProbability(e.target.value)} className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full" />
+                  {/* V3 F47 — suggest a probability from historical win rate at this stage */}
+                  {!['Won', 'Lost'].includes(dealStage) && (() => {
+                    const reached = new Set(dealEvents.filter(ev => ev.event_type === 'stage_changed' && ev.new_value === dealStage).map(ev => ev.deal_id));
+                    const settled = deals.filter(d => reached.has(d.id) && ['Won', 'Lost'].includes(d.stage));
+                    if (settled.length < 3) return null;
+                    const rate = Math.round(settled.filter(d => d.stage === 'Won').length / settled.length * 20) * 5;
+                    if (String(rate) === String(dealProbability)) return null;
+                    return (
+                      <button type="button" onClick={() => setDealProbability(String(rate))} className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline mt-0.5">
+                        Suggested: {rate}% — {settled.length} past deals reached this stage
+                      </button>
+                    );
+                  })()}
                 </div>
                 <div>
                   <label className="block text-[12px] font-medium text-gray-700 mb-1.5">Close Date</label>
@@ -11865,6 +12334,32 @@ export default function App() {
                 </button>
               </div>
             </form>
+
+            {/* V3 F43 — stakeholders + F52 similar won deals */}
+            {editingDeal && (
+              <div className="max-w-2xl mx-auto w-full px-4 sm:px-6 pb-2">
+                <DealStakeholders deal={editingDeal} clients={clients} showToast={showToast}
+                  onOpenClient={c => { setShowDealForm(false); setViewingClient(c); setAppStep('CLIENTS'); }} />
+                {!['Won', 'Lost'].includes(editingDeal.stage) && (() => {
+                  const val = parseFloat(editingDeal.value) || 0;
+                  const similar = deals
+                    .filter(d => d.id !== editingDeal.id && d.stage === 'Won')
+                    .map(d => ({ d, diff: Math.abs((parseFloat(d.value) || 0) - val) }))
+                    .sort((a, b) => a.diff - b.diff).slice(0, 3).map(x => x.d);
+                  if (!similar.length) return null;
+                  return (
+                    <div className="mt-5 p-3 bg-green-50/60 dark:bg-green-950/20 border border-green-100 dark:border-green-900 rounded-xl">
+                      <p className="text-[11px] font-bold text-green-700 dark:text-green-400 uppercase tracking-wider mb-1.5">You&apos;ve closed deals like this before</p>
+                      {similar.map(d => (
+                        <p key={d.id} className="text-[12px] text-gray-600 dark:text-gray-300">
+                          <span className="font-semibold">{d.title}</span> — ${Number(d.value || 0).toLocaleString()} · {clients.find(c => c.id === d.client_id)?.name || 'Unknown'}
+                        </p>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* V3 F59/F60/F62/F65 — proposals for this deal */}
             {editingDeal && (
@@ -12796,6 +13291,41 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* V3 F99 — one-time onboarding tour for brand-new accounts */}
+      {tourStep !== null && user && (() => {
+        const steps = [
+          { title: 'Welcome to your CRM', body: 'This is a relationship-first CRM for building your professional network — mentors, alumni, recruiters, peers. Here’s the 60-second lay of the land.', action: null },
+          { title: 'The sidebar is home base', body: 'Overview for your day, Relationships for people, Deals for money, Career for job applications and goals, Network for the visual map of who knows whom.', action: null },
+          { title: 'Press ⌘K anywhere', body: 'The command palette jumps to anyone, logs activities in two keystrokes, and answers plain-English questions like “who haven’t I talked to in a month”.', action: null },
+          { title: 'Automate the follow-up', body: 'Email Automation runs multi-step sequences through your own Gmail — coffee-chat requests, thank-you notes, cold outreach — and stops the moment someone replies.', action: () => setAppStep('N8N') },
+          { title: 'Start with one person', body: 'Add your first relationship — a mentor, professor, or friend — and log one conversation. Everything else builds from there.', action: () => { setAppStep('CLIENTS'); setTimeout(() => document.getElementById('add-client-form')?.scrollIntoView({ behavior: 'smooth' }), 150); } },
+        ];
+        const s = steps[tourStep];
+        const done = () => { try { localStorage.setItem('crm_tour_seen', '1'); } catch {} setTourStep(null); };
+        return (
+          <div className="fixed inset-0 z-[240] bg-black/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center p-4">
+            <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 p-6 animate-in zoom-in-95 fade-in duration-200">
+              <div className="flex gap-1.5 mb-4">
+                {steps.map((_, i) => <span key={i} className={`h-1.5 flex-1 rounded-full ${i <= tourStep ? 'bg-gray-900 dark:bg-white' : 'bg-gray-200 dark:bg-gray-700'}`} />)}
+              </div>
+              <h3 className="text-[17px] font-bold text-gray-900 dark:text-white mb-1.5">{s.title}</h3>
+              <p className="text-[13.5px] leading-relaxed text-gray-600 dark:text-gray-300">{s.body}</p>
+              <div className="flex items-center justify-between mt-6">
+                <button onClick={done} className="text-[12px] font-semibold text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">Skip tour</button>
+                <div className="flex gap-2">
+                  {tourStep > 0 && <button onClick={() => setTourStep(tourStep - 1)} className="px-3.5 py-2 text-[13px] font-semibold text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800">Back</button>}
+                  {tourStep < steps.length - 1 ? (
+                    <button onClick={() => setTourStep(tourStep + 1)} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90">Next</button>
+                  ) : (
+                    <button onClick={() => { done(); if (s.action) s.action(); }} className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90">Add my first relationship</button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* V3 F75 — MFA GATE: 2FA users must verify a TOTP code before using the app */}
       {mfaGate && user && (
