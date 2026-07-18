@@ -9,8 +9,8 @@ import NetworkGraphDeep from './components/NetworkGraphDeep';
 import EmailCommandCenter from './components/EmailCommandCenter';
 // BIG UPDATE V4 — Email Automation redesign: gallery, enrollment paths,
 // cold-contact pipeline, settings tab
-import EmailCampaignGallery, { GmailConnectionBadge } from './components/EmailCampaignGallery';
-import EnrollmentPanel from './components/EnrollmentPanel';
+import EmailCampaignGallery, { GmailConnectionBadge, RunnerHealthBadge } from './components/EmailCampaignGallery';
+import EnrollmentPanel, { audienceMatchesClient } from './components/EnrollmentPanel';
 import ColdContactsManager from './components/ColdContactsManager';
 import EmailSettingsPanel from './components/EmailSettingsPanel';
 import dynamic from 'next/dynamic';
@@ -2698,10 +2698,20 @@ export default function App() {
     // G1 — post-OAuth landing feedback
     const qp = new URLSearchParams(window.location.search);
     if (qp.get('gmail') === 'connected') {
-      showToast('Gmail connected — emails will sync as activities.', 'success');
+      showToast('Gmail connected. Your campaigns can now send automatically.', 'success');
+      fetchGmailConn(session.user.id); // re-fetch so the banner flips green immediately
       window.history.replaceState({}, '', window.location.pathname);
     } else if (qp.get('gmail_error')) {
-      showToast(`Gmail connect failed: ${qp.get('gmail_error')}`, 'error');
+      const err = qp.get('gmail_error');
+      const messages = {
+        missing_code_or_state: 'Gmail authorization was cancelled or failed to complete.',
+        no_refresh_token: 'Gmail didn’t grant offline access — try again and approve all permissions.',
+        gmail_send_scope_not_granted: 'Gmail send permission wasn’t granted — try again and allow sending.',
+        store_failed: 'Connected to Gmail but saving failed. Please try again.',
+        server_not_configured: 'The server is missing its Google credentials. Contact support.',
+        token_exchange_failed: 'Google rejected the authorization — try connecting again.',
+      };
+      showToast(messages[err] || `Gmail connection failed: ${err}`, 'error');
       window.history.replaceState({}, '', window.location.pathname);
     }
     // Workspace depends on the session user; invite acceptance needs the email
@@ -3760,14 +3770,14 @@ export default function App() {
   }
 
   function handleConnectGmail() {
-    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-    if (!clientId) { showToast('NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set in .env.local.', 'error'); return; }
-    const redirect = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/gmail-oauth`;
-    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
-      client_id: clientId, redirect_uri: redirect, response_type: 'code',
-      scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send',
-      access_type: 'offline', prompt: 'consent', state: user.id,
-    })}`;
+    // AUTO-SEND FIX — go through the server-side gmail-authorize function: the
+    // old client-built URL needed NEXT_PUBLIC_GOOGLE_CLIENT_ID (dead when the
+    // env var is missing) and omitted the userinfo.email scope (why
+    // email_address ended up NULL). gmail-authorize v4 requests
+    // gmail.send + gmail.readonly + userinfo.email with the server's client id.
+    const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!projectUrl) { showToast('Supabase URL not configured.', 'error'); return; }
+    window.location.href = `${projectUrl}/functions/v1/gmail-authorize?user_id=${user.id}`;
   }
 
   function handleDisconnectGmail() {
@@ -4421,6 +4431,25 @@ export default function App() {
   async function handleSetSequenceActive(seq, active) {
     if (active && seqNodesFor(seq.id).filter(n => !['trigger', 'goal', 'wait'].includes(n.node_type || 'email')).length === 0) {
       showToast('Add at least one action step before activating.', 'error'); return;
+    }
+    // AUTO-SEND Gate 1 — a live campaign with no sending identity is a lie:
+    // the runner would silently skip every enrollment.
+    if (active) {
+      const hasGmail = gmailConn && !gmailConn.needs_reauth && !gmailConn.revoked_at;
+      const hasResend = !!emailSettings?.resend_from_email;
+      if (!hasGmail && !hasResend) {
+        showToast('Connect Gmail first — campaigns can’t send without a connected email account.', 'error');
+        setSeqView('settings');
+        return;
+      }
+      // Gate 2 — at least one active enrollment, or a live audience/trigger that creates them
+      const hasEnrollments = sequenceEnrollments.some(e => e.sequence_id === seq.id && e.status === 'active');
+      const hasAudience = !!seq.target_audience;
+      const hasTrigger = sequenceTriggers.some(t => t.sequence_id === seq.id && t.enabled !== false && t.trigger_event !== 'manual');
+      if (!hasEnrollments && !hasAudience && !hasTrigger) {
+        showToast('Enroll at least one contact (or set a target audience) before activating.', 'error');
+        return;
+      }
     }
     const applyPatch = async () => {
       const patch = { is_active: active, status: active ? 'active' : 'paused' };
@@ -5307,6 +5336,32 @@ export default function App() {
   // CRM CORE LOGIC
   // ==========================================
 
+  // AUTO-SEND §3.3 — when a new relationship matches a live campaign's saved
+  // target audience (auto_enroll_new on), enroll them without any clicks.
+  // List-mode audiences enroll via list membership, not here (the member row
+  // doesn't exist yet for a brand-new contact).
+  async function checkAutoEnrollForNewContact(newClient) {
+    const campaigns = sequences.filter(s =>
+      (s.is_active || s.status === 'active') && s.auto_enroll_new && s.target_audience);
+    for (const seq of campaigns) {
+      if (!audienceMatchesClient(newClient, seq.target_audience, { clientTagMap, tags })) continue;
+      const alreadyIn = sequenceEnrollments.some(e =>
+        e.sequence_id === seq.id && e.client_id === newClient.id && e.status === 'active');
+      if (alreadyIn) continue;
+      if (newClient.email && unsubscribesList.some(u => (u.email || '').toLowerCase() === newClient.email.toLowerCase())) continue;
+      const { data, error } = await supabase.from('sequence_enrollments').insert([{
+        sequence_id: seq.id, user_id: user.id,
+        client_id: newClient.id, cold_contact_id: null,
+        status: 'active', current_step: 0,
+        next_send_at: new Date().toISOString().split('T')[0],
+      }]).select();
+      if (!error && data) {
+        setSequenceEnrollments(prev => [...prev, data[0]]);
+        showToast(`Auto-enrolled ${newClient.name} in “${seq.name}”.`, 'success');
+      }
+    }
+  }
+
   async function handleAddClient(e) {
     e.preventDefault();
     if (!name || !clientEmail) return;
@@ -5352,6 +5407,8 @@ export default function App() {
       // Auto-enroll workflows triggered by "new relationship added" (unified — honors both
       // legacy email_sequences.trigger_type='new_relationship' and sequence_triggers rows)
       triggerSequenceEnrollment('relationship_created', newClient.id, 'client', { ...newClient, client: newClient });
+      // AUTO-SEND §3.3 — audience-based auto-enroll for live campaigns
+      checkAutoEnrollForNewContact(newClient);
     } else if (error) {
       setCrmErrorMessage(`Database Sync Error: ${error.message}`);
     }
@@ -10000,14 +10057,38 @@ export default function App() {
           const coldSelectedIds = Object.entries(coldSelected).filter(([, v]) => v).map(([k]) => parseInt(k, 10));
           return (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              {/* V6 Part 5.3 — honest banner when there's no valid Gmail sending identity */}
-              {(!gmailConn || gmailConn.needs_reauth || !gmailConn.email_address) && (
-                <div className="p-5 rounded-[20px] border border-amber-500/30 bg-amber-500/[0.05]">
-                  <p className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 mb-1">{gmailConn ? 'Gmail needs reconnecting' : 'Gmail isn’t connected'}</p>
-                  <p className="text-[12.5px] text-black/50 dark:text-white/50 mb-4 max-w-2xl">
-                    Campaigns can’t auto-send from Gmail until a valid account is connected. You can still draft emails manually — they open in Gmail for you to send. (A configured Resend sender can also auto-send; see Settings → Email Automation.)
-                  </p>
-                  <button onClick={handleConnectGmail} className="px-4 h-9 rounded-[10px] bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[12.5px] font-semibold hover:opacity-85 transition-opacity">{gmailConn ? 'Reconnect Gmail' : 'Connect Gmail'}</button>
+              {/* AUTO-SEND 1.2 — persistent connection banner: amber until connected, green once live */}
+              {(!gmailConn || gmailConn.needs_reauth || !gmailConn.email_address) ? (
+                <div className="flex flex-wrap items-center justify-between gap-4 p-5 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900">
+                  <div className="flex items-center gap-3">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                    <div>
+                      <p className="text-[14px] font-bold text-amber-900 dark:text-amber-200">{gmailConn ? 'Gmail needs reconnecting' : 'Gmail is not connected'}</p>
+                      <p className="text-[12px] text-amber-700/70 dark:text-amber-400/60 max-w-md">
+                        {gmailConn
+                          ? 'Google revoked or expired the old authorization — reconnect once and campaigns resume sending on your schedule, hands-free.'
+                          : 'Campaigns can’t send automatically until you connect Gmail. This lets the app send as you — on your schedule, without you clicking anything.'}
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={handleConnectGmail}
+                    className="shrink-0 px-5 py-2.5 text-[13px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition-colors shadow-sm">
+                    {gmailConn ? 'Reconnect Gmail' : 'Connect Gmail'}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900">
+                  <div className="flex items-center gap-3">
+                    <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                    <div>
+                      <p className="text-[13px] font-semibold text-green-800 dark:text-green-300">Gmail connected: {gmailConn.email_address}</p>
+                      <p className="text-[11px] text-green-600/70 dark:text-green-400/60">
+                        Campaigns send automatically from this account{gmailConn.last_synced_at ? ` · last synced ${new Date(gmailConn.last_synced_at).toLocaleString()}` : ''}.
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={handleDisconnectGmail}
+                    className="text-[11px] font-semibold text-green-700/50 dark:text-green-400/50 hover:text-red-600 transition-colors">Disconnect</button>
                 </div>
               )}
               {/* V4 §1 — section shell: title, Gmail badge, New Campaign, 5 tabs */}
@@ -10017,6 +10098,7 @@ export default function App() {
                   <p className="text-[13px] text-gray-500">Build sequences, track replies, and automate outreach.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <RunnerHealthBadge sequences={sequences} />
                   <GmailConnectionBadge gmailConn={gmailConn} onConnect={handleConnectGmail} />
                   <button onClick={handleAiDraftSequence} disabled={aiBusy}
                     className="px-3 py-1.5 rounded-xl text-[12px] font-semibold border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-950/60 transition-colors disabled:opacity-50">
@@ -10063,6 +10145,8 @@ export default function App() {
                     steps={sequenceSteps}
                     enrollments={sequenceEnrollments}
                     sends={sequenceSends}
+                    clients={clients}
+                    coldContacts={coldContacts}
                     loading={false}
                     templates={SEQ_TEMPLATES}
                     onApplyTemplate={tpl => handleCreateFromTemplate(tpl)}
@@ -10168,10 +10252,13 @@ export default function App() {
                   enrollments={sequenceEnrollments}
                   unsubscribes={unsubscribesList}
                   activities={activities}
+                  tags={tags}
+                  clientTagMap={clientTagMap}
                   user={user}
                   showToast={showToast}
                   onEnrolled={rows => setSequenceEnrollments(prev => [...prev, ...rows])}
                   onColdImported={rows => setColdContacts(prev => [...rows, ...prev])}
+                  onAudienceSaved={(seqId, audience, autoNew) => setSequences(prev => prev.map(s => s.id === seqId ? { ...s, target_audience: audience, auto_enroll_new: autoNew } : s))}
                   onClose={() => setEnrollSeqId(null)}
                 />
               )}
@@ -12506,6 +12593,50 @@ export default function App() {
                   </section>
                 </div>
               )}
+
+              {/* AUTO-SEND 4.1 — last 50 sends for this campaign, with outcome badges */}
+              <section className="mt-8">
+                <h3 className="text-[14px] font-bold text-gray-900 dark:text-white mb-4">Send history</h3>
+                {sends.length === 0 ? (
+                  <p className="text-[13px] text-gray-400 text-center py-8">No emails sent yet — once the runner fires, every send lands here.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {[...sends].sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at)).slice(0, 50).map(s => {
+                      const contact = s.client_id
+                        ? clients.find(c => c.id === s.client_id)
+                        : coldContacts.find(c => c.id === s.cold_contact_id);
+                      const step = sequenceSteps.find(st => st.id === s.step_id);
+                      return (
+                        <div key={s.id} className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-950/30 flex items-center justify-center text-[10px] font-bold text-blue-600 dark:text-blue-400 shrink-0">
+                              {s.channel === 'email' ? 'E' : (s.channel || '').startsWith('linkedin') ? 'L' : 'T'}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">
+                                {contact?.name || contact?.first_name || contact?.email || 'Unknown'}
+                              </p>
+                              <p className="text-[11px] text-gray-400 truncate">
+                                {step?.subject ? `“${step.subject.slice(0, 50)}”` : s.channel}
+                                {s.subject_variant && ` · Variant ${String(s.subject_variant).toUpperCase()}`}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <div className="flex gap-1">
+                              {s.opened_at && <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">Opened</span>}
+                              {s.clicked_at && <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-indigo-100 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400">Clicked</span>}
+                              {s.replied_at && <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-green-100 dark:bg-green-950/30 text-green-700 dark:text-green-400">Replied</span>}
+                              {s.bounced_at && <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400">Bounced</span>}
+                            </div>
+                            <span className="text-[10px] text-gray-400 whitespace-nowrap">{s.sent_at ? new Date(s.sent_at).toLocaleString() : ''}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
             </div>
           </div>
         );

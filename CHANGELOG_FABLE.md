@@ -694,3 +694,34 @@ Six paths, one pipeline:
 - **Manual test:** toggle auto-send → toast + persisted on reload; unchecking every send day is refused.
 
 Ground-truth check: no `outcome` anywhere, `activity_date` untouched (no new activity writes in this update), every enrollment insert sets exactly one contact ref. `next build` green (12/12 routes).
+
+# ============ GMAIL AUTO-SEND (branch feat/gmail-auto-send) ============
+Recon corrected the prompt's premise: gmail_connections had **1 row, not 0** —
+but with needs_reauth=true and email_address NULL (Google revoked the refresh
+token), so the runner skipped everything. Second blocker: **0 active
+enrollments**. Server secrets verified live (gmail-authorize 302s to Google
+with a real client id). The one step only the user can do: click Reconnect and
+approve the Google consent screen.
+
+## §1 — Connection flow fixed end-to-end
+- **Root cause fixed:** the old Connect button built the Google URL client-side from `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (dead if that env is missing) and omitted the `userinfo.email` scope — which is exactly why `email_address` was NULL. It now redirects through the server-side **gmail-authorize v4** (deployed + committed), which requests `gmail.send + gmail.readonly + userinfo.email` (v3 had dropped readonly, which would have broken inbox sync after reconnect). Scopes verified in the live redirect.
+- **Banner (1.2):** campaigns tab shows a persistent amber banner (distinct copy for never-connected vs needs-reconnect) with the Connect/Reconnect button, flipping to a green "Gmail connected: <address> · campaigns send automatically" banner with Disconnect. The Settings tab's Gmail card (V4) already covers the second required location.
+- **Redirect handling (1.4):** `?gmail=connected` now re-fetches the connection immediately + friendlier toast; `?gmail_error=` maps 6 error codes to plain-English messages. URL cleaned either way.
+- **Activation gates (1.6):** going live now requires (1) a healthy Gmail connection or a Resend fallback sender — otherwise blocked with a toast and a jump to Settings; (2) ≥1 active enrollment OR a saved target audience OR a non-manual trigger; the existing draft-step confirm remains.
+- **Manual test:** with the current needs_reauth row, the amber "needs reconnecting" banner shows; clicking it lands on Google's consent screen (verified to the redirect); after approving, the row gains email_address and the banner turns green.
+
+## §2 — Scheduling: friendly config + "what sends when"
+- **Settings scheduler:** AM/PM hour dropdowns, day pills, daily-cap **slider** (5–200, with Gmail-limit guidance), timezone dropdown (12 common zones incl. Vietnam) + **Detect my timezone**, and a **plain-English summary** ("Campaigns send Mon, Tue… between 9:00 AM and 5:00 PM your time, up to 50 emails per day — without you clicking anything."). Persists via the existing email_settings upsert.
+- **Upcoming auto-sends (2.2):** campaigns tab card listing every active enrollment due today/tomorrow — avatar, contact, campaign, step number, subject preview, Today/Tomorrow chip, expandable past 8 rows — with the runner-health chip inline. Hidden when nothing is due.
+- **Manual test:** enroll someone with next_send_at today → they appear under "due today"; change the cap slider → summary sentence updates and persists.
+
+## §3 — Audience targeting + auto-enroll (migration applied + committed)
+- `email_sequences.target_audience jsonb` + `auto_enroll_new boolean` (idempotent, applied live).
+- **Target Audience tab** in the enrollment panel: manual / all relationships / all cold contacts / a list / **rule-based** ("tag has Investment Banking", with a tag-name datalist). Live match count + Apply & enroll runs through the same bulkEnroll (dedupe, unsubscribe filter, chunking). Audience persists on the campaign; a checkbox turns on future auto-enroll.
+- **Auto-enroll on create (3.3):** `checkAutoEnrollForNewContact` runs at the end of handleAddClient — new relationships matching a live campaign's saved audience (all_relationships or rules, incl. tag rules) are enrolled instantly (unsub-guarded, dedupe-guarded, exactly one contact ref) with an "Auto-enrolled <name> in <campaign>" toast. List-mode audiences enroll via list membership instead, by design.
+- **Manual test:** set audience "tag has Investment Banking" + auto-enroll → apply enrolls current matches; add a new relationship with that tag → toast + enrollment row appears without touching the campaign.
+
+## §4 — Monitoring
+- **Send history (4.1):** the per-campaign Stats view now ends with the last 50 sends — contact, subject, A/B variant, Opened/Clicked/Replied/Bounced badges, timestamp.
+- **Runner health (4.2):** header badge — green pulse "Runner active · Nm ago" when a campaign was processed in the last 20 minutes; honest amber "last processed Nh/Nd ago / hasn't processed a campaign yet" otherwise (last_run_at only advances when a live campaign is processed).
+- `next build` green (12/12 routes).

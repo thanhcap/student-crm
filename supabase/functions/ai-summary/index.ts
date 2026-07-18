@@ -1,15 +1,16 @@
 // AI helper — one function, many modes (V3 Cluster A).
 // Modes: summary (default) · follow_up_suggestion · meeting_brief ·
 //        draft_sequence · icebreakers · compare · classify_reply · nl_search
-// Secret required: ANTHROPIC_API_KEY. Every mode degrades to a clean 400 the
+// Secret required: GEMINI_API_KEY. Every mode degrades to a clean 400 the
 // client treats as "AI unavailable" — no crashes without the key.
+const GEMINI_MODEL = 'gemini-2.0-flash';
 Deno.serve(async (req: Request) => {
   const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, content-type' };
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, 'Content-Type': 'application/json' } });
 
-  const key = Deno.env.get('ANTHROPIC_API_KEY');
-  if (!key) return json({ error: 'ANTHROPIC_API_KEY is not set in Supabase Edge Function secrets.' }, 400);
+  const key = Deno.env.get('GEMINI_API_KEY');
+  if (!key) return json({ error: 'GEMINI_API_KEY is not set in Supabase Edge Function secrets.' }, 400);
 
   let payload: any;
   try { payload = await req.json(); } catch { return json({ error: 'bad request body' }, 400); }
@@ -62,14 +63,20 @@ Rules: 3-5 steps. First step wait_days 0. Later steps 3-7 day gaps. Bodies under
     return json({ error: 'clientName required' }, 400);
   }
 
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
     method: 'POST',
-    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
+    headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+    }),
   });
   const out = await r.json().catch(() => ({}));
-  if (!r.ok) return json({ error: out?.error?.message || `Anthropic API error ${r.status}` }, 400);
-  const summary = (out?.content || []).map((c: any) => c.text || '').join('').trim();
-  if (!summary) return json({ error: 'empty completion' }, 400);
+  if (!r.ok) return json({ error: out?.error?.message || `Gemini API error ${r.status}` }, 400);
+  const summary = (out?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || '').join('').trim();
+  if (!summary) {
+    const blocked = out?.promptFeedback?.blockReason || out?.candidates?.[0]?.finishReason;
+    return json({ error: blocked ? `no output (${blocked})` : 'empty completion' }, 400);
+  }
   return json({ summary });
 });
