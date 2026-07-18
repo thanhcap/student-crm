@@ -163,6 +163,100 @@ function CampaignCard({ seq, seqSteps, onOpen, onDuplicate, onToggle, onDelete, 
   );
 }
 
+// AUTO-SEND 4.2 — has the 15-minute runner fired recently?
+export function RunnerHealthBadge({ sequences }) {
+  const lastRun = (sequences || []).map(s => s.last_run_at).filter(Boolean).sort().reverse()[0] || null;
+  const minutesSinceRun = lastRun ? Math.round((Date.now() - new Date(lastRun).getTime()) / 60000) : null;
+  const healthy = minutesSinceRun !== null && minutesSinceRun < 20;
+  return (
+    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium ${healthy
+      ? 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30'
+      : 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30'}`}
+      title="The auto-send runner fires every 15 minutes. last_run_at only advances when it processes a live campaign.">
+      <span className={`w-1.5 h-1.5 rounded-full ${healthy ? 'bg-green-500 animate-pulse' : 'bg-amber-500'}`} />
+      {healthy ? `Runner active · ${minutesSinceRun}m ago`
+        : lastRun ? `Runner last processed a campaign ${minutesSinceRun >= 1440 ? `${Math.floor(minutesSinceRun / 1440)}d` : `${Math.floor(minutesSinceRun / 60)}h`} ago`
+        : 'Runner hasn’t processed a campaign yet'}
+    </div>
+  );
+}
+
+// AUTO-SEND 2.2 — what the runner will send in the next 24 hours
+export function UpcomingSendsPreview({ enrollments, sequences, clients, coldContacts, steps }) {
+  const [expanded, setExpanded] = useState(false);
+  const upcoming = useMemo(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+    return (enrollments || [])
+      .filter(e => e.status === 'active' && e.next_send_at && String(e.next_send_at).slice(0, 10) <= tomorrowStr)
+      .map(e => {
+        const seq = (sequences || []).find(s => s.id === e.sequence_id);
+        const contact = e.client_id
+          ? (clients || []).find(c => c.id === e.client_id)
+          : (coldContacts || []).find(c => c.id === e.cold_contact_id);
+        const currentNode = (steps || []).find(s => s.id === e.current_node_id)
+          || (steps || []).filter(s => s.sequence_id === e.sequence_id && s.node_type === 'email').sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0))[0];
+        return { enrollment: e, sequence: seq, contact, currentNode, isToday: String(e.next_send_at).slice(0, 10) <= todayStr };
+      })
+      .filter(r => r.contact && r.sequence && (r.sequence.is_active || r.sequence.status === 'active'))
+      .sort((a, b) => (String(a.enrollment.next_send_at) > String(b.enrollment.next_send_at) ? 1 : -1));
+  }, [enrollments, sequences, clients, coldContacts, steps]);
+
+  if (!upcoming.length) return null;
+  const todayCount = upcoming.filter(u => u.isToday).length;
+  const tomorrowCount = upcoming.length - todayCount;
+  const shown = expanded ? upcoming.slice(0, 60) : upcoming.slice(0, 8);
+
+  return (
+    <div className="p-5 rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-[14px] font-bold text-gray-900 dark:text-white">Upcoming auto-sends</h3>
+          <p className="text-[12px] text-gray-400 mt-0.5">
+            {todayCount > 0 && `${todayCount} due today`}
+            {todayCount > 0 && tomorrowCount > 0 && ' · '}
+            {tomorrowCount > 0 && `${tomorrowCount} due tomorrow`}
+          </p>
+        </div>
+        <RunnerHealthBadge sequences={sequences} />
+      </div>
+      <div className="space-y-2 max-h-[320px] overflow-y-auto">
+        {shown.map(u => (
+          <div key={u.enrollment.id}
+            className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-[10px] font-bold text-gray-500 shrink-0">
+                {(u.contact.name || u.contact.first_name || u.contact.email || '?')[0].toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-gray-900 dark:text-white truncate">
+                  {u.contact.name || `${u.contact.first_name || ''} ${u.contact.last_name || ''}`.trim() || u.contact.email}
+                </p>
+                <p className="text-[11px] text-gray-400 truncate">
+                  {u.sequence.name} · Step {(u.enrollment.current_step ?? 0) + 1}
+                  {u.currentNode?.subject && ` · “${u.currentNode.subject.slice(0, 40)}”`}
+                </p>
+              </div>
+            </div>
+            <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold ${u.isToday
+              ? 'bg-green-100 dark:bg-green-950/30 text-green-700 dark:text-green-400'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-500'}`}>
+              {u.isToday ? 'Today' : 'Tomorrow'}
+            </span>
+          </div>
+        ))}
+        {upcoming.length > shown.length && (
+          <button onClick={() => setExpanded(true)} className="w-full py-2 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
+            Show {upcoming.length - shown.length} more
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GallerySkeleton() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" aria-label="Loading campaigns">
@@ -179,6 +273,7 @@ function GallerySkeleton() {
 
 export default function EmailCampaignGallery({
   sequences, steps, enrollments, sends, loading,
+  clients, coldContacts,
   templates, onApplyTemplate,
   onOpen, onDuplicate, onToggle, onDelete, onQuickEnroll, onCreateNew, onOpenInbox,
 }) {
@@ -234,6 +329,10 @@ export default function EmailCampaignGallery({
 
   return (
     <div>
+      {/* AUTO-SEND 2.2 — what sends in the next 24h, with runner health */}
+      <UpcomingSendsPreview enrollments={enrollments} sequences={sequences}
+        clients={clients} coldContacts={coldContacts} steps={steps} />
+
       {/* aggregate stats across ALL campaigns */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         <AggStat label="Total Campaigns" value={(sequences || []).length} />

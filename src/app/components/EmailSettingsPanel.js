@@ -12,6 +12,25 @@ import { useState } from 'react';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+// AUTO-SEND 2.1 — friendly hour labels + common timezones
+function hourLabel(h) {
+  return h === 0 ? '12:00 AM' : h < 12 ? `${h}:00 AM` : h === 12 ? '12:00 PM' : `${h - 12}:00 PM`;
+}
+const TIMEZONES = [
+  { label: 'Pacific Time (UTC-8)', offset: -480 },
+  { label: 'Mountain Time (UTC-7)', offset: -420 },
+  { label: 'Central Time (UTC-6)', offset: -360 },
+  { label: 'Eastern Time (UTC-5)', offset: -300 },
+  { label: 'UTC', offset: 0 },
+  { label: 'Central European (UTC+1)', offset: 60 },
+  { label: 'Eastern European (UTC+2)', offset: 120 },
+  { label: 'India (UTC+5:30)', offset: 330 },
+  { label: 'Vietnam/Indochina (UTC+7)', offset: 420 },
+  { label: 'China/Singapore (UTC+8)', offset: 480 },
+  { label: 'Japan/Korea (UTC+9)', offset: 540 },
+  { label: 'Australia Eastern (UTC+10)', offset: 600 },
+];
+
 function Card({ title, desc, children }) {
   return (
     <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-100 dark:border-gray-800">
@@ -97,19 +116,21 @@ export default function EmailSettingsPanel({
             <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${s.auto_send_enabled ? 'left-[22px]' : 'left-0.5'}`} />
           </button>
         </label>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Daily email cap</label>
-            <input type="number" min={1} max={500} defaultValue={s.daily_send_cap ?? 50}
-              onBlur={e => { const v = parseInt(e.target.value, 10); if (v >= 1 && v <= 500 && v !== s.daily_send_cap) onSave({ daily_send_cap: v }); }}
-              className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:border-gray-400" />
+        <div>
+          <label className="block text-[11px] font-medium text-gray-500 mb-1">Maximum emails per day</label>
+          <div className="flex items-center gap-4">
+            <input type="range" min="5" max="200" step="5" value={s.daily_send_cap ?? 50}
+              onChange={e => onSave({ daily_send_cap: Number(e.target.value) })}
+              className="flex-1" />
+            <span className="text-[16px] font-bold text-gray-900 dark:text-white w-12 text-right tabular-nums">{s.daily_send_cap ?? 50}</span>
           </div>
-          <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Daily LinkedIn-task cap</label>
-            <input type="number" min={1} max={100} defaultValue={s.linkedin_daily_cap ?? 20}
-              onBlur={e => { const v = parseInt(e.target.value, 10); if (v >= 1 && v <= 100 && v !== s.linkedin_daily_cap) onSave({ linkedin_daily_cap: v }); }}
-              className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:border-gray-400" />
-          </div>
+          <p className="text-[11px] text-gray-400 mt-1">Gmail allows ~500/day (regular) or ~2,000/day (Workspace) — stay well under to protect your sender reputation.</p>
+        </div>
+        <div className="mt-3">
+          <label className="block text-[11px] font-medium text-gray-500 mb-1">Daily LinkedIn-task cap</label>
+          <input type="number" min={1} max={100} defaultValue={s.linkedin_daily_cap ?? 20}
+            onBlur={e => { const v = parseInt(e.target.value, 10); if (v >= 1 && v <= 100 && v !== s.linkedin_daily_cap) onSave({ linkedin_daily_cap: v }); }}
+            className="w-28 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:border-gray-400" />
         </div>
       </Card>
 
@@ -127,21 +148,41 @@ export default function EmailSettingsPanel({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">From (hour)</label>
+            <label className="block text-[11px] font-medium text-gray-500 mb-1">Start sending at</label>
             <select value={s.send_window_start ?? 9} onChange={e => onSave({ send_window_start: parseInt(e.target.value, 10) })}
-              className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none">
-              {[...Array(24)].map((_, h) => <option key={h} value={h}>{h}:00</option>)}
+              className="w-full px-3 py-2 text-[13px] font-semibold border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none">
+              {[...Array(24)].map((_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Until (hour)</label>
+            <label className="block text-[11px] font-medium text-gray-500 mb-1">Stop sending at</label>
             <select value={s.send_window_end ?? 17} onChange={e => onSave({ send_window_end: parseInt(e.target.value, 10) })}
-              className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none">
-              {[...Array(24)].map((_, h) => <option key={h} value={h}>{h}:00</option>)}
+              className="w-full px-3 py-2 text-[13px] font-semibold border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none">
+              {[...Array(24)].map((_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
             </select>
           </div>
         </div>
-        <p className="text-[11px] text-gray-400 mt-2">Times are in your local timezone (UTC{(s.send_tz_offset ?? 0) >= 0 ? '+' : ''}{Math.round((s.send_tz_offset ?? 0) / 60)}).</p>
+        {/* timezone dropdown + auto-detect */}
+        <div className="mt-3">
+          <label className="block text-[11px] font-medium text-gray-500 mb-1">Your timezone</label>
+          <select value={s.send_tz_offset ?? 0} onChange={e => onSave({ send_tz_offset: Number(e.target.value) })}
+            className="w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none">
+            {!TIMEZONES.some(tz => tz.offset === (s.send_tz_offset ?? 0)) && (
+              <option value={s.send_tz_offset ?? 0}>Custom (UTC{(s.send_tz_offset ?? 0) >= 0 ? '+' : ''}{((s.send_tz_offset ?? 0) / 60).toFixed(1).replace('.0', '')})</option>
+            )}
+            {TIMEZONES.map(tz => <option key={tz.offset} value={tz.offset}>{tz.label}</option>)}
+          </select>
+          <button onClick={() => onSave({ send_tz_offset: new Date().getTimezoneOffset() * -1 })}
+            className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline mt-1">Detect my timezone</button>
+        </div>
+        {/* plain-English summary of what this schedule means */}
+        <div className="mt-4 p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-700">
+          <p className="text-[12.5px] text-gray-600 dark:text-gray-300">
+            {s.auto_send_enabled
+              ? `Campaigns send ${(days.length === 7 ? 'every day' : days.map(d => DAY_LABELS[d]).join(', '))}, between ${hourLabel(s.send_window_start ?? 9)} and ${hourLabel(s.send_window_end ?? 17)} your time, up to ${s.daily_send_cap ?? 50} emails per day — without you clicking anything.`
+              : 'Automatic sending is off. Campaigns won’t send on their own; due emails wait in the Outbox for manual sending.'}
+          </p>
+        </div>
       </Card>
 
       {/* Fallback sender */}
