@@ -30,6 +30,31 @@ function relTimeShort(dateStr) {
   return `${Math.floor(days / 365)}y ago`;
 }
 
+// AUTO-SEND §3 — audience matching, shared by the panel's Audience tab and the
+// app-level auto-enroll-on-create hook (page.js imports this).
+export function matchesAudienceRule(contact, rule, { clientTagMap = {}, tags = [] } = {}) {
+  if (rule.field === 'tags') {
+    const contactTags = (clientTagMap[contact.id] || [])
+      .map(tid => tags.find(t => t.id === tid)?.name?.toLowerCase())
+      .filter(Boolean);
+    return contactTags.includes(String(rule.value || '').toLowerCase());
+  }
+  const val = contact[rule.field] ?? '';
+  if (rule.op === 'is') return String(val).toLowerCase() === String(rule.value).toLowerCase();
+  if (rule.op === 'is_not') return String(val).toLowerCase() !== String(rule.value).toLowerCase();
+  if (rule.op === 'contains') return String(val).toLowerCase().includes(String(rule.value).toLowerCase());
+  return true;
+}
+
+export function audienceMatchesClient(client, audience, helpers) {
+  if (!audience) return false;
+  if (audience.mode === 'all_relationships') return true;
+  if (audience.mode === 'filter') {
+    return (audience.rules || []).every(r => (r.value !== '' || ['is_empty', 'is_not_empty'].includes(r.op)) ? matchesAudienceRule(client, r, helpers) : true);
+  }
+  return false; // list membership is event-driven; cold modes never match a relationship
+}
+
 // The runner's entry point: the node the trigger's default edge points at,
 // falling back to the lowest step_order non-trigger node.
 function nodeAfterTrigger(seqSteps, seqEdges) {
@@ -61,9 +86,11 @@ export default function EnrollmentPanel({
   sequence, seqSteps, seqEdges,
   clients, coldContacts, relationshipLists, relationshipListMembers,
   enrollments, unsubscribes, activities,
+  tags, clientTagMap,
   user, showToast,
   onEnrolled,       // (newEnrollmentRows) => merge into App state
   onColdImported,   // (newColdRows) => merge into App state
+  onAudienceSaved,  // (sequenceId, audience, autoEnrollNew) => sync sequences state
   onClose,
 }) {
   const [enrollTab, setEnrollTab] = useState('select');
@@ -71,6 +98,7 @@ export default function EnrollmentPanel({
 
   const tabs = [
     { key: 'select', label: 'Select Manually' },
+    { key: 'audience', label: 'Target Audience' }, // AUTO-SEND §3 — persistent + auto-enroll
     { key: 'list', label: 'From a List' },
     { key: 'cold', label: 'Cold Contacts' },
     { key: 'segment', label: 'Smart Segment' },
@@ -184,6 +212,13 @@ export default function EnrollmentPanel({
         {enrollTab === 'select' && (
           <ManualSelectEnroll clients={clients} activeKeys={activeKeys} lastActivityByClient={lastActivityByClient}
             busy={busy} onEnroll={ids => bulkEnroll(ids, 'client')} />
+        )}
+        {enrollTab === 'audience' && (
+          <AudienceTargetConfig sequence={sequence} clients={clients} coldContacts={coldContacts}
+            relationshipLists={relationshipLists} relationshipListMembers={relationshipListMembers}
+            tags={tags} clientTagMap={clientTagMap} showToast={showToast} busy={busy}
+            onAudienceSaved={onAudienceSaved}
+            onEnroll={(ids, kind) => bulkEnroll(ids, kind)} />
         )}
         {enrollTab === 'list' && (
           <ListBasedEnroll relationshipLists={relationshipLists} relationshipListMembers={relationshipListMembers}
@@ -677,6 +712,163 @@ function CsvDirectEnroll({ coldContacts, user, showToast, busy, onImportedAndEnr
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AUTO-SEND §3.2 — Target Audience: persistent, with future auto-enroll
+// ---------------------------------------------------------------------------
+const AUDIENCE_FIELDS = [
+  ['status', 'Stage'], ['relationship', 'Priority'], ['source', 'Source'],
+  ['company_name', 'Company'], ['tags', 'Tag'], ['network_role', 'Network Role'],
+  ['country', 'Country'], ['school', 'School'],
+];
+
+function AudienceTargetConfig({
+  sequence, clients, coldContacts, relationshipLists, relationshipListMembers,
+  tags, clientTagMap, showToast, busy, onAudienceSaved, onEnroll,
+}) {
+  const current = sequence.target_audience || null;
+  const [mode, setMode] = useState(current?.mode || 'manual');
+  const [rules, setRules] = useState(current?.rules?.length ? current.rules : [{ field: 'tags', op: 'includes', value: '' }]);
+  const [listId, setListId] = useState(current?.list_id ?? null);
+  const [autoEnrollNew, setAutoEnrollNew] = useState(!!sequence.auto_enroll_new);
+  const [applying, setApplying] = useState(false);
+
+  const helpers = { clientTagMap: clientTagMap || {}, tags: tags || [] };
+  const activeRules = rules.filter(r => r.value !== '' || ['is_empty', 'is_not_empty'].includes(r.op));
+
+  const matchingIds = useMemo(() => {
+    if (mode === 'all_relationships') return clients.map(c => c.id);
+    if (mode === 'all_cold_contacts') return coldContacts.filter(c => !['unsubscribed', 'bounced'].includes(c.status)).map(c => c.id);
+    if (mode === 'list') return (relationshipListMembers || []).filter(m => String(m.list_id) === String(listId)).map(m => m.client_id);
+    if (mode === 'filter') return clients.filter(c => activeRules.every(r => matchesAudienceRule(c, r, helpers))).map(c => c.id);
+    return [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, rules, listId, clients, coldContacts, relationshipListMembers, clientTagMap, tags]);
+
+  const patchRule = (i, key, value) => setRules(prev => prev.map((r, j) => j === i ? { ...r, [key]: value } : r));
+
+  async function handleApply() {
+    setApplying(true);
+    try {
+      const audience = mode === 'manual' ? null
+        : mode === 'filter' ? { mode: 'filter', rules: activeRules }
+        : mode === 'list' ? { mode: 'list', list_id: listId }
+        : { mode };
+      const { error } = await supabase.from('email_sequences')
+        .update({ target_audience: audience, auto_enroll_new: mode === 'manual' ? false : autoEnrollNew })
+        .eq('id', sequence.id);
+      if (error) { showToast(error.message, 'error'); return; }
+      onAudienceSaved(sequence.id, audience, mode === 'manual' ? false : autoEnrollNew);
+      if (mode === 'manual') { showToast('Audience cleared — enrollment is manual again.'); return; }
+      if (matchingIds.length) {
+        await onEnroll(matchingIds, mode === 'all_cold_contacts' ? 'cold' : 'client');
+      } else {
+        showToast('Audience saved — nobody matches yet, but new matching contacts will be enrolled automatically.', 'success');
+      }
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <p className="text-[13px] text-gray-500 mb-4">
+        Who should this campaign target? Unlike one-off enrollment, the audience is saved on the campaign —
+        and with auto-enroll on, people who match <em>later</em> join automatically.
+      </p>
+
+      <div className="space-y-2 mb-4">
+        {[
+          { key: 'manual', label: 'Manual enrollment only', desc: 'You choose who to enroll each time (the other tabs).' },
+          { key: 'all_relationships', label: 'All relationships', desc: `Everyone in your CRM (${clients.length} people).` },
+          { key: 'all_cold_contacts', label: 'All cold contacts', desc: `Every enrollable cold contact (${coldContacts.filter(c => !['unsubscribed', 'bounced'].includes(c.status)).length} people).` },
+          { key: 'list', label: 'A specific list', desc: 'Everyone in a curated relationship list.' },
+          { key: 'filter', label: 'By category / rules', desc: 'Rules like “tag is Investment Banking”.' },
+        ].map(opt => (
+          <button key={opt.key} onClick={() => setMode(opt.key)}
+            className={`w-full text-left p-3.5 rounded-xl border transition-all ${mode === opt.key
+              ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20'
+              : 'border-gray-100 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-600'}`}>
+            <p className="text-[13px] font-semibold text-gray-900 dark:text-white">{opt.label}</p>
+            <p className="text-[11px] text-gray-400">{opt.desc}</p>
+          </button>
+        ))}
+      </div>
+
+      {mode === 'list' && (
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {(relationshipLists || []).map(l => (
+            <button key={l.id} onClick={() => setListId(l.id)}
+              className={`p-3 rounded-xl border text-left ${String(listId) === String(l.id)
+                ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30'
+                : 'border-gray-100 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-600'}`}>
+              <p className="text-[13px] font-semibold text-gray-900 dark:text-white truncate">{l.name}</p>
+              <p className="text-[10px] text-gray-400">{(relationshipListMembers || []).filter(m => String(m.list_id) === String(l.id)).length} members</p>
+            </button>
+          ))}
+          {(relationshipLists || []).length === 0 && <p className="col-span-2 text-[12px] text-gray-400">No lists yet — create one from the Relationships view.</p>}
+        </div>
+      )}
+
+      {mode === 'filter' && (
+        <div className="space-y-2 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl mb-4">
+          {rules.map((r, i) => (
+            <div key={i} className="flex items-center gap-2 flex-wrap">
+              {i > 0 && <span className="text-[10px] font-bold text-gray-400 w-8">AND</span>}
+              <select value={r.field} onChange={e => { patchRule(i, 'field', e.target.value); if (e.target.value === 'tags') patchRule(i, 'op', 'includes'); }}
+                className="px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none">
+                {AUDIENCE_FIELDS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+              </select>
+              <select value={r.op} onChange={e => patchRule(i, 'op', e.target.value)}
+                className="px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none">
+                {r.field === 'tags' ? <option value="includes">has tag</option> : (
+                  <>
+                    <option value="is">is</option>
+                    <option value="is_not">is not</option>
+                    <option value="contains">contains</option>
+                  </>
+                )}
+              </select>
+              <input value={r.value} onChange={e => patchRule(i, 'value', e.target.value)}
+                placeholder={r.field === 'tags' ? 'Investment Banking' : 'value…'}
+                list={r.field === 'tags' ? 'audience-tag-options' : undefined}
+                className="flex-1 min-w-[140px] px-2 py-1.5 text-[12px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500 rounded-lg focus:outline-none" />
+              {rules.length > 1 && (
+                <button onClick={() => setRules(rules.filter((_, j) => j !== i))} className="text-[11px] text-red-500 font-semibold hover:underline">Remove</button>
+              )}
+            </div>
+          ))}
+          <datalist id="audience-tag-options">
+            {(tags || []).map(t => <option key={t.id} value={t.name} />)}
+          </datalist>
+          <button onClick={() => setRules([...rules, { field: 'status', op: 'is', value: '' }])}
+            className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">+ Add rule</button>
+        </div>
+      )}
+
+      {mode !== 'manual' && (
+        <>
+          <div className="p-4 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl mb-3">
+            <p className="text-[13px] font-semibold text-indigo-700 dark:text-indigo-300">{matchingIds.length} contact{matchingIds.length === 1 ? '' : 's'} match right now</p>
+            <p className="text-[11px] text-indigo-600/60 dark:text-indigo-400/60">They’re enrolled when you apply (already-enrolled and unsubscribed people are skipped). Sending follows your schedule in Settings.</p>
+          </div>
+          <label className="flex items-center gap-2 mb-4 cursor-pointer">
+            <input type="checkbox" checked={autoEnrollNew} onChange={e => setAutoEnrollNew(e.target.checked)}
+              className="rounded border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+            <span className="text-[12px] text-gray-600 dark:text-gray-400">Automatically enroll new contacts that match this audience in the future</span>
+          </label>
+        </>
+      )}
+
+      <div className="flex justify-end">
+        <button onClick={handleApply} disabled={applying || busy || (mode === 'list' && !listId)}
+          className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 disabled:opacity-40">
+          {applying ? 'Applying…' : mode === 'manual' ? 'Set to manual' : `Apply & enroll ${matchingIds.length}`}
+        </button>
+      </div>
     </div>
   );
 }
