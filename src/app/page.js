@@ -7,6 +7,12 @@ import { useRouter } from 'next/navigation';
 // DEEP UPDATE v1 — the two flagship features live in their own modules
 import NetworkGraphDeep from './components/NetworkGraphDeep';
 import EmailCommandCenter from './components/EmailCommandCenter';
+// BIG UPDATE V4 — Email Automation redesign: gallery, enrollment paths,
+// cold-contact pipeline, settings tab
+import EmailCampaignGallery, { GmailConnectionBadge } from './components/EmailCampaignGallery';
+import EnrollmentPanel from './components/EnrollmentPanel';
+import ColdContactsManager from './components/ColdContactsManager';
+import EmailSettingsPanel from './components/EmailSettingsPanel';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 // V9 marketing home — outer-space system (root page is outside the (marketing)
@@ -2190,7 +2196,8 @@ export default function App() {
   const [sequenceTriggers, setSequenceTriggers] = useState([]); // V2 — event-driven auto-enrollment rules
   const [sequenceEdges, setSequenceEdges] = useState([]); // V2 — graph edges for branching sequences
   // V2 — Email Automation hub state
-  const [seqView, setSeqView] = useState('sequences'); // 'sequences' | 'contacts' | 'unsubs'
+  const [seqView, setSeqView] = useState('sequences'); // V4: 'sequences'(Campaigns) | 'inbox' | 'analytics' | 'contacts' | 'settings'
+  const [enrollSeqId, setEnrollSeqId] = useState(null); // V4 §3 — enrollment panel takeover
   const [editingSeqId, setEditingSeqId] = useState(null); // canvas editor open for this sequence
   const [selectedNodeId, setSelectedNodeId] = useState(null); // canvas: selected node (config panel)
   const [connectFrom, setConnectFrom] = useState(null); // canvas: { nodeId, branch } while wiring an edge
@@ -10003,36 +10010,33 @@ export default function App() {
                   <button onClick={handleConnectGmail} className="px-4 h-9 rounded-[10px] bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[12.5px] font-semibold hover:opacity-85 transition-opacity">{gmailConn ? 'Reconnect Gmail' : 'Connect Gmail'}</button>
                 </div>
               )}
-              <div className="flex flex-wrap items-end gap-4">
+              {/* V4 §1 — section shell: title, Gmail badge, New Campaign, 5 tabs */}
+              <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
                   <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 mb-1">Email Automation</h1>
-                  <p className="text-[13px] text-gray-500">Build multichannel sequences on a visual canvas — they enroll and send themselves.</p>
+                  <p className="text-[13px] text-gray-500">Build sequences, track replies, and automate outreach.</p>
                 </div>
-                <div className="ml-auto flex flex-wrap items-center gap-2">
-                  {/* V4 Part 3 — cross-campaign replies entry point, badge-counted */}
-                  {/* V3 F4 — AI drafts a whole sequence as an editable canvas */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <GmailConnectionBadge gmailConn={gmailConn} onConnect={handleConnectGmail} />
                   <button onClick={handleAiDraftSequence} disabled={aiBusy}
                     className="px-3 py-1.5 rounded-xl text-[12px] font-semibold border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-950/60 transition-colors disabled:opacity-50">
                     {aiBusy ? 'Drafting…' : 'Generate with AI'}
                   </button>
-                  <button onClick={() => { setWhoRepliedSeqFilter(null); setShowWhoRepliedView(true); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12px] font-semibold border border-green-200 dark:border-green-900 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-950/60 transition-colors">
-                    Who Has Replied?
-                    {allRepliesCount > 0 && <span className="px-1.5 py-0.5 rounded-full bg-green-600 text-white text-[10px] font-bold">{allRepliesCount}</span>}
-                  </button>
-                  {/* Unified Tabs component (Part 3) */}
-                  <Tabs
-                    value={seqView}
-                    onChange={setSeqView}
-                    tabs={[
-                      { key: 'sequences', label: 'Sequences' },
-                      { key: 'inbox', label: 'Inbox' }, // DEEP v1 — command center
-                      { key: 'analytics', label: 'Analytics' }, // DEEP v1
-                      { key: 'contacts', label: 'Cold Contacts', count: coldContacts.length },
-                      { key: 'unsubs', label: 'Unsubscribes' },
-                    ]}
-                  />
+                  <button onClick={() => { setShowCreateFlow(true); setCreateStep(1); }}
+                    className="px-3.5 py-1.5 rounded-xl text-[12px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 hover:opacity-90">+ New Campaign</button>
                 </div>
               </div>
+              <Tabs
+                value={seqView}
+                onChange={setSeqView}
+                tabs={[
+                  { key: 'sequences', label: 'Campaigns' },
+                  { key: 'inbox', label: 'Inbox' },
+                  { key: 'analytics', label: 'Analytics' },
+                  { key: 'contacts', label: 'Cold Contacts', count: coldContacts.length },
+                  { key: 'settings', label: 'Settings' },
+                ]}
+              />
 
               {seqView === 'sequences' && (
                 <>
@@ -10053,54 +10057,23 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* V5 Part D — creation moved to the full-screen 2-step flow */}
-                  <div className="flex justify-end">
-                    <button onClick={() => { setShowCreateFlow(true); setCreateStep(1); }} className="px-4 py-2.5 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">+ New Campaign</button>
-                  </div>
-
-                  {/* SEQUENCE CARD GRID */}
-                  {sequences.length === 0 ? (
-                    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                      <EmptyState title="No sequences yet" desc="Start from a template above — the LinkedIn + Email cadence is one click away." />
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {sequences.map(seq => {
-                        const enrolled = sequenceEnrollments.filter(en => en.sequence_id === seq.id);
-                        const activeEnr = enrolled.filter(en => en.status === 'active');
-                        const sSends = sequenceSends.filter(s => s.sequence_id === seq.id);
-                        const trig = sequenceTriggers.find(t => t.sequence_id === seq.id);
-                        return (
-                          <div key={seq.id} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow p-5 flex flex-col gap-3">
-                            <div className="flex items-start gap-2">
-                              <h3 className="text-[14px] font-bold text-gray-900 dark:text-gray-100 flex-1 truncate">{seq.name}</h3>
-                              <button onClick={() => handleSetSequenceActive(seq, !seq.is_active)} title={seq.is_active ? 'Pause' : 'Activate'}
-                                className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ring-1 ring-inset ${seq.is_active ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 ring-green-600/20' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 ring-gray-500/10'}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${seq.is_active ? 'bg-green-500' : 'bg-gray-400'}`} />
-                                {seq.is_active ? 'Active' : 'Paused'}
-                              </button>
-                            </div>
-                            {seq.description && <p className="text-[12px] text-gray-400 line-clamp-2">{seq.description}</p>}
-                            <p className="text-[11px] text-gray-500">
-                              {trig ? (TRIGGER_TYPES.find(x => x.value === trig.trigger_event)?.label || trig.trigger_event) : 'Manual'} ·
-                              {' '}{activeEnr.length} enrolled · {sSends.length} sent
-                              {' · '}{sSends.filter(s => s.replied_at).length > 0 && <span className="font-semibold text-green-600 dark:text-green-400">{sSends.filter(s => s.replied_at).length} replied · </span>}
-                              Last sent: {seq.last_run_at ? new Date(seq.last_run_at).toLocaleDateString() : 'never'}
-                            </p>
-                            <div className="flex items-center gap-2 mt-auto pt-2 border-t border-gray-100 dark:border-gray-800 text-[12px] font-medium">
-                              <button onClick={() => { setEditingSeqId(seq.id); setSelectedNodeId(null); }} className="px-3 py-1.5 font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-lg hover:opacity-90 shadow-sm">Open builder →</button>
-                              <button onClick={() => { setEditingSeqId(seq.id); setSelectedNodeId(null); }} title="Enroll contacts now" className="px-2 py-1.5 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">▶ Run</button>
-                              <span className="ml-auto flex gap-2.5 text-[11px] font-semibold">
-                                <button onClick={() => setSeqStatsId(seq.id)} className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100" title="Performance analytics">Stats</button>
-                                <button onClick={() => handleDuplicateSequence(seq)} className="text-gray-400 hover:text-gray-900 dark:hover:text-gray-100" title="Full copy: steps + arrows">Duplicate</button>
-                                <button onClick={() => handleDeleteSequence(seq)} className="text-gray-400 hover:text-red-600" title="Delete">Delete</button>
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  {/* V4 §2 — campaign gallery: rich cards, mini-maps, agg stats, templates */}
+                  <EmailCampaignGallery
+                    sequences={sequences}
+                    steps={sequenceSteps}
+                    enrollments={sequenceEnrollments}
+                    sends={sequenceSends}
+                    loading={false}
+                    templates={SEQ_TEMPLATES}
+                    onApplyTemplate={tpl => handleCreateFromTemplate(tpl)}
+                    onOpen={seq => { setEditingSeqId(seq.id); setSelectedNodeId(null); }}
+                    onDuplicate={handleDuplicateSequence}
+                    onToggle={seq => handleSetSequenceActive(seq, !(seq.is_active || seq.status === 'active'))}
+                    onDelete={handleDeleteSequence}
+                    onQuickEnroll={seq => setEnrollSeqId(seq.id)}
+                    onCreateNew={() => { setShowCreateFlow(true); setCreateStep(1); }}
+                    onOpenInbox={() => setSeqView('inbox')}
+                  />
 
                   <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-[12px] text-yellow-800 dark:text-yellow-300">
                     Two send modes: with Auto-send OFF (Settings → Email Automation), due steps wait in the Outbox for one-click manual sending. With Auto-send ON + Gmail connected (or a Resend sender configured), the runner sends automatically inside your send window with open/click tracking and unsubscribe handling.
@@ -10108,158 +10081,43 @@ export default function App() {
                 </>
               )}
 
+              {/* V4 §4 — cold contacts: pipeline kanban + table (replaces the old flat list) */}
               {seqView === 'contacts' && (
-                <>
-                  {/* V2.0 F26 — status dashboard: counts + % bars, click filters the list */}
-                  {coldContacts.length > 0 && (
-                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                      {[
-                        ['prospect', 'Prospect', 'bg-gray-400'],
-                        ['contacted', 'Contacted', 'bg-blue-500'],
-                        ['replied', 'Replied', 'bg-green-500'],
-                        ['converted', 'Converted', 'bg-emerald-600'],
-                        ['unsubscribed', 'Unsubscribed', 'bg-amber-500'],
-                        ['bounced', 'Bounced', 'bg-red-500'],
-                      ].map(([key, label, color]) => {
-                        const n = coldContacts.filter(c => c.status === key).length;
-                        const p = Math.round((n / coldContacts.length) * 100);
-                        const active = coldFilter.toLowerCase() === key;
-                        return (
-                          <button key={key} onClick={() => setColdFilter(active ? 'All' : label)}
-                            className={`text-left bg-white dark:bg-gray-900 p-3 rounded-xl border transition-colors ${active ? 'border-gray-900 dark:border-gray-100' : 'border-gray-100 dark:border-gray-800 hover:border-gray-300'}`}>
-                            <p className="text-[10.5px] font-semibold text-gray-400 uppercase tracking-wider truncate">{label}</p>
-                            <p className="text-[18px] font-bold text-gray-900 dark:text-gray-100">{n} <span className="text-[11px] font-medium text-gray-400">{p}%</span></p>
-                            <div className="h-1 rounded-full bg-gray-100 dark:bg-gray-800 mt-1.5 overflow-hidden">
-                              <div className={`h-full ${color}`} style={{ width: `${p}%` }} />
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* import + manual add */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                      <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-2">Import prospects (CSV)</h3>
-                      <label className="flex flex-col items-center justify-center gap-1 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl py-6 cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors">
-                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
-                        <span className="text-[13px] font-semibold text-gray-700 dark:text-gray-200">Click to upload a CSV</span>
-                        <span className="text-[11px] text-gray-400">Columns auto-mapped: email, first_name, last_name, company, title, linkedin_url</span>
-                        <input type="file" accept=".csv" onChange={handleColdCsvFile} className="hidden" />
-                      </label>
-                    </div>
-                    <div className="bg-white dark:bg-gray-900 p-5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                      <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-2">Add manually</h3>
-                      <form onSubmit={handleAddColdContact} className="grid grid-cols-2 gap-2 text-[13px]">
-                        <input type="email" required placeholder="Email *" value={coldDraft.email} onChange={e => setColdDraft({ ...coldDraft, email: e.target.value })} className="col-span-2 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
-                        <input type="text" placeholder="First name" value={coldDraft.first_name} onChange={e => setColdDraft({ ...coldDraft, first_name: e.target.value })} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
-                        <input type="text" placeholder="Last name" value={coldDraft.last_name} onChange={e => setColdDraft({ ...coldDraft, last_name: e.target.value })} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
-                        <input type="text" placeholder="Company" value={coldDraft.company} onChange={e => setColdDraft({ ...coldDraft, company: e.target.value })} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
-                        <input type="url" placeholder="LinkedIn URL" value={coldDraft.linkedin_url} onChange={e => setColdDraft({ ...coldDraft, linkedin_url: e.target.value })} className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
-                        <button type="submit" className="col-span-2 px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-gray-100 dark:text-gray-900 rounded-xl hover:opacity-90 shadow-sm">Add Contact</button>
-                      </form>
-                    </div>
-                  </div>
-
-                  {/* toolbar */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input type="text" placeholder="Search cold contacts..." value={coldSearch} onChange={e => setColdSearch(e.target.value)} className="flex-1 min-w-[180px] px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 focus:outline-none focus:border-gray-400" />
-                    {['All', 'Prospect', 'Contacted', 'Replied', 'Converted', 'Unsubscribed', 'Bounced'].map(f => (
-                      <button key={f} onClick={() => setColdFilter(f)} className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${coldFilter === f ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-900 dark:hover:text-gray-100'}`}>{f}</button>
-                    ))}
-                  </div>
-
-                  {/* bulk bar */}
-                  {coldSelectedIds.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-gray-900 dark:bg-gray-100 rounded-xl text-[12px] font-medium text-white dark:text-gray-900">
-                      {coldSelectedIds.length} selected
-                      <select value={coldEnrollSeqId} onChange={e => setColdEnrollSeqId(e.target.value)} className="px-2 py-1 rounded-lg bg-white/10 dark:bg-gray-900/10 border border-white/20 dark:border-gray-900/20 text-white dark:text-gray-900 focus:outline-none">
-                        <option value="" className="text-gray-900">Enroll in sequence…</option>
-                        {sequences.map(s => <option key={s.id} value={s.id} className="text-gray-900">{s.name}</option>)}
-                      </select>
-                      <button disabled={!coldEnrollSeqId} onClick={() => { const seq = sequences.find(s => String(s.id) === coldEnrollSeqId); if (seq) enrollColdContactsInSequence(seq, coldSelectedIds); }} className="px-3 py-1 rounded-lg bg-indigo-500 text-white font-semibold hover:opacity-90 disabled:opacity-40">▶ Enroll</button>
-                      <span className="ml-auto flex gap-2">
-                        <button onClick={() => handleUnsubscribeColdContacts(coldSelectedIds)} className="px-3 py-1 rounded-lg bg-white/10 dark:bg-gray-900/10 hover:bg-white/20">Unsubscribe</button>
-                        <button onClick={() => handleDeleteColdContacts(coldSelectedIds)} className="px-3 py-1 rounded-lg bg-red-500/80 text-white hover:opacity-90">Delete</button>
-                      </span>
-                    </div>
-                  )}
-
-                  {/* list */}
-                  <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
-                    {filteredCold.length === 0 ? (
-                      <EmptyState title="No cold contacts" desc="Upload a CSV of prospects or add one manually — then enroll them in a sequence." />
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-[13px]">
-                          <thead>
-                            <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-100 dark:border-gray-800">
-                              <th className="px-4 py-2.5 w-8"><input type="checkbox" checked={filteredCold.length > 0 && filteredCold.every(c => coldSelected[c.id])} onChange={e => { const next = {}; if (e.target.checked) filteredCold.forEach(c => { next[c.id] = true; }); setColdSelected(next); }} /></th>
-                              <th className="px-2 py-2.5">Contact</th>
-                              <th className="px-2 py-2.5 hidden md:table-cell">Company</th>
-                              <th className="px-2 py-2.5">Status</th>
-                              <th className="px-2 py-2.5 hidden sm:table-cell">Enrolled</th>
-                              <th className="px-4 py-2.5"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {filteredCold.map(c => {
-                              const enr = sequenceEnrollments.filter(en => en.cold_contact_id === c.id);
-                              const activeIn = enr.filter(en => en.status === 'active');
-                              const statusCls = {
-                                prospect: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300',
-                                contacted: 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
-                                replied: 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400',
-                                converted: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400',
-                                unsubscribed: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-                                bounced: 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400',
-                              }[c.status] || 'bg-gray-100 text-gray-600';
-                              return (
-                                <tr key={c.id} className="border-b border-gray-50 dark:border-gray-800/60 hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
-                                  <td className="px-4 py-2.5"><input type="checkbox" checked={!!coldSelected[c.id]} onChange={e => setColdSelected(prev => ({ ...prev, [c.id]: e.target.checked }))} /></td>
-                                  <td className="px-2 py-2.5">
-                                    <p className="font-semibold text-gray-900 dark:text-gray-100">{[c.first_name, c.last_name].filter(Boolean).join(' ') || '—'}</p>
-                                    <p className="text-[11px] text-gray-400">{c.email}{c.title ? ` · ${c.title}` : ''}</p>
-                                  </td>
-                                  <td className="px-2 py-2.5 hidden md:table-cell text-gray-600 dark:text-gray-300">{c.company ? <CompanyLink client={c} /> : '—'}</td>
-                                  <td className="px-2 py-2.5"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${statusCls}`}>{c.status}</span></td>
-                                  <td className="px-2 py-2.5 hidden sm:table-cell text-[11px] text-gray-400">{activeIn.length > 0 ? `${activeIn.length} active sequence${activeIn.length === 1 ? '' : 's'}` : enr.length > 0 ? 'finished' : '—'}</td>
-                                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                                    {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold text-indigo-500 hover:underline mr-2">LinkedIn ↗</a>}
-                                    {c.status !== 'converted'
-                                      ? <button onClick={() => convertColdToRelationship(c.id)} className="text-[11px] font-semibold text-green-600 hover:underline">Convert →</button>
-                                      : <span className="text-[10px] font-bold uppercase text-green-600">Converted</span>}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </>
+                <ColdContactsManager
+                  coldContacts={coldContacts}
+                  loading={false}
+                  user={user}
+                  showToast={showToast}
+                  sequences={sequences}
+                  enrollments={sequenceEnrollments}
+                  onConvert={convertColdToRelationship}
+                  onImportFile={file => handleColdCsvFile({ target: { files: [file] } })}
+                  onEnrollAll={() => {
+                    const latest = [...sequences].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+                    if (!latest) { showToast('Create a campaign first — then enroll contacts into it.', 'error'); setSeqView('sequences'); return; }
+                    setEnrollSeqId(latest.id);
+                  }}
+                  onAdded={row => setColdContacts(prev => [row, ...prev])}
+                  onUpdated={row => setColdContacts(prev => prev.map(c => c.id === row.id ? row : c))}
+                  onDeleted={id => setColdContacts(prev => prev.filter(c => c.id !== id))}
+                />
               )}
 
-              {seqView === 'unsubs' && (
-                <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm p-5">
-                  <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mb-1">Unsubscribe list</h3>
-                  <p className="text-[12px] text-gray-500 mb-4">Every address here is silently skipped by the auto-send runner — across all sequences.</p>
-                  {unsubscribesList.length === 0 ? (
-                    <p className="text-[13px] text-gray-400 py-4">Nobody has unsubscribed.</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {unsubscribesList.map(u => (
-                        <div key={u.id} className="flex items-center gap-3 px-3 py-2 border border-gray-100 dark:border-gray-800 rounded-xl text-[13px]">
-                          <span className="font-medium text-gray-900 dark:text-gray-100">{u.email}</span>
-                          <span className="text-[11px] text-gray-400">{u.reason === 'link_click' ? 'via unsubscribe link' : 'manual'} · {new Date(u.created_at).toLocaleDateString()}</span>
-                          <button onClick={() => handleRemoveUnsubscribe(u)} className="ml-auto text-[11px] font-semibold text-gray-400 hover:text-red-600">Remove</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              {/* V4 §1 — settings tab: sending config + Gmail + unsubscribe list */}
+              {seqView === 'settings' && (
+                <EmailSettingsPanel
+                  emailSettings={emailSettings}
+                  settingsLoaded={true}
+                  onSave={handleSaveEmailSettings}
+                  gmailConn={gmailConn}
+                  gmailSyncing={gmailSyncing}
+                  onConnectGmail={handleConnectGmail}
+                  onSyncNow={handleGmailSyncNow}
+                  onDisconnectGmail={handleDisconnectGmail}
+                  unsubscribes={unsubscribesList}
+                  onRemoveUnsubscribe={handleRemoveUnsubscribe}
+                  showToast={showToast}
+                />
               )}
 
               {/* DEEP v1 FEATURE 2 — EMAIL COMMAND CENTER (inbox + analytics tabs) */}
@@ -10294,6 +10152,27 @@ export default function App() {
                     if (error) showToast(error.message, 'error');
                     else if (data) setActivities(prev => [data[0], ...prev]);
                   }}
+                />
+              )}
+
+              {/* V4 §3 — ENROLLMENT PANEL: 6 paths, full-screen takeover */}
+              {enrollSeqId && (
+                <EnrollmentPanel
+                  sequence={sequences.find(s => s.id === enrollSeqId)}
+                  seqSteps={sequenceSteps.filter(s => s.sequence_id === enrollSeqId)}
+                  seqEdges={sequenceEdges.filter(e => e.sequence_id === enrollSeqId)}
+                  clients={clients}
+                  coldContacts={coldContacts}
+                  relationshipLists={relationshipLists}
+                  relationshipListMembers={Object.entries(listMembers).flatMap(([listId, ids]) => (ids || []).map(cid => ({ list_id: listId, client_id: cid })))}
+                  enrollments={sequenceEnrollments}
+                  unsubscribes={unsubscribesList}
+                  activities={activities}
+                  user={user}
+                  showToast={showToast}
+                  onEnrolled={rows => setSequenceEnrollments(prev => [...prev, ...rows])}
+                  onColdImported={rows => setColdContacts(prev => [...rows, ...prev])}
+                  onClose={() => setEnrollSeqId(null)}
                 />
               )}
 

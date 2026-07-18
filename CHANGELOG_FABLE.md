@@ -650,3 +650,47 @@ Two features, built end to end: the Network Graph and the Email Command Center.
 - **Classification side-effects:** out_of_office → active enrollments pushed +7 days (paused, not stopped); not_interested → enrollments stopped, cold contact marked unsubscribed + `unsubscribes` upsert; real replies → auto-stop now covers cold-contact enrollments as well.
 - **Manual test:** Sync replies now → reply lands in Inbox with classification; an OOO reply moves `next_send_at` a week out instead of marking replied; a "not interested" reply stops the enrollment and unsubscribes the address.
 - `next build` green (12/12 routes).
+
+# ============ BIG UPDATE V4.0 (branch big-update/v4-email) ============
+Email Automation section redesigned as a 5-tab hub. Line counts (honest, `wc -l`):
+page.js was 13,468 at the start of this pass; the section's UI now lives in
+dedicated components — src/* totals 20,015 lines after this update (page.js
+13,347 + 3,996 lines of email components + marketing/lib). The old flat
+sequences list, cold-contact list, and unsubscribes tab are gone.
+
+## §1 — Section shell (5 tabs, no popups)
+- Header: title + live **Gmail connection badge** (amber "Connect Gmail" pulse when missing/expired, green with the account email when healthy) + Generate-with-AI + "+ New Campaign" (opens the existing 2-step full-screen create flow).
+- Tabs: **Campaigns / Inbox / Analytics / Cold Contacts / Settings** (Inbox + Analytics are the Deep-Update command center, kept). The old Unsubscribes tab folded into Settings. Builder, composer, create-flow, CSV preview, and the new Enrollment Panel are all full-screen takeovers — zero centered modals.
+- **Manual test:** open Email Automation → 5 tabs render, badge reflects Gmail state, no modal anywhere in the section.
+
+## §2 — Campaign Gallery (`components/EmailCampaignGallery.js`)
+- Aggregate stats row across ALL campaigns (campaigns / active enrollments / sent / replies — replies card clicks through to the Inbox tab).
+- Rich cards: name+description, Live/Draft/Paused status ring, **node-chain mini-map** (typed+colored T/E/W/?/G/L squares, +N overflow), enrolled/active/sent/replied stats, reply-rate %, "Last sent Nh ago", and a ··· context menu (pause/activate via `handleSetSequenceActive`, enroll contacts, duplicate, delete) that closes on outside-pointer.
+- Filter pills (All/Live/Draft/Paused with counts) + sort (newest/most active/most enrolled/A-Z). Both empty states (no campaigns CTA; filter-empty with reset). Loading skeleton.
+- Template strip reuses the app's **9 SEQ_TEMPLATES** (≥8 required) through the existing `handleCreateFromTemplate` — real batched step inserts, real DB ids, real yes/no branch edges.
+- **Manual test:** click a template → campaign created with full canvas graph and opens in builder; card menu → Pause flips the badge; Total Replies card jumps to Inbox.
+
+## §3 — Enrollment Panel (`components/EnrollmentPanel.js`, full-screen)
+Six paths, one pipeline:
+1. **Select Manually** — search + stage/priority/source filters, checkbox table (name/company/stage/priority chip/last-active), select-all bar with available/selected/already-enrolled counts.
+2. **From a List** — relationship-list cards with member counts, one-click enroll the whole list.
+3. **Cold Contacts** — same pattern vs `cold_contacts` (status filter; unsubscribed/bounced never enrollable).
+4. **Smart Segment** — AND-combined rule builder (field/op/value incl. is-empty ops), live match count + name-chip preview.
+5. **Upload CSV** — Papa parse, auto-mapped columns (email/first/last/company/title/linkedin/phone with alias detection), new/duplicate/invalid chips, 5-row preview, then **import as cold contacts AND enroll in one step** (chunked inserts, in-file dedupe).
+6. **Enroll All** — source picker (relationships/cold/both) behind an explicit "I understand" checkbox gate.
+- All six call `bulkEnroll()`: dedupes against active enrollments, skips unsubscribed emails, chunks inserts 100/batch, resolves the runner entry node (trigger's default edge target), inserts with **exactly one of client_id/cold_contact_id set and the other explicitly null**, reports "Enrolled N (skipped: X already enrolled, Y unsubscribed)" and whether sending starts now or needs activation.
+- **Manual test:** card menu → Enroll contacts → each tab renders; enrolling the same list twice reports all-skipped; CSV with a duplicate row imports the rest and enrolls them.
+
+## §4 — Cold Contacts Manager (`components/ColdContactsManager.js`)
+- Status-count header (6 colored tiles), **Pipeline kanban** (horizontal scroll, snap columns per status, per-column empty hints) ⇄ **Table** view toggle.
+- Cards: initial avatar, name/title/company, email, "In: <campaign>" chip when actively enrolled, hover ··· menu (move along pipeline, open LinkedIn, delete), **Convert to Relationship** button on replied contacts (existing `convertColdToRelationship`).
+- Table: status dropdown per row (system-owned unsubscribed/bounced locked), convert + delete actions.
+- Inline add-contact form (email-validated, duplicate-guarded), CSV Import button feeding the existing full-screen preview flow, "Enroll in campaign" shortcut into the §3 panel. True empty state + skeleton.
+- **Manual test:** add a contact (lands in prospect) → move to replied via the card menu → Convert button appears → convert creates the relationship.
+
+## §5 — Settings tab (`components/EmailSettingsPanel.js`)
+- Gmail card (connect/reconnect, sync-now, disconnect via existing handlers, last-synced stamp), **auto-send switch** + daily email/LinkedIn caps, **send window** (day pills + hour range + tz note), Resend fallback sender, and the relocated **unsubscribe list** (with via-link/via-reply/manual provenance + remove).
+- All persistence through the existing `handleSaveEmailSettings` upsert — no new write paths.
+- **Manual test:** toggle auto-send → toast + persisted on reload; unchecking every send day is refused.
+
+Ground-truth check: no `outcome` anywhere, `activity_date` untouched (no new activity writes in this update), every enrollment insert sets exactly one contact ref. `next build` green (12/12 routes).
