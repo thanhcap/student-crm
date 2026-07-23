@@ -1,9 +1,12 @@
-// gmail-sync v9 — DEEP UPDATE: in addition to the v8 behavior (activities rows
-// for matched Gmail traffic + auto-stop-on-reply), inbound messages are now
-// normalized into email_inbox (full body, classification, thread id) so the
-// in-app inbox works, cold contacts are matched too, and classification has
-// real side-effects: out-of-office pauses the enrollment 7 days instead of
-// stopping it; not-interested stops it and unsubscribes the address.
+// gmail-sync v11 — inbox-fixes-leadgen Part 1: two trust bugs fixed.
+//   BUG 1 (wrong-person attribution): matching no longer trusts a bare .find()
+//   over an unordered pool. Queries are ordered by id, and when two contacts
+//   share an email the winner is whoever has an ACTIVE enrollment (they're the
+//   one mid-conversation), else the most-recent send.
+//   BUG 2 (reply counted as 0): replied_at is now stamped for EVERY inbound
+//   message regardless of classification — a "not interested" / OOO reply is
+//   still a reply. Classification only decides the enrollment side-effect.
+// Built on v9/v10: activities rows + email_inbox normalization + auto-stop.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 // Deterministic reply classifier — mirror of the client-side classifyReply in
@@ -81,10 +84,12 @@ Deno.serve(async (req: Request) => {
   await admin.from('gmail_connections').update({ access_token: tok.access_token, token_expiry: new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString(), needs_reauth: false }).eq('id', conn.id);
   const g = (path: string) => fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, { headers: { Authorization: `Bearer ${tok.access_token}` } });
 
-  // v9 — matching pool = relationships AND cold contacts
+  // v9 — matching pool = relationships AND cold contacts.
+  // BUG 1 FIX: order by id so the pool is deterministic (an unordered result
+  // let .find() silently pick whichever duplicate came back first).
   const [{ data: clientRows }, { data: coldRows }] = await Promise.all([
-    admin.from('clients').select('id, name, email').eq('user_id', userId).not('email', 'is', null),
-    admin.from('cold_contacts').select('id, first_name, last_name, email').eq('user_id', userId).not('email', 'is', null),
+    admin.from('clients').select('id, name, email').eq('user_id', userId).not('email', 'is', null).order('id'),
+    admin.from('cold_contacts').select('id, first_name, last_name, email').eq('user_id', userId).not('email', 'is', null).order('id'),
   ]);
   type PoolEntry = { kind: 'client' | 'cold'; id: number; email: string; name: string };
   const pool: PoolEntry[] = [
@@ -92,6 +97,34 @@ Deno.serve(async (req: Request) => {
     ...(coldRows || []).filter(c => c.email).map(c => ({ kind: 'cold' as const, id: c.id, email: c.email.toLowerCase(), name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.email })),
   ];
   if (pool.length === 0) return json({ synced: 0, inboxUpserts: 0, autoStopped: 0, note: 'no contact emails' });
+
+  // BUG 1 FIX: group by email so duplicates are visible instead of colliding.
+  // When multiple contacts share an email, resolveMatch prefers whoever has an
+  // active enrollment (the one actually mid-conversation), then most-recent send.
+  const byEmail = new Map<string, PoolEntry[]>();
+  for (const p of pool) {
+    if (!byEmail.has(p.email)) byEmail.set(p.email, []);
+    byEmail.get(p.email)!.push(p);
+  }
+  async function resolveMatch(candidates: PoolEntry[]): Promise<PoolEntry> {
+    if (candidates.length === 1) return candidates[0];
+    for (const c of candidates) {
+      const col = c.kind === 'client' ? 'client_id' : 'cold_contact_id';
+      const { data: activeEnr } = await admin.from('sequence_enrollments')
+        .select('id').eq('user_id', userId).eq('status', 'active').eq(col, c.id).limit(1);
+      if (activeEnr?.length) return c;
+    }
+    let best: PoolEntry | null = null;
+    let bestTime = 0;
+    for (const c of candidates) {
+      const col = c.kind === 'client' ? 'client_id' : 'cold_contact_id';
+      const { data: send } = await admin.from('sequence_sends')
+        .select('sent_at').eq(col, c.id).order('sent_at', { ascending: false }).limit(1);
+      const t = send?.[0]?.sent_at ? new Date(send[0].sent_at).getTime() : 0;
+      if (t > bestTime) { bestTime = t; best = c; }
+    }
+    return best ?? candidates[0];
+  }
 
   let inserted = 0;
   let inboxUpserts = 0;
@@ -113,7 +146,12 @@ Deno.serve(async (req: Request) => {
       const msg = await det.json();
       const h = (n: string) => msg.payload?.headers?.find((x: { name: string }) => x.name.toLowerCase() === n.toLowerCase())?.value || '';
       const fromH = h('From').toLowerCase(); const toH = h('To').toLowerCase();
-      const match = chunk.find((c) => fromH.includes(c.email) || toH.includes(c.email));
+      // BUG 1 FIX: find which email this message is about, then resolve to the
+      // right contact among any duplicates (active-enrollment/most-recent-send).
+      const emailKey = chunk.find((c) => fromH.includes(c.email) || toH.includes(c.email))?.email;
+      if (!emailKey) continue;
+      const candidates = byEmail.get(emailKey) || [];
+      const match = candidates.length > 1 ? await resolveMatch(candidates) : candidates[0];
       if (!match) continue;
       const inbound = fromH.includes(match.email);
       const subject = h('Subject') || '(no subject)';
@@ -160,10 +198,25 @@ Deno.serve(async (req: Request) => {
         }], { onConflict: 'user_id,gmail_message_id', ignoreDuplicates: true });
         if (!upErr) inboxUpserts++;
 
-        // classification side-effects
         const contactCol = match.kind === 'client' ? 'client_id' : 'cold_contact_id';
+
+        // BUG 2 FIX: every inbound message counts as a reply. Stamp replied_at on
+        // this contact's most recent send directly — independent of enrollment
+        // status — so it still counts after not_interested stops the enrollment or
+        // OOO pauses it. (Previously replied_at was only set in the positive-reply
+        // branch below, so "not interested"/OOO replies showed as 0 in stats.)
+        {
+          const { data: latest } = await admin.from('sequence_sends')
+            .select('id, replied_at').eq(contactCol, match.id)
+            .order('sent_at', { ascending: false }).limit(1);
+          if (latest?.[0] && !latest[0].replied_at) {
+            await admin.from('sequence_sends').update({ replied_at: receivedAt.toISOString() }).eq('id', latest[0].id);
+          }
+        }
+
+        // classification side-effects (these no longer gate whether it's a reply)
         if (classification === 'out_of_office') {
-          // pause, don't stop — push the next send a week out
+          // pause, don't stop — push the next send a week out; keep it active
           const { data: activeEnrs } = await admin.from('sequence_enrollments').select('id')
             .eq('user_id', userId).eq('status', 'active').eq(contactCol, match.id);
           for (const en of activeEnrs || []) {
@@ -186,7 +239,8 @@ Deno.serve(async (req: Request) => {
             await admin.from('unsubscribes').upsert([{ user_id: userId, email: match.email, reason: 'reply' }], { ignoreDuplicates: true });
           }
         } else {
-          // a real reply — feeds the auto-stop pass below
+          // interested / referral / question / unclassified: a genuine, non-rejecting
+          // reply — stop the sequence (v8/v9 behavior) via the stopReplied pass below.
           if (match.kind === 'client') repliedClientIds.add(match.id);
           else repliedColdIds.add(match.id);
         }

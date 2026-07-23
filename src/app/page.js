@@ -826,6 +826,22 @@ function findFuzzyDuplicates(clients) {
   return pairs.slice(0, 10);
 }
 
+// inbox-fixes-leadgen Part 1.4 — exact-email duplicates. Two relationships with
+// the SAME email break reply attribution (gmail-sync can't tell whose reply it
+// is), which is the root of the John/Lamine bug. Surface these prominently and
+// separately from fuzzy name matches so the user can merge them.
+function findDuplicateEmails(clients) {
+  const byEmail = {};
+  for (const c of clients) {
+    const key = (c.email || '').toLowerCase().trim();
+    if (!key) continue;
+    (byEmail[key] = byEmail[key] || []).push(c);
+  }
+  return Object.entries(byEmail)
+    .filter(([, list]) => list.length > 1)
+    .map(([email, list]) => ({ email, list: [...list].sort((a, b) => a.id - b.id) }));
+}
+
 // V3 F87/F90 — achievements: earn conditions computed from live data.
 const BADGE_DEFS = [
   { key: 'first_relationship', label: 'First Relationship', desc: 'Added your first person', test: (d) => d.clients.length >= 1 },
@@ -4844,12 +4860,18 @@ export default function App() {
     if (!mergeSource || !mergeTarget) return;
     setMergeLoading(true);
     try {
-      // Move all child records from source to target
+      // Move all child records from source to target. Part 1.4: also reassign the
+      // email-automation tables (previously missed) — otherwise deleting the source
+      // would orphan or cascade-delete its enrollments/sends/inbox replies, which is
+      // exactly the class of data loss the duplicate-email bug produced.
       await Promise.all([
         supabase.from('activities').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
         supabase.from('tasks').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
         supabase.from('deals').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
         supabase.from('client_files').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
+        supabase.from('sequence_enrollments').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
+        supabase.from('sequence_sends').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
+        supabase.from('email_inbox').update({ client_id: mergeTarget.id }).eq('client_id', mergeSource.id),
       ]);
       // Apply chosen field overrides to target
       const overrides = {};
@@ -4861,7 +4883,7 @@ export default function App() {
       }
       // Delete the source client
       await supabase.from('clients').delete().eq('id', mergeSource.id);
-      await Promise.all([fetchClients(user.id), fetchActivities(user.id), fetchTasks(user.id), fetchDeals(user.id)]);
+      await Promise.all([fetchClients(user.id), fetchActivities(user.id), fetchTasks(user.id), fetchDeals(user.id), fetchSequences(user.id)]);
       showToast('Relationships merged successfully.', 'success');
       setShowMergeTool(false); setMergeSource(null); setMergeTarget(null); setMergeStep(1); setMergeFieldChoices({}); setMergeSearch('');
     } catch (err) {
@@ -11159,6 +11181,42 @@ export default function App() {
                 )}
               </div>
             </div>
+
+            {/* Part 1.4 — EXACT-EMAIL DUPLICATES: two contacts sharing one email break
+                reply attribution (the John/Lamine bug). Surfaced prominently. */}
+            {(() => {
+              const dismissed = (() => { try { return JSON.parse(localStorage.getItem('crm_dupes_dismissed') || '[]'); } catch { return []; } })();
+              const groups = findDuplicateEmails(clients).filter(g => !dismissed.includes(`email:${g.email}`));
+              if (!groups.length) return null;
+              return (
+                <div className="bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-2xl border-2 border-red-200 dark:border-red-900 shadow-sm">
+                  <h2 className="text-[15px] font-bold text-gray-900 dark:text-white mb-1">Same-email duplicates</h2>
+                  <p className="text-[12px] text-gray-500 mb-4">
+                    These relationships share an email address. When a reply comes in, the app can&apos;t tell which one it&apos;s for — merge them so replies attach correctly.
+                  </p>
+                  <div className="space-y-2">
+                    {groups.map(g => {
+                      const keep = g.list[0]; // oldest id kept
+                      return (
+                        <div key={g.email} className="flex flex-wrap items-center gap-3 p-3 border border-red-100 dark:border-red-900/50 rounded-lg bg-red-50/40 dark:bg-red-950/20 text-[13px]">
+                          <span className="font-mono text-[12px] text-gray-500">{g.email}</span>
+                          <span className="text-gray-300 dark:text-gray-600">→</span>
+                          {g.list.map((c, i) => (
+                            <span key={c.id} className="font-semibold text-gray-900 dark:text-gray-100">{c.name}{i < g.list.length - 1 ? ',' : ''}</span>
+                          ))}
+                          <span className="ml-auto flex gap-3 text-[12px] font-semibold">
+                            <button onClick={() => { setMergeTarget(keep); setMergeSource(g.list[1]); setMergeStep(2); setMergeFieldChoices({}); setShowMergeTool(true); }}
+                              className="text-indigo-600 dark:text-indigo-400 hover:underline">Merge into {keep.name}</button>
+                            <button onClick={() => { try { localStorage.setItem('crm_dupes_dismissed', JSON.stringify([...dismissed, `email:${g.email}`])); } catch {} setClients(prev => [...prev]); }}
+                              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" title="These are actually different people">Different people</button>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* V3 F5 — FUZZY DUPLICATE DETECTION (Levenshtein + company/initial heuristics) */}
             {(() => {

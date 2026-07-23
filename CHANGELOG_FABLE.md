@@ -725,3 +725,23 @@ approve the Google consent screen.
 - **Send history (4.1):** the per-campaign Stats view now ends with the last 50 sends — contact, subject, A/B variant, Opened/Clicked/Replied/Bounced badges, timestamp.
 - **Runner health (4.2):** header badge — green pulse "Runner active · Nm ago" when a campaign was processed in the last 20 minutes; honest amber "last processed Nh/Nd ago / hasn't processed a campaign yet" otherwise (last_run_at only advances when a live campaign is processed).
 - `next build` green (12/12 routes).
+
+# ============ INBOX FIXES + LEAD GEN (branch feat/inbox-fixes-leadgen) ============
+Note: this session's earlier Gmail auto-send work was already merged to main.
+An uncommitted, in-progress "birthday auto-enroll" change to sequence-runner is
+deliberately left uncommitted per the user's choice ("deploy runner without
+birthday") — runner redeploys in later parts build from the committed version.
+
+## Part 1 — Two trust bugs fixed (highest priority)
+**Bug 1 — reply attached to the wrong person (gmail-sync v11, deployed).**
+- Root cause: `clientRows` fetched with no ORDER BY, and `.find()` returned whichever duplicate came back first. John (id 21) and Lamine Yamal (id 38) share `capvanthanh2009@gmail.com`, so attribution was non-deterministic.
+- Fix: both pool queries now `.order('id')`; pool grouped `byEmail`; when an email has multiple contacts, `resolveMatch()` prefers whoever has an ACTIVE enrollment (the one mid-conversation), else the most-recent send. The blind `chunk.find` is replaced with emailKey → candidates → resolveMatch.
+**Bug 2 — a real reply counted as 0 (gmail-sync v11).**
+- Root cause: `replied_at` was only set for classifications that fell through to the trailing `else`; a `not_interested`/`out_of_office` reply skipped it, so the stat (which reads `sequence_sends.replied_at`) genuinely showed 0.
+- Fix: every inbound message now stamps `replied_at` on the contact's most-recent send **directly**, before the classification branches — independent of enrollment status (so it survives not_interested stopping the enrollment). Deviates intentionally from the prompt's literal patch, which would have let the auto-stop pass flip an OOO enrollment to "replied" and undo its 7-day pause; the direct stamp fixes the stat without that side effect. not_interested still stops+unsubscribes; OOO still pauses 7 days; positive replies still stop the sequence.
+**1.3 backfill (verified live):** confirmed the data matched the diagnosis (reply arrived 18:32, 5 min after John's send 16 at 18:27; Lamine's latest send was ~4h earlier → the reply is John's). Moved `email_inbox` id 1 from client 38→21 (+ send_id 16, sequence_id 6) and stamped `sequence_sends` id 16 `replied_at`. John's Replied stat now reads 1.
+**1.4 duplicate-email detector + safe merge:**
+- New `findDuplicateEmails()` + a prominent red "Same-email duplicates" panel in Settings that lists shared-email groups and offers Merge-into-oldest / "Different people" dismiss (localStorage-persisted).
+- Fixed `handleExecuteMerge`: it reassigned activities/tasks/deals/files but NOT sequence_enrollments/sequence_sends/email_inbox — so deleting a merged-away duplicate would orphan or cascade-delete its reply history. Now reassigns all three (and refetches sequences).
+- **Manual test:** Settings shows the John/Lamine same-email card; clicking Merge into john moves Lamine's enrollments/sends/inbox to john and deletes Lamine. After a Gmail sync, a "not interested" reply now sets replied_at and increments Replied; a reply from a shared email attaches to whoever has the active enrollment.
+- `next build` green.
