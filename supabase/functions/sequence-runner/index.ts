@@ -142,6 +142,9 @@ Deno.serve(async (req: Request) => {
     ]);
     // v4: the Active toggle (is_active) is the runner gate — paused campaigns are skipped
     if (!seq || !seq.is_active || !steps) { out.skipped++; continue; }
+    // Part 4.3 — sending_mode gate. 'manual' campaigns never auto-send; their due
+    // steps wait in the Outbox for the user. 'automatic' and 'both' proceed.
+    if (seq.sending_mode === 'manual') { out.skipped++; continue; }
 
     // v5 — resolve the contact: a relationship client OR a cold contact
     let client: any = null;
@@ -218,7 +221,18 @@ Deno.serve(async (req: Request) => {
           linkedinTodayByUser[enr.user_id] >= (cfg.linkedin_daily_cap ?? 20)) {
         out.skipped++; continue;
       }
-      const label: Record<string, string> = { linkedin_view: 'LinkedIn: view profile of', linkedin_connect: 'LinkedIn: connect with', call: 'Call', manual_task: 'Task for' };
+      // Part 7.1 — task-based social outreach. The app drafts who/what to send and
+      // links the profile; the USER clicks in their own logged-in session. There is
+      // deliberately no personal-account automation anywhere in this codebase.
+      const label: Record<string, string> = {
+        linkedin_view: 'LinkedIn: view profile of', linkedin_connect: 'LinkedIn: connect with',
+        call: 'Call', manual_task: 'Task for',
+        facebook_message: 'Facebook: message', facebook_connect: 'Facebook: add/follow',
+        instagram_dm: 'Instagram: DM', instagram_follow: 'Instagram: follow',
+      };
+      const platformUrl = channel.startsWith('facebook') ? client.facebook_url
+        : channel.startsWith('instagram') ? client.instagram_url
+        : channel.startsWith('linkedin') ? client.linkedin_url : null;
       // Part 7 — A/B connection-note variants (note_b) picked deterministically per enrollment,
       // and mutual-context surfacing (company) baked into the note when available.
       let note = (node.config && node.config.note) || node.task_note || '';
@@ -230,7 +244,9 @@ Deno.serve(async (req: Request) => {
       if (channel === 'linkedin_connect' && client.company_name && note && !/\{\{company\}\}/.test(note)) {
         note = `${note} (re: ${client.company_name})`;
       }
-      const title = `${label[channel] || 'Task for'} ${client.name}${note ? ' — ' + mergeTags(note, client) : ''}`.slice(0, 250);
+      // cold contacts have first/last name, relationships have name
+      const contactName = client.name || `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.email;
+      const title = `${label[channel] || 'Task for'} ${contactName}${platformUrl ? ` — ${platformUrl}` : ''}${note ? ' — ' + mergeTags(note, client) : ''}`.slice(0, 250);
       await admin.from('tasks').insert({ user_id: enr.user_id, client_id: enr.client_id ?? null, title, due_date: today, status: 'pending' });
       channelDesc = `Campaign "${seq.name}" — ${channel} task created: ${title}`;
       variant = noteVariant; // record A/B connection-note variant on the send row
@@ -311,6 +327,19 @@ Deno.serve(async (req: Request) => {
       await admin.from('activities').insert({
         user_id: enr.user_id, client_id: enr.client_id, activity_type: res.action === 'email' ? 'Email' : 'Note',
         activity_date: today, description: channelDesc || 'Campaign step processed',
+      });
+    }
+    // Part 5.1 — notify the user that something went out on their behalf.
+    // Adapted to the EXISTING notifications schema (type, message, reference_id,
+    // action_url, read) — it has no title/body/metadata columns.
+    {
+      const who = client.name || `${client.first_name || ''} ${client.last_name || ''}`.trim() || client.email || 'a contact';
+      const what = res.action === 'email' ? (node.subject ? `"${mergeTags(node.subject, client)}"` : 'an email') : `${channel} task`;
+      await admin.from('notifications').insert({
+        user_id: enr.user_id, type: 'auto_send',
+        message: `${res.action === 'email' ? 'Email sent to' : 'Task created for'} ${who} — ${what} · ${seq.name}`,
+        reference_id: enr.client_id ?? enr.cold_contact_id ?? null,
+        action_url: '/?view=email', read: false,
       });
     }
     const adv = advanceAfterNode(node, steps, edges);
