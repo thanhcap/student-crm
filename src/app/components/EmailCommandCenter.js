@@ -358,6 +358,8 @@ export default function EmailCommandCenter({
   const [replySubject, setReplySubject] = useState('');
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   const replyRef = useRef(null);
+  const [sendingReply, setSendingReply] = useState(false); // Part 3.3
+  const [replyResetKey, setReplyResetKey] = useState(0);   // remounts the rich editor after send
 
   const seededRef = useRef(false);
 
@@ -556,21 +558,45 @@ export default function EmailCommandCenter({
     }
   }
 
-  async function sendReply() {
-    if (!selected || !replyBody.trim()) return;
+  // Part 3.3 — send the reply through the real Gmail API (gmail-send-reply),
+  // threaded onto the original conversation. Campaign sends keep the compose-tab
+  // pattern; only replies send directly. Falls back to a compose tab if Gmail
+  // isn't connected, so the user is never dead-ended.
+  async function sendReplyViaApi(htmlBody) {
+    if (!selected) return;
+    const plain = String(htmlBody || '').replace(/<[^>]+>/g, ' ').trim();
+    if (!plain) return;
     const to = selected.from_email || contactOf(selected).contact?.email;
     if (!to) { showToast('No email address for this sender.', 'error'); return; }
-    const body = resolveMergeTags(replyBody, mergeContact);
+    const resolvedHtml = resolveMergeTags(String(htmlBody), mergeContact);
     const subject = resolveMergeTags(replySubject, mergeContact);
-    // established send path: Gmail web compose in a new tab — never mailto
-    const url = buildComposeUrl({ to, subject, body, from: gmailConn?.email_address });
-    const tabWin = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!tabWin) { showToast('Your browser blocked the popup — allow popups for this site and try again.', 'error'); return; }
-    if (selected.client_id) {
-      await onLogOutbound(selected.client_id, `Replied — Subject: ${subject}\n\n${body}`, 'Email');
+    setSendingReply(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/gmail-send-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` },
+        body: JSON.stringify({ inboxId: selected.id, htmlBody: resolvedHtml, subjectOverride: subject }),
+      }).catch(() => null);
+      const result = res ? await res.json().catch(() => ({})) : {};
+      if (!res || !res.ok) {
+        if (result.error === 'gmail_not_connected' || result.needs_reauth) {
+          showToast('Gmail isn’t connected — opening a compose tab instead.', 'error');
+          const url = buildComposeUrl({ to, subject, body: resolveMergeTags(plain, mergeContact), from: gmailConn?.email_address });
+          window.open(url, '_blank', 'noopener,noreferrer');
+          return;
+        }
+        showToast(`Send failed: ${result.error || res?.status || 'network error'}`, 'error');
+        return;
+      }
+      // the edge function already logged the outbound activity + marked read
+      setInboxMeta(prev => prev.map(m => m.id === selected.id ? { ...m, is_read: true } : m));
+      setReplyBody('');
+      setReplyResetKey(k => k + 1);
+      showToast('Reply sent from your Gmail.', 'success');
+    } finally {
+      setSendingReply(false);
     }
-    setReplyBody('');
-    showToast('Reply opened in Gmail — send it there. Logged as an outbound email.', 'success');
   }
 
   // which campaign/step was this a reply to?
@@ -936,14 +962,16 @@ export default function EmailCommandCenter({
                   </div>
                   <input value={replySubject} onChange={e => setReplySubject(e.target.value)}
                     className="dark:bg-gray-800 dark:text-gray-100 w-full px-3 py-1.5 mb-1.5 text-[12.5px] border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:border-gray-400" />
-                  <textarea ref={replyRef} value={replyBody} onChange={onReplyChange} rows={5}
-                    placeholder={`Write your reply… type a snippet shortcut like ${snippets?.[0]?.shortcut || ':thanks'} followed by a space to expand it. Merge tags like {{first_name}} work too.`}
-                    className="dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-gray-400 resize-y" />
-                  <div className="flex items-center gap-2 mt-2">
-                    <button onClick={sendReply} disabled={!replyBody.trim()}
-                      className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 disabled:opacity-40">Send via Gmail</button>
-                    <p className="text-[11px] text-gray-400">Opens Gmail compose pre-filled{gmailConn?.email_address ? ` from ${gmailConn.email_address}` : ''} and logs an outbound email here.</p>
-                  </div>
+                  {/* Part 3.2 — rich-text reply, sent straight through the Gmail API */}
+                  <RichTextReplyBox
+                    key={`${selected.id}-${replyResetKey}`}
+                    sending={sendingReply}
+                    snippets={snippets || []}
+                    resolveSnippet={sn => resolveMergeTags(sn.body, mergeContact)}
+                    placeholder={`Write your reply… type ${snippets?.[0]?.shortcut || ':thanks'} then space to expand a snippet. Merge tags like {{first_name}} work too.`}
+                    fromLabel={gmailConn?.email_address}
+                    onSend={sendReplyViaApi}
+                  />
                 </div>
               </div>
             )}
@@ -1168,6 +1196,114 @@ function SnippetManager({ snippets, userId, showToast, onClose, onChange }) {
           ))}
           {snippets.length === 0 && <p className="text-[12.5px] text-gray-400 text-center py-4">No snippets yet — add your first above.</p>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Part 3.2 — lightweight rich-text reply editor. contentEditable + execCommand
+// keeps this dependency-free; the output HTML is sent as the email body.
+// ---------------------------------------------------------------------------
+function ToolbarBtn({ onClick, label, title, extra = '' }) {
+  return (
+    <button type="button" title={title}
+      onMouseDown={e => e.preventDefault()} /* keep the caret/selection */
+      onClick={onClick}
+      className={`w-7 h-7 flex items-center justify-center rounded-md text-[12px] text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${extra}`}>
+      {label}
+    </button>
+  );
+}
+
+function RichTextReplyBox({ onSend, sending, snippets, resolveSnippet, placeholder, fromLabel }) {
+  const editorRef = useRef(null);
+  const [hasContent, setHasContent] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const sync = () => setHasContent((editorRef.current?.textContent || '').trim().length > 0);
+
+  function exec(command, value = null) {
+    editorRef.current?.focus();
+    document.execCommand(command, false, value);
+    sync();
+  }
+
+  function insertHtml(html) {
+    editorRef.current?.focus();
+    document.execCommand('insertHTML', false, html);
+    sync();
+  }
+
+  function handleInsertLink() {
+    const url = window.prompt('Link URL:');
+    if (!url) return;
+    exec('createLink', /^https?:\/\//i.test(url) ? url : `https://${url}`);
+  }
+
+  function pickSnippet(sn) {
+    insertHtml(resolveSnippet(sn).replace(/\n/g, '<br>'));
+    setPickerOpen(false);
+  }
+
+  // ":shortcut " typed inline expands in place
+  function handleKeyUp(e) {
+    sync();
+    if (e.key !== ' ') return;
+    const text = editorRef.current?.textContent || '';
+    const m = text.match(/(:[a-z0-9_-]+)\s$/i);
+    if (!m) return;
+    const sn = (snippets || []).find(s => (s.shortcut || '').toLowerCase() === m[1].toLowerCase());
+    if (!sn) return;
+    for (let i = 0; i < m[1].length + 1; i++) document.execCommand('delete'); // remove ":shortcut "
+    insertHtml(resolveSnippet(sn).replace(/\n/g, '<br>'));
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
+        <ToolbarBtn onClick={() => exec('bold')} label="B" title="Bold" extra="font-bold" />
+        <ToolbarBtn onClick={() => exec('italic')} label="I" title="Italic" extra="italic" />
+        <ToolbarBtn onClick={() => exec('underline')} label="U" title="Underline" extra="underline" />
+        <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1" />
+        <ToolbarBtn onClick={() => exec('insertUnorderedList')} label="•" title="Bullet list" />
+        <ToolbarBtn onClick={() => exec('insertOrderedList')} label="1." title="Numbered list" />
+        <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1" />
+        <ToolbarBtn onClick={handleInsertLink} label="Link" title="Insert link" />
+        <ToolbarBtn onClick={() => exec('removeFormat')} label="Tx" title="Clear formatting" />
+        <div className="ml-auto relative">
+          <button type="button" onClick={() => setPickerOpen(v => !v)}
+            className="px-2 py-1 text-[11px] font-semibold text-gray-500 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
+            Snippets ▾
+          </button>
+          {pickerOpen && (
+            <div className="absolute right-0 top-8 z-20 w-72 max-h-64 overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-1.5">
+              {(snippets || []).map(sn => (
+                <button key={sn.id || sn.shortcut} type="button" onClick={() => pickSnippet(sn)}
+                  className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <p className="text-[11.5px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">{sn.shortcut}</p>
+                  <p className="text-[11.5px] text-gray-500 line-clamp-2">{sn.body}</p>
+                </button>
+              ))}
+              {(snippets || []).length === 0 && <p className="text-[12px] text-gray-400 p-2">No snippets yet.</p>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div ref={editorRef} contentEditable suppressContentEditableWarning
+        onKeyUp={handleKeyUp} onInput={sync} onBlur={sync}
+        data-placeholder={placeholder}
+        className="min-h-[120px] max-h-[300px] overflow-y-auto px-4 py-3 text-[13px] leading-relaxed text-gray-900 dark:text-white outline-none [&_a]:text-blue-600 [&_a]:underline" />
+
+      <div className="flex items-center justify-between gap-3 px-3 py-2 border-t border-gray-100 dark:border-gray-800">
+        <p className="text-[10px] text-gray-400">
+          Sends directly from{fromLabel ? ` ${fromLabel}` : ' your Gmail'} — no tab switch, and it stays in the same thread.
+        </p>
+        <button type="button" onClick={() => onSend(editorRef.current?.innerHTML || '')} disabled={!hasContent || sending}
+          className="shrink-0 px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 disabled:opacity-40">
+          {sending ? 'Sending…' : 'Send Reply'}
+        </button>
       </div>
     </div>
   );

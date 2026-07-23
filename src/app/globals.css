@@ -212,3 +212,10 @@ html[data-accent] button.bg-gray-900,
 html[data-accent] a.bg-gray-900 { background-color: var(--crm-accent) !important; }
 html[data-accent] .text-indigo-600 { color: var(--crm-accent) !important; }
 html[data-accent] .bg-indigo-600 { background-color: var(--crm-accent) !important; }
+
+/* Part 3.2 — placeholder for the contentEditable rich-text reply editor */
+[contenteditable][data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+}
