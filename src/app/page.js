@@ -10,7 +10,7 @@ import EmailCommandCenter from './components/EmailCommandCenter';
 // BIG UPDATE V4 — Email Automation redesign: gallery, enrollment paths,
 // cold-contact pipeline, settings tab
 import EmailCampaignGallery, { GmailConnectionBadge, RunnerHealthBadge } from './components/EmailCampaignGallery';
-import EnrollmentPanel, { audienceMatchesClient } from './components/EnrollmentPanel';
+import EnrollmentPanel, { audienceMatchesClient, EnrollResultPanel } from './components/EnrollmentPanel';
 import ColdContactsManager from './components/ColdContactsManager';
 import EmailSettingsPanel from './components/EmailSettingsPanel';
 import dynamic from 'next/dynamic';
@@ -2214,6 +2214,9 @@ export default function App() {
   // V2 — Email Automation hub state
   const [seqView, setSeqView] = useState('sequences'); // V4: 'sequences'(Campaigns) | 'inbox' | 'analytics' | 'contacts' | 'settings'
   const [enrollSeqId, setEnrollSeqId] = useState(null); // V4 §3 — enrollment panel takeover
+  const [enrollResult, setEnrollResult] = useState(null); // Part 2.1 — post-enroll confirmation
+  const [enrolledListSeqId, setEnrolledListSeqId] = useState(null); // Part 2.2 — enrolled status list
+  const [enrolledListFilter, setEnrolledListFilter] = useState('all');
   const [editingSeqId, setEditingSeqId] = useState(null); // canvas editor open for this sequence
   const [selectedNodeId, setSelectedNodeId] = useState(null); // canvas: selected node (config panel)
   const [connectFrom, setConnectFrom] = useState(null); // canvas: { nodeId, branch } while wiring an edge
@@ -9794,6 +9797,8 @@ export default function App() {
                   <button onClick={() => { setShowEnrollPanel(editingSeq.id); setEnrollSearchTerm(''); setEnrollFilterStatus('All'); setEnrollFilterPriority('All'); setEnrollFilterSource('All'); setEnrollFilterScoreMin(0); setEnrollFilterTags([]); }} className="px-3 py-1.5 text-[12px] font-semibold border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">Enroll by filter</button>
                   {/* stats bar — Replied is clickable (per-campaign who-replied, V4 Part 3) */}
                   <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] font-medium text-gray-500">
+                    {/* Part 2.2 — enrollment visibility */}
+                    <button onClick={() => setEnrolledListSeqId(editingSeq.id)} title="See exactly who's enrolled and their status" className="hover:underline decoration-indigo-400">Enrolled <b className="text-gray-900 dark:text-gray-100">{enrolled.length}</b>{activeEnr.length !== enrolled.length ? <span className="text-gray-400"> ({activeEnr.length} active)</span> : null}</button>
                     <span>Sent <b className="text-gray-900 dark:text-gray-100">{stats.Sent}</b></span>
                     <span>Opened <b className="text-blue-600 dark:text-blue-400">{stats.Opened}{stats.Sent > 0 ? ` (${Math.round((stats.Opened / stats.Sent) * 100)}%)` : ''}</b></span>
                     <span>Clicked <b className="text-indigo-600 dark:text-indigo-400">{stats.Clicked}</b></span>
@@ -10278,6 +10283,7 @@ export default function App() {
                   clientTagMap={clientTagMap}
                   user={user}
                   showToast={showToast}
+                  onResult={setEnrollResult}
                   onEnrolled={rows => setSequenceEnrollments(prev => [...prev, ...rows])}
                   onColdImported={rows => setColdContacts(prev => [...rows, ...prev])}
                   onAudienceSaved={(seqId, audience, autoNew) => setSequences(prev => prev.map(s => s.id === seqId ? { ...s, target_audience: audience, auto_enroll_new: autoNew } : s))}
@@ -13518,6 +13524,82 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Part 2.2 — persistent enrollment status list: who's enrolled + their state */}
+      {enrolledListSeqId && (() => {
+        const seq = sequences.find(s => s.id === enrolledListSeqId);
+        const all = sequenceEnrollments.filter(e => e.sequence_id === enrolledListSeqId);
+        const counts = {
+          all: all.length,
+          active: all.filter(e => e.status === 'active').length,
+          replied: all.filter(e => e.status === 'replied').length,
+          completed: all.filter(e => e.status === 'completed').length,
+          stopped: all.filter(e => e.status === 'stopped').length,
+        };
+        const badge = { active: 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400', replied: 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400', completed: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400', stopped: 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400', paused: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400' };
+        const rows = all
+          .filter(e => enrolledListFilter === 'all' ? true : e.status === enrolledListFilter)
+          .map(e => {
+            const contact = e.client_id ? clients.find(c => c.id === e.client_id) : coldContacts.find(c => c.id === e.cold_contact_id);
+            const node = seqNodesFor(enrolledListSeqId).find(n => n.id === e.current_node_id);
+            return { ...e, contact, node };
+          })
+          .filter(r => r.contact)
+          .sort((a, b) => new Date(b.enrolled_at || 0) - new Date(a.enrolled_at || 0));
+        const nameOf = c => c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.email || '—';
+        return (
+          <div className="fixed inset-0 z-[85] bg-white dark:bg-gray-950 overflow-y-auto animate-in fade-in duration-200">
+            <header className="sticky top-0 z-20 flex items-center justify-between px-4 sm:px-6 h-14 bg-white/90 dark:bg-gray-950/90 backdrop-blur border-b border-gray-100 dark:border-gray-800">
+              <button onClick={() => setEnrolledListSeqId(null)} className="flex items-center gap-1.5 text-[13px] font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white"><span aria-hidden>←</span> Back</button>
+              <h1 className="text-[14px] font-bold text-gray-900 dark:text-white truncate px-3">Enrolled in “{seq?.name}”</h1>
+              <div className="w-16" />
+            </header>
+            <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
+              <div className="flex gap-1.5 flex-wrap mb-4">
+                {['all', 'active', 'replied', 'completed', 'stopped'].map(f => (
+                  <button key={f} onClick={() => setEnrolledListFilter(f)}
+                    className={`px-3 py-1.5 text-[12px] font-semibold rounded-lg transition-colors ${enrolledListFilter === f ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+                    {f.charAt(0).toUpperCase() + f.slice(1)} <span className="opacity-50">{counts[f]}</span>
+                  </button>
+                ))}
+              </div>
+              {rows.length === 0 ? (
+                <p className="text-[13px] text-gray-400 text-center py-12">No enrollments in this category yet.</p>
+              ) : (
+                <div className="rounded-xl border border-gray-100 dark:border-gray-800 overflow-x-auto">
+                  <table className="w-full text-[13px] min-w-[620px]">
+                    <thead className="bg-gray-50 dark:bg-gray-900/50">
+                      <tr>
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-500">Contact</th>
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-500">Status</th>
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-500">Current step</th>
+                        <th className="text-left px-3 py-2.5 font-semibold text-gray-500">Next send</th>
+                        <th className="text-right px-3 py-2.5 font-semibold text-gray-500">Enrolled</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(r => (
+                        <tr key={r.id} className="border-t border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-900/50">
+                          <td className="px-3 py-2.5 font-medium text-gray-900 dark:text-white">
+                            {nameOf(r.contact)}{r.cold_contact_id && <span className="ml-1.5 text-[9px] font-bold uppercase text-gray-400">Cold</span>}
+                          </td>
+                          <td className="px-3 py-2.5"><span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${badge[r.status] || badge.active}`}>{r.status}</span></td>
+                          <td className="px-3 py-2.5 text-gray-500">{r.node ? (r.node.node_type === 'email' ? `Email: ${(r.node.subject || 'untitled').slice(0, 30)}` : r.node.node_type) : `Step ${(r.current_step ?? 0) + 1}`}</td>
+                          <td className="px-3 py-2.5 text-gray-500">{r.next_send_at ? String(r.next_send_at).slice(0, 10) : '—'}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-400">{r.enrolled_at ? new Date(r.enrolled_at).toLocaleDateString() : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Part 2.1 — post-enroll confirmation (persists after the enroll panel closes) */}
+      <EnrollResultPanel result={enrollResult} onClose={() => setEnrollResult(null)} />
 
       {/* TOAST NOTIFICATIONS — bottom-right stack, countdown bar, Undo (F6) */}
       {toasts.slice(-4).map((toast, i) => (

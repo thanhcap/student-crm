@@ -91,6 +91,7 @@ export default function EnrollmentPanel({
   onEnrolled,       // (newEnrollmentRows) => merge into App state
   onColdImported,   // (newColdRows) => merge into App state
   onAudienceSaved,  // (sequenceId, audience, autoEnrollNew) => sync sequences state
+  onResult,         // (results) => Part 2.1 post-enroll confirmation panel
   onClose,
 }) {
   const [enrollTab, setEnrollTab] = useState('select');
@@ -135,14 +136,19 @@ export default function EnrollmentPanel({
         ? clients.find(c => c.id === id)?.email
         : coldContacts.find(c => c.id === id)?.email;
 
-      let skippedDupe = 0, skippedUnsub = 0;
+      // Part 2.1: build a structured, per-contact result so the confirmation
+      // panel can show exactly who got in, who was skipped, and why.
+      const results = { enrolled: [], skippedDupe: [], skippedUnsub: [], failed: [], sequenceName: sequence.name };
+      const contactFor = id => kind === 'client' ? clients.find(c => c.id === id) : coldContacts.find(c => c.id === id);
       const todayStr = new Date().toISOString().split('T')[0];
       const rows = [];
+      const rowContacts = []; // parallel to rows
       for (const id of ids) {
+        const contact = contactFor(id) || { id, name: `#${id}` };
         const key = kind === 'client' ? `r${id}` : `c${id}`;
-        if (activeKeys.has(key)) { skippedDupe++; continue; }
+        if (activeKeys.has(key)) { results.skippedDupe.push(contact); continue; }
         const email = (emailFor(id) || '').toLowerCase();
-        if (email && unsubEmails.has(email)) { skippedUnsub++; continue; }
+        if (email && unsubEmails.has(email)) { results.skippedUnsub.push(contact); continue; }
         rows.push({
           sequence_id: sequence.id, user_id: user.id,
           client_id: kind === 'client' ? id : null,
@@ -151,37 +157,44 @@ export default function EnrollmentPanel({
           current_node_id: firstNode?.id ?? null,
           next_send_at: todayStr,
         });
+        rowContacts.push(contact);
       }
 
       if (!rows.length) {
+        onResult?.(results); // still show skip breakdown even when nobody's new
         const reasons = [];
-        if (skippedDupe) reasons.push(`${skippedDupe} already enrolled`);
-        if (skippedUnsub) reasons.push(`${skippedUnsub} unsubscribed`);
+        if (results.skippedDupe.length) reasons.push(`${results.skippedDupe.length} already enrolled`);
+        if (results.skippedUnsub.length) reasons.push(`${results.skippedUnsub.length} unsubscribed`);
         showToast(`Nobody new to enroll${reasons.length ? ` (${reasons.join(', ')})` : ''}.`, 'error');
         return { inserted: 0 };
       }
 
       const CHUNK = 100;
-      let totalInserted = 0;
       const allInserted = [];
       for (let i = 0; i < rows.length; i += CHUNK) {
+        const chunkContacts = rowContacts.slice(i, i + CHUNK);
         const { data, error } = await supabase.from('sequence_enrollments').insert(rows.slice(i, i + CHUNK)).select();
-        if (error) { showToast(`Enroll error at batch ${Math.floor(i / CHUNK) + 1}: ${error.message}`, 'error'); break; }
+        if (error) {
+          results.failed.push(...chunkContacts);
+          showToast(`Enroll error at batch ${Math.floor(i / CHUNK) + 1}: ${error.message}`, 'error');
+          continue;
+        }
         allInserted.push(...(data || []));
-        totalInserted += data?.length ?? 0;
+        results.enrolled.push(...chunkContacts);
       }
       if (allInserted.length) onEnrolled(allInserted);
+      onResult?.(results);
 
       const live = sequence.is_active || sequence.status === 'active';
       const notes = [];
-      if (skippedDupe) notes.push(`${skippedDupe} already enrolled`);
-      if (skippedUnsub) notes.push(`${skippedUnsub} unsubscribed`);
+      if (results.skippedDupe.length) notes.push(`${results.skippedDupe.length} already enrolled`);
+      if (results.skippedUnsub.length) notes.push(`${results.skippedUnsub.length} unsubscribed`);
       showToast(
-        `Enrolled ${totalInserted} contact${totalInserted === 1 ? '' : 's'}${notes.length ? ` (skipped: ${notes.join(', ')})` : ''}. ${live ? 'First emails send on the next runner tick.' : 'Activate the campaign to start sending.'}`,
+        `Enrolled ${results.enrolled.length} contact${results.enrolled.length === 1 ? '' : 's'}${notes.length ? ` (skipped: ${notes.join(', ')})` : ''}. ${live ? 'First emails send on the next runner tick.' : 'Activate the campaign to start sending.'}`,
         'success'
       );
-      if (totalInserted > 0) onClose();
-      return { inserted: totalInserted };
+      if (results.enrolled.length > 0) onClose();
+      return { inserted: results.enrolled.length };
     } finally {
       setBusy(false);
     }
@@ -907,6 +920,44 @@ function EnrollAllPanel({ clients, coldContacts, busy, onEnrollAll }) {
         className="px-5 py-2.5 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90 disabled:opacity-40">
         {busy ? 'Enrolling…' : `Enroll ${count} contacts`}
       </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Part 2.1 — post-enroll confirmation panel (lives at app top level so it
+// survives the enrollment takeover closing). Shows exactly who got in.
+// ---------------------------------------------------------------------------
+export function EnrollResultPanel({ result, onClose }) {
+  if (!result) return null;
+  const nameOf = c => c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.email || `#${c.id}`;
+  const sections = [
+    ['enrolled', 'Enrolled', 'text-green-600 dark:text-green-400', 'text-gray-700 dark:text-gray-300'],
+    ['skippedDupe', 'Already enrolled', 'text-gray-400', 'text-gray-400'],
+    ['skippedUnsub', 'Skipped — unsubscribed', 'text-amber-600 dark:text-amber-400', 'text-amber-600/70 dark:text-amber-400/70'],
+    ['failed', 'Failed', 'text-red-600 dark:text-red-400', 'text-red-500'],
+  ].filter(([k]) => (result[k] || []).length > 0);
+  if (!sections.length) return null;
+  return (
+    <div className="fixed bottom-6 right-6 z-[95] w-96 max-w-[calc(100vw-2rem)] rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-3 fade-in duration-200">
+      <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+        <div>
+          <p className="text-[13px] font-bold text-gray-900 dark:text-white">Enrollment results</p>
+          {result.sequenceName && <p className="text-[11px] text-gray-400">{result.sequenceName}</p>}
+        </div>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-[16px] leading-none">×</button>
+      </div>
+      <div className="max-h-80 overflow-y-auto p-4 space-y-3">
+        {sections.map(([k, label, headCls, itemCls]) => (
+          <div key={k}>
+            <p className={`text-[11px] font-bold uppercase tracking-wider mb-1.5 ${headCls}`}>{label} ({result[k].length})</p>
+            {result[k].slice(0, 40).map(c => (
+              <p key={c.id} className={`text-[12px] py-0.5 truncate ${itemCls}`}>{nameOf(c)}</p>
+            ))}
+            {result[k].length > 40 && <p className="text-[11px] text-gray-400 py-0.5">+ {result[k].length - 40} more</p>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
