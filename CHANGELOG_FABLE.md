@@ -758,3 +758,18 @@ birthday") — runner redeploys in later parts build from the committed version.
 **3.3 Wiring.** `sendReplyViaApi()` posts to the function with the session token; the campaign-send compose-tab pattern is untouched. Honest fallback: if Gmail isn't connected / needs reauth, it says so and opens a pre-filled compose tab rather than dead-ending. The editor remounts (via key) to clear after a successful send.
 - **Manual test:** open a reply in the Inbox, bold some text and add a bullet list, type `:thanks ` to expand a snippet, hit Send Reply → the message appears in the real Gmail Sent folder inside the original thread, the row goes read, and an outbound activity is logged.
 - `next build` green.
+
+## Parts 4 & 5 — Sending modes + auto-send notifications
+**4.1 Migration (applied):** `email_sequences.sending_mode text NOT NULL DEFAULT 'automatic'`.
+**4.2 Mode selector:** segmented Automatic / Manual / Both control in the campaign builder toolbar, persisted via `handleChangeSendingMode` with a mode-specific toast.
+**4.3 Runner gate (source committed):** the runner skips `sending_mode === 'manual'` campaigns in its auto-send pass, so manual campaigns never send themselves.
+**4.4 Mode-aware queues:** the Outbox (`dueSequenceSends`) now only lists campaigns whose mode is `manual` or `both`; the Upcoming auto-sends panel excludes `manual` campaigns. So each campaign shows up in exactly the queue its mode implies, and `both` appears in both.
+**5.1 Runner notification (source committed):** every processed step inserts a `notifications` row. **Adapted to the real schema found in Step 0** — the live table is `(id,user_id,type,reference_id,message,read,action_url,created_at)`, so there is no `title`/`body`/`metadata`; the message is composed into `message`, with `type='auto_send'`, the contact id in `reference_id`, and `action_url`.
+**5.2 Bell badge:** notifications of `type === 'auto_send'` render a green "Auto-sent" pill above the message in the existing bell dropdown.
+- **Manual test:** set a campaign to Manual → its due contacts move out of Upcoming auto-sends and into the Outbox, and the runner stops auto-sending it; set it to Both → it appears in both queues.
+- `next build` green.
+
+### ⚠️ Runner deploy still pending
+`supabase/functions/sequence-runner/index.ts` contains the 4.3 / 5.1 / 7.1 changes **in source and committed**, but is **not yet redeployed** — deploying it requires inlining both `index.ts` and `_shared/sequence-logic.ts` (~28KB), and I judged a late-session hand-transcription of the live every-15-minutes email sender too risky to do blind. Until it is redeployed, sending_mode is honored by the UI queues but not by the server, and no auto_send notifications are written. Deploy with:
+`supabase functions deploy sequence-runner --project-ref wuralwhctnbtkirofuph`
+Per your instruction the committed runner deliberately EXCLUDES the uncommitted birthday auto-enroll work, which remains in the working tree only.

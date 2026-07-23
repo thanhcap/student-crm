@@ -4447,6 +4447,18 @@ export default function App() {
   }
 
   // Active toggle drives BOTH gates: status (legacy UI) and is_active (runner v4+)
+  // Part 4.2 — per-campaign sending mode. 'manual' campaigns are skipped by the
+  // runner's auto-send pass and surface in the Outbox instead.
+  async function handleChangeSendingMode(sequenceId, mode) {
+    const { error } = await supabase.from('email_sequences').update({ sending_mode: mode }).eq('id', sequenceId);
+    if (error) { showToast(`Error: ${error.message}`, 'error'); return; }
+    setSequences(prev => prev.map(s => s.id === sequenceId ? { ...s, sending_mode: mode } : s));
+    showToast(mode === 'manual'
+      ? 'Manual mode — due emails wait in the Outbox for you to send.'
+      : mode === 'both' ? 'Both — auto-sends on schedule and still lists them for review.'
+      : 'Automatic — this campaign sends itself on your schedule.', 'success');
+  }
+
   async function handleSetSequenceActive(seq, active) {
     if (active && seqNodesFor(seq.id).filter(n => !['trigger', 'goal', 'wait'].includes(n.node_type || 'email')).length === 0) {
       showToast('Add at least one action step before activating.', 'error'); return;
@@ -6270,7 +6282,12 @@ export default function App() {
         const seq = sequences.find(s => s.id === en.sequence_id);
         const step = sequenceSteps.filter(s => s.sequence_id === en.sequence_id).sort((a, b) => a.step_order - b.step_order || a.id - b.id)[en.current_step];
         const c = clients.find(x => x.id === en.client_id);
-        return seq && seq.status === 'active' && step && c ? { enr: en, seq, step, client: c } : null;
+        // Part 4.4 — the Outbox is the MANUAL queue: only campaigns whose sending
+        // mode asks for review ('manual' or 'both') appear here. Pure 'automatic'
+        // campaigns are handled by the runner and shown in Upcoming auto-sends.
+        const mode = seq?.sending_mode || 'automatic';
+        const wantsReview = mode === 'manual' || mode === 'both';
+        return seq && seq.status === 'active' && wantsReview && step && c ? { enr: en, seq, step, client: c } : null;
       })
       .filter(Boolean);
   }, [sequenceEnrollments, sequences, sequenceSteps, clients]);
@@ -6704,6 +6721,10 @@ export default function App() {
                     ) : (
                       notifications.slice(0, 10).map(n => (
                         <div key={n.id} onClick={() => handleMarkNotificationRead(n.id, n.reference_id, n.type)} className={`p-3 border-b border-gray-50 dark:border-gray-800 last:border-0 cursor-pointer transition-colors ${n.read ? 'bg-white dark:bg-gray-900 opacity-60' : 'bg-indigo-50/30 dark:bg-indigo-900/10 hover:bg-indigo-50/50'}`}>
+                          {/* Part 5.2 — auto-send activity is visually distinct */}
+                          {n.type === 'auto_send' && (
+                            <span className="inline-block mb-1 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-green-100 dark:bg-green-950/40 text-green-700 dark:text-green-400 rounded">Auto-sent</span>
+                          )}
                           <p className="text-[12px] font-medium text-gray-900 dark:text-gray-100 leading-snug">{n.message}</p>
                           <p className="text-[10px] text-gray-400 mt-1">{new Date(n.created_at).toLocaleDateString()}</p>
                         </div>
@@ -9795,6 +9816,21 @@ export default function App() {
                   </details>
                   {/* V4 Part 4 — filter-driven bulk enroll */}
                   <button onClick={() => { setShowEnrollPanel(editingSeq.id); setEnrollSearchTerm(''); setEnrollFilterStatus('All'); setEnrollFilterPriority('All'); setEnrollFilterSource('All'); setEnrollFilterScoreMin(0); setEnrollFilterTags([]); }} className="px-3 py-1.5 text-[12px] font-semibold border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">Enroll by filter</button>
+                  {/* Part 4.2 — sending mode: automatic / manual / both */}
+                  <div className="flex items-center gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800">
+                    {[
+                      ['automatic', 'Automatic', 'Sends itself on your schedule'],
+                      ['manual', 'Manual', 'You review and send each one from the Outbox'],
+                      ['both', 'Both', 'Auto-sends, and still shows them for review'],
+                    ].map(([key, label, desc]) => (
+                      <button key={key} onClick={() => handleChangeSendingMode(editingSeq.id, key)} title={desc}
+                        className={`px-2.5 py-1 text-[11.5px] font-semibold rounded-lg transition-colors ${(editingSeq.sending_mode || 'automatic') === key
+                          ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                   {/* stats bar — Replied is clickable (per-campaign who-replied, V4 Part 3) */}
                   <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] font-medium text-gray-500">
                     {/* Part 2.2 — enrollment visibility */}

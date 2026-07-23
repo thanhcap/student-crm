@@ -200,7 +200,10 @@ export function UpcomingSendsPreview({ enrollments, sequences, clients, coldCont
           || (steps || []).filter(s => s.sequence_id === e.sequence_id && s.node_type === 'email').sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0))[0];
         return { enrollment: e, sequence: seq, contact, currentNode, isToday: String(e.next_send_at).slice(0, 10) <= todayStr };
       })
-      .filter(r => r.contact && r.sequence && (r.sequence.is_active || r.sequence.status === 'active'))
+      // Part 4.4 — this panel is the AUTOMATIC queue: manual-only campaigns never
+      // auto-send, so they belong in the Outbox instead of here.
+      .filter(r => r.contact && r.sequence && (r.sequence.is_active || r.sequence.status === 'active')
+        && (r.sequence.sending_mode || 'automatic') !== 'manual')
       .sort((a, b) => (String(a.enrollment.next_send_at) > String(b.enrollment.next_send_at) ? 1 : -1));
   }, [enrollments, sequences, clients, coldContacts, steps]);
 
