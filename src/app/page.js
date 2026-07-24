@@ -13,6 +13,8 @@ import EmailCampaignGallery, { GmailConnectionBadge, RunnerHealthBadge } from '.
 import EnrollmentPanel, { audienceMatchesClient, EnrollResultPanel } from './components/EnrollmentPanel';
 import ColdContactsManager from './components/ColdContactsManager';
 import EmailSettingsPanel from './components/EmailSettingsPanel';
+// 50-FEATURE EXPANSION — deterministic toolkit + pure helpers (no AI)
+import OutreachToolkit, { fireConfetti, checkBurnoutSignal } from './components/OutreachToolkit';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 // V9 marketing home — outer-space system (root page is outside the (marketing)
@@ -2217,6 +2219,10 @@ export default function App() {
   const [enrollResult, setEnrollResult] = useState(null); // Part 2.1 — post-enroll confirmation
   const [enrolledListSeqId, setEnrolledListSeqId] = useState(null); // Part 2.2 — enrolled status list
   const [enrolledListFilter, setEnrolledListFilter] = useState('all');
+  // G33 — burnout banner dismissal, remembered for the day
+  const [burnoutDismissed, setBurnoutDismissed] = useState(() => {
+    try { return localStorage.getItem('crm_burnout_dismissed') === new Date().toISOString().split('T')[0]; } catch { return false; }
+  });
   const [editingSeqId, setEditingSeqId] = useState(null); // canvas editor open for this sequence
   const [selectedNodeId, setSelectedNodeId] = useState(null); // canvas: selected node (config panel)
   const [connectFrom, setConnectFrom] = useState(null); // canvas: { nodeId, branch } while wiring an edge
@@ -3486,6 +3492,7 @@ export default function App() {
       setDeals(prev => prev.map(d => d.id === deal.id ? { ...d, stage: newStage } : d));
       logDealEvent(deal.id, 'stage_changed', deal.stage, newStage); // V2.0 F16
       if (newStage === 'Won') logFeed('won_deal', 'deal', deal.id, deal.title, { value: deal.value }); // V2.0 F41
+      if (newStage === 'Won') fireConfetti(); // J48 — celebration; the feed entry above is the team broadcast
       if (newStage === 'Won' || newStage === 'Lost') setWinLossPrompt({ deal, stage: newStage }); // V2.0 F19
       if (newStage === 'Won') dispatchWebhook('deal.won', { ...deal, stage: newStage });
       if (newStage === 'Lost') dispatchWebhook('deal.lost', { ...deal, stage: newStage });
@@ -6669,6 +6676,7 @@ export default function App() {
               ['DASHBOARD', 'Overview'],
               ['TODAY', 'Today'],
               ['CAREER', 'Career Hub'],
+              ['TOOLKIT', 'Toolkit'],
               ['NETWORK', 'Network Map'],
               ['CLIENTS', 'Relationships'],
               ['DEALS', 'Deals'],
@@ -6769,6 +6777,7 @@ export default function App() {
                     ['DASHBOARD', 'Overview'],
                     ['TODAY', 'Today'],
               ['CAREER', 'Career Hub'],
+              ['TOOLKIT', 'Toolkit'],
               ['NETWORK', 'Network Map'],
                     ['CLIENTS', 'Relationships'],
                     ['DEALS', 'Deals'],
@@ -6863,6 +6872,7 @@ export default function App() {
                 ['DASHBOARD', 'Overview'],
                 ['TODAY', 'Today'],
               ['CAREER', 'Career Hub'],
+              ['TOOLKIT', 'Toolkit'],
               ['NETWORK', 'Network Map'],
                 ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
@@ -7217,6 +7227,20 @@ export default function App() {
             </div>
 
             <div className="min-w-0" style={dashStyle('recent')}>
+            {/* G33 — burnout signal: gentle, dismissible, only on a real threshold */}
+            {(() => {
+              if (burnoutDismissed) return null;
+              const sig = checkBurnoutSignal(activities, sequenceSends);
+              if (!sig.flagged) return null;
+              return (
+                <div className="flex items-start justify-between gap-3 p-4 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900">
+                  <p className="text-[12.5px] text-amber-800 dark:text-amber-300">{sig.message}</p>
+                  <button onClick={() => { setBurnoutDismissed(true); try { localStorage.setItem('crm_burnout_dismissed', new Date().toISOString().split('T')[0]); } catch {} }}
+                    className="shrink-0 text-[11px] font-semibold text-amber-700/60 dark:text-amber-400/60 hover:text-amber-900 dark:hover:text-amber-200">Dismiss</button>
+                </div>
+              );
+            })()}
+
             {/* V3 F71 — recently viewed strip */}
             {recentlyViewedIds.length > 0 && (() => {
               const recent = recentlyViewedIds.map(id => clients.find(c => c.id === id)).filter(Boolean);
@@ -9309,6 +9333,19 @@ export default function App() {
         )}
 
         {/* V3 CLUSTER B — CAREER HUB: applications, goals, school network, diversity */}
+        {/* 50-FEATURE — deterministic Toolkit (C12/C13/B10/B8/A5/D20) */}
+        {appStep === 'TOOLKIT' && (
+          <OutreachToolkit
+            user={user}
+            showToast={showToast}
+            clients={clients}
+            activities={activities}
+            deals={deals}
+            sends={sequenceSends}
+            applications={applications}
+          />
+        )}
+
         {appStep === 'CAREER' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

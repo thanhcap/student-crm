@@ -786,3 +786,17 @@ reached in this pass — I stopped rather than rush a shallow version of them:
 - **Fix vs prompt:** `automation_recipes.source_rule_id` is `uuid` (automation_rules.id is uuid, not bigint as the block assumed) — the FK would otherwise have failed.
 - Installed `tesseract.js` (client OCR) + `date-fns`. `simple-peer` intentionally not added — native WebRTC per spec.
 - Starting line count: 13,654.
+
+## Clusters A–D + G/J (deterministic slice) — `components/OutreachToolkit.js` + wiring
+New **Toolkit** nav view (tabbed) plus pure helpers, all deterministic, zero AI/network calls:
+- **C12 Offer comparator** — add/delete offers, ranks by cost-of-living-adjusted total `(base + signing/4 + equity/4) / (COL/100)`, best offer highlighted, optionally linked to an `applications` row. Persists to `offer_comparisons`.
+- **C13 Interview practice** — **50 built-in questions seeded** across Software Engineering / Product Management / Investment Banking / Consulting / General Behavioral (10 each, verified in DB). Random draw per category, live timer, answer capture, saved to `practice_sessions` with a recent-sessions history. No grading, no AI.
+- **B10 Negotiation scripts** — the 5 built-ins (price objection, timeline pushback, counter-offer, deadline extension, referral fee) ship as **constants, not seed rows**: `negotiation_scripts.user_id` is NOT NULL with own-rows-only RLS, so a global seed row would be invisible to every user but its owner. "Make my version" persists a real owned copy that's editable/deletable; copy-to-clipboard on any.
+- **B8 Reputation dashboard** — real 30-day bounce/complaint rates from `sequence_sends`, green/amber/red dot, warning copy when bounce >2% or complaints >0.5%.
+- **A5 Networking score** — `relationships×2 + activities(30d)×3 + dealsWon×15` computed from live data, with an opt-in toggle that upserts `networking_scores`.
+- **D20 Multi-person scheduling** — pick relationships with a timezone and get the UTC hours inside everyone's 9–5, rendered in your local time.
+- **J48 Confetti on deal won** — canvas particle burst (no library) fires on stage→Won; the team-feed broadcast half already existed via `logFeed('won_deal', …)`.
+- **G33 Burnout signal** — dismissible dashboard banner, fires only on a real threshold (>1.5× your 12-week activity baseline AND ≥10 sends AND reply rate <70% of baseline), needs real history before it can trigger, worded gently. Dismissal remembered for the day.
+- Also exported and ready to wire: `parseQuerySyntax`/`applyQueryFilters` (J45), `findWarmIntroPaths` (A2), `parseSignatureBlock` (E23), `effectiveWarmupCap` (B6), `computeSkillGaps` (C16).
+- **Manual test:** open Toolkit → add two offers with different COL indexes and confirm the lower-COL one ranks higher; start a practice question and confirm the timer runs and the session saves; copy a built-in script, edit your version, reload and confirm it persisted; move a deal to Won and confirm confetti fires.
+- `next build` green.
