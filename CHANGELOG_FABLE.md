@@ -821,3 +821,197 @@ New **Toolkit** nav view (tabbed) plus pure helpers, all deterministic, zero AI/
 - **J**: J45 palette wiring, J46 cursors, J47 story view, J49 offline sync.
 
 Also still outstanding from the prior pass: the **sequence-runner redeploy** (its 4.3/5.1/7.1 changes are committed but not deployed), and the **Gmail reconnect** — nothing auto-sends until that consent screen is approved.
+
+---
+
+# Media Capture — Round A
+
+Branch: `feat/media-capture-round-a`
+
+Every table this round writes to (`video_messages`, `call_sessions`,
+`call_recordings`, `call_note_timestamps`, `voice_memos`,
+`capture_extension_tokens`, `card_scans`) already existed with RLS from the
+50-feature pass — **no migration was needed or applied in this part.**
+
+All new code lives in `src/app/components/MediaCapture.js`, two public routes,
+two edge functions, and the `chrome-extension/` directory.
+
+## Architecture note — why two edge functions instead of Next.js API routes
+
+The prompt specified `app/(public)/v/[token]/page.jsx` and
+`app/api/v1/capture-extension/route.js`, both using a service-role
+`supabaseAdmin` client. Step 0 found that **this project has no Next.js API
+routes at all and no `SUPABASE_SERVICE_ROLE_KEY` in its Next environment** —
+those files would have been dead code until someone added the secret.
+
+The app already had a working answer to exactly this problem: `/p/[token]`
+(public proposals) is a client page backed by the token-gated `proposal-public`
+edge function. Edge functions get `SUPABASE_SERVICE_ROLE_KEY` injected
+automatically. So A-1's viewer and A-5's endpoint ship as edge functions with
+the same security property the prompt required — signing and token validation
+happen server-side, `storage_path` is never returned to a client — and they work
+today with zero setup. Part II's routes are Next.js routes, because the Stripe
+SDK needs a Node server.
+
+## A-1 — Video messages (Loom-style)
+
+- `VideoMessageRecorder`: `getDisplayMedia({video, audio})` → `MediaRecorder` →
+  private `media` bucket at `${user.id}/video-messages/<token>.webm`. The uid
+  first path segment is mandatory — the bucket policy matches on it.
+- `mimeType` is chosen from a support-tested candidate list
+  (vp9 → vp8 → webm → mp4) rather than hardcoded, so Safari doesn't throw.
+- Ending screen-share from the browser's own "Stop sharing" bar stops the
+  recorder too (`videoTrack.onended`).
+- Preview object URLs are revoked on change and unmount.
+- Saving inserts `video_messages` (with a `shared_token`) and, when attached to
+  a relationship, an activity: `activity_type: 'Note'`, `activity_date` (a DATE),
+  non-null `description`. No `outcome`.
+- `VideoMessageList` plays back in-app with a signed URL the owner's own session
+  creates, plus Copy link / Delete (delete removes the storage object first).
+- **Public viewer** `/v/[token]` (`src/app/v/[token]/page.js`) fetches the
+  `video-public` edge function, which looks the row up by `shared_token`, signs
+  the object for 3600s with the service role, bumps `view_count`, and returns
+  **only** `{url, duration_seconds, created_at, view_count}` — never
+  `storage_path`, `user_id`, or `client_id`.
+- **Manual test (recorder):** open a relationship → Media tab → "Record a video
+  update" → pick a tab to share → stop → preview plays → Save & Get Link. Verify
+  a `video_messages` row exists whose `storage_path` starts with your own uid,
+  and an `activities` row with today's `activity_date`.
+- **Manual test (viewer):** click Copy link, open it in a **logged-out** private
+  window → the video plays. Refresh → `view_count` increments.
+- **Manual test (negative):** `curl "$SUPABASE_URL/functions/v1/video-public?token=nope"`
+  → `404 {"error":"not_found"}`; with no token → `400 {"error":"missing_token"}`.
+  Both **verified live** on 2026-07-24.
+
+## A-2 — In-app video calling (WebRTC)
+
+- `VideoCallRoom`: `RTCPeerConnection` with signaling over a Supabase Realtime
+  broadcast channel `call:<room_token>` (offer / answer / ice / hangup).
+- Teardown is idempotent via a ref guard, so the effect cleanup, the Hangup
+  button, and the peer's hangup broadcast can't double-close.
+- Added beyond the spec: mute / camera-off toggles, and a real error surface for
+  `getUserMedia` denial and `connectionState === 'failed'`.
+- `startCall()` inserts a `call_sessions` row, copies the join link to the
+  clipboard, and logs a Call activity. `endCall()` stamps `status: 'ended'` and
+  `ended_at`.
+- `/call/[token]` is the join side (`isInitiator=false`). Camera and mic are
+  requested **only after an explicit "Join call" click** — a link preview never
+  turns on a webcam.
+- **KNOWN LIMITATION — no TURN relay.** ICE is STUN-only
+  (`stun:stun.l.google.com:19302`). This connects on most home and office
+  networks, but **will fail behind symmetric NAT or a strict corporate
+  firewall**, where a relay is required. The UI says so plainly instead of
+  hanging on "Waiting…": `connectionState === 'failed'` shows "Connection failed
+  — this network likely needs a TURN relay." Adding TURN credentials (Twilio,
+  Cloudflare, or a self-hosted coturn) to the `iceServers` array is a clean
+  follow-up; it is a config change, not a rewrite.
+- **Manual test:** open a relationship → Video Call. The join link is on your
+  clipboard. Paste it into a second browser (or another device) → Join call →
+  both video tiles appear. Press End Call on either side → the other side lands
+  on "Call ended." Verify `call_sessions.status = 'ended'` with `ended_at` set.
+
+## A-3 — Audio recorder with timestamped notes
+
+- `AudioRecorderWithNotes`: mic capture, live elapsed timer, "Tag a moment"
+  input (Enter submits) capturing `{offset_seconds, note}` against the current
+  elapsed time.
+- Stop waits on the `onstop` event before building the Blob — `MediaRecorder`
+  flushes its final chunk asynchronously, so building it synchronously loses the
+  tail of the recording.
+- Saves to `${user.id}/call-recordings/…`, inserts `call_recordings`, then
+  `call_note_timestamps` (which have no `user_id` of their own — RLS reaches
+  them through `recording_id`), plus a Call activity.
+- `RecordingPlayback` signs the object and renders the notes sorted by offset;
+  clicking one seeks `audio.currentTime` to that exact offset and plays. The
+  note the playhead is currently inside is bolded via `onTimeUpdate`.
+- **Manual test:** Media tab → "Record a call" → speak, type a note, press Enter
+  at ~0:05, another at ~0:15 → Stop & Save. Reopen the recording → click the
+  0:15 note → playback jumps to 0:15 and resumes. Verify two
+  `call_note_timestamps` rows with the right `offset_seconds`.
+
+## A-4 — Voice memos
+
+- `VoiceMemoRecorder` — the same capture path minus tagging; saves to
+  `${user.id}/voice-memos/…` and `voice_memos`, attachable to a relationship
+  (`client_id`, bigint) or a deal (`deal_id`, **uuid**).
+- `VoiceMemoList` signs each memo and renders a plain `<audio controls>` row
+  with `formatRelativeTime(created_at)` and Delete.
+- **Manual test:** record a memo on a relationship and another on a deal → both
+  appear in their own lists and play. Delete one → the row and the storage
+  object both go.
+
+## A-5 — Chrome extension (one-click LinkedIn capture)
+
+- `chrome-extension/`: `manifest.json` (MV3, `storage` permission,
+  `linkedin.com/in/*` content script), `content-script.js`, `options.html` /
+  `options.js`, `README.md`.
+- The floating "+ Add to CRM" button reads name / headline / company off the
+  DOM, strips query params from the URL, and POSTs with
+  `Authorization: Bearer <capture token>`. A URL watcher resets the label when
+  LinkedIn swaps profiles without a page load (it's an SPA — the content script
+  does not re-run).
+- Options refuses a non-`https://` endpoint, so the token can't travel in clear.
+- **Endpoint:** `capture-extension` edge function. It resolves the token to a
+  `user_id` **server-side with the service role** — the request body never names
+  a user, so a forged body cannot write into someone else's CRM, and a stolen
+  token can only pollute its own owner's data. Inserts the `clients` row plus a
+  Note activity (`activity_date`, non-null `description`, no `outcome`), and
+  stamps `last_used_at`.
+- Added beyond the spec: capturing the same `linkedin_url` twice returns
+  `{duplicate: true}` with the existing row instead of creating a second
+  relationship.
+- Settings → **Capture** (`CaptureTokenSettings`) generates a token, shows
+  copy-to-clipboard for both token and endpoint, reports last-used time, and
+  regenerates — regeneration **deletes every prior row for that user**, so the
+  old token stops working immediately.
+- **Manual test — verified live on 2026-07-24:** with a real token, a real POST
+  created `clients` id 41 (`source: 'Chrome Extension'`,
+  `captured_via: 'chrome_extension'`, query param stripped from `linkedin_url`)
+  and the matching activity `"Captured from LinkedIn via the browser extension
+  — Staff Engineer."` with `activity_date = 2026-07-24`. A repeat POST returned
+  `{"ok":true,"duplicate":true}`. No auth header → `401 missing_token`; a bogus
+  token → `401 invalid_token`. All test rows were deleted afterwards.
+- **Manual test (extension itself):** load unpacked, paste token + endpoint in
+  Options, visit any `linkedin.com/in/…` profile, click "+ Add to CRM" → label
+  turns "Added ✓" and the relationship appears in the CRM.
+
+## A-6 — Business card OCR
+
+- `BusinessCardScanner` uses **Tesseract.js 7 (already installed)** via a
+  **dynamic import**, so the ~2MB WASM worker stays out of the main bundle and
+  loads only when someone actually scans. Live progress percentage while
+  recognizing.
+- **The photo never leaves the browser.** OCR is client-side WASM; only the
+  parsed text fields the user confirms are sent to Supabase.
+- `parseCardText(text)` is exported separately from the camera plumbing so the
+  heuristics are inspectable: email and phone by regex; the name is the first
+  line that isn't obviously contact data; the company prefers a line matching
+  inc/llc/corp/ltd/gmbh/group/studio/labs/partners/…; the title is looked for
+  *below* the name against a role-word list (this fills `card_scans.parsed_title`,
+  a column the spec's version left empty).
+- Every parsed field is an editable input before save — OCR is a first draft,
+  not an authority.
+- Save inserts `clients` (`source: 'Business Card'`,
+  `captured_via: 'business_card'`), then `card_scans` with the raw OCR text and
+  every parsed field, plus a Note activity.
+- Entry point: a "Scan a card" button on the Relationships view.
+- **Manual test:** photograph a real business card → the fields populate →
+  correct anything wrong → Save as Relationship. Verify the `clients` row and a
+  `card_scans` row whose `raw_ocr_text` holds the full OCR dump and whose
+  `client_id` points at the new relationship.
+
+## Where it all attaches
+
+- **Relationship profile** — a new **Media** tab (count = videos + recordings +
+  memos) with all three recorders and lists; header gains "Record a video
+  update" and "Video Call".
+- **Deal detail** — video updates and voice memos scoped by `deal_id`.
+- **Relationships view** — "Scan a card".
+- **Settings** — a Capture section for the extension token.
+- All recorder UIs are gated on `canEdit`, matching the existing file-upload
+  permission model.
+
+## Build
+
+`npx next build` — compiled successfully; `/v/[token]` and `/call/[token]`
+registered as dynamic routes.

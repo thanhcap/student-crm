@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Relationship CRM Capture — Options</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 28px; max-width: 520px; color: #111827; }
+    h1 { font-size: 18px; margin: 0 0 6px; }
+    p.sub { font-size: 13px; color: #6b7280; margin: 0 0 20px; line-height: 1.5; }
+    label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #9ca3af; margin-bottom: 5px; }
+    input { width: 100%; box-sizing: border-box; padding: 9px 11px; font-size: 13px; font-family: ui-monospace, monospace;
+            border: 1px solid #e5e7eb; border-radius: 9px; margin-bottom: 16px; }
+    input:focus { outline: none; border-color: #9ca3af; }
+    button { padding: 9px 18px; font-size: 13px; font-weight: 600; background: #111827; color: #fff;
+             border: none; border-radius: 9px; cursor: pointer; }
+    button:hover { background: #374151; }
+    #status { font-size: 13px; margin-left: 10px; color: #059669; }
+    ol { font-size: 12px; color: #6b7280; line-height: 1.7; padding-left: 18px; margin-top: 24px;
+         border-top: 1px solid #f3f4f6; padding-top: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Relationship CRM Capture</h1>
+  <p class="sub">
+    Paste the capture token and endpoint from your CRM’s Settings → Capture page.
+    They are stored only in this browser and sent only to your own CRM.
+  </p>
+
+  <label for="endpoint">Endpoint URL</label>
+  <input id="endpoint" type="text" placeholder="https://your-project.supabase.co/functions/v1/capture-extension" />
+
+  <label for="token">Capture token</label>
+  <input id="token" type="password" placeholder="Paste your token" />
+
+  <button id="save">Save</button>
+  <span id="status"></span>
+
+  <ol>
+    <li>In the CRM, open Settings → Capture and generate a token.</li>
+    <li>Copy both the token and the endpoint and paste them above.</li>
+    <li>Visit any linkedin.com/in/… profile — a “+ Add to CRM” button appears bottom-right.</li>
+  </ol>
+
+  <script src="options.js"></script>
+</body>
+</html>

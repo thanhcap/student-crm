@@ -15,6 +15,14 @@ import ColdContactsManager from './components/ColdContactsManager';
 import EmailSettingsPanel from './components/EmailSettingsPanel';
 // 50-FEATURE EXPANSION — deterministic toolkit + pure helpers (no AI)
 import OutreachToolkit, { fireConfetti, checkBurnoutSignal } from './components/OutreachToolkit';
+// MEDIA CAPTURE ROUND A — screen/mic capture, WebRTC calling, card OCR
+import {
+  VideoMessageRecorder, VideoMessageList,
+  VideoCallRoom, startCall, endCall,
+  AudioRecorderWithNotes, RecordingList,
+  VoiceMemoRecorder, VoiceMemoList,
+  BusinessCardScanner, CaptureTokenSettings,
+} from './components/MediaCapture';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 // V9 marketing home — outer-space system (root page is outside the (marketing)
@@ -2162,6 +2170,18 @@ export default function App() {
 
   // FEATURE 7 — FILE ATTACHMENTS STATES
   const [clientFiles, setClientFiles] = useState([]);
+  // MEDIA CAPTURE ROUND A — loaded per-profile alongside client files, since
+  // these are all "things attached to the relationship I'm looking at".
+  const [videoMessages, setVideoMessages] = useState([]);
+  const [callRecordings, setCallRecordings] = useState([]);
+  const [callNoteTimestamps, setCallNoteTimestamps] = useState([]);
+  const [voiceMemos, setVoiceMemos] = useState([]);
+  const [activeCall, setActiveCall] = useState(null); // { roomToken, isInitiator }
+  const [showCardScanner, setShowCardScanner] = useState(false);
+  // Deal-scoped media is kept separate from the profile's, since a deal can be
+  // open at the same time as a relationship profile.
+  const [dealVideoMessages, setDealVideoMessages] = useState([]);
+  const [dealVoiceMemos, setDealVoiceMemos] = useState([]);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [activeProfileTab, setActiveProfileTab] = useState('activity');
   const fileUploadRef = useRef(null);
@@ -2564,6 +2584,7 @@ export default function App() {
       setQuickNoteSaved(false);
       setActiveProfileTab('activity');
       fetchClientFiles(viewingClient.id);
+      fetchClientMedia(viewingClient.id);
       setFollowUpSuggestion('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3291,6 +3312,57 @@ export default function App() {
   async function fetchClientFiles(clientId) {
     const { data } = await supabase.from('client_files').select('*').eq('client_id', clientId).order('created_at', { ascending: false });
     if (data) setClientFiles(data);
+  }
+
+  // MEDIA CAPTURE ROUND A — everything the Media tab renders for one profile.
+  // Note timestamps have no user_id of their own; they're reached through the
+  // recording ids we just fetched (which RLS already scoped to this user).
+  async function fetchClientMedia(clientId) {
+    const [{ data: vids }, { data: recs }, { data: memos }] = await Promise.all([
+      supabase.from('video_messages').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
+      supabase.from('call_recordings').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
+      supabase.from('voice_memos').select('*').eq('client_id', clientId).order('created_at', { ascending: false }),
+    ]);
+    setVideoMessages(vids || []);
+    setCallRecordings(recs || []);
+    setVoiceMemos(memos || []);
+    const recIds = (recs || []).map(r => r.id);
+    if (recIds.length) {
+      const { data: notes } = await supabase.from('call_note_timestamps').select('*').in('recording_id', recIds);
+      setCallNoteTimestamps(notes || []);
+    } else setCallNoteTimestamps([]);
+  }
+
+  // Deal-attached media (A-1 / A-4). deal_id is a uuid on both tables.
+  useEffect(() => {
+    if (!editingDeal?.id) { setDealVideoMessages([]); setDealVoiceMemos([]); return; }
+    let alive = true;
+    (async () => {
+      const [{ data: vids }, { data: memos }] = await Promise.all([
+        supabase.from('video_messages').select('*').eq('deal_id', editingDeal.id).order('created_at', { ascending: false }),
+        supabase.from('voice_memos').select('*').eq('deal_id', editingDeal.id).order('created_at', { ascending: false }),
+      ]);
+      if (!alive) return;
+      setDealVideoMessages(vids || []);
+      setDealVoiceMemos(memos || []);
+    })();
+    return () => { alive = false; };
+  }, [editingDeal?.id]);
+
+  async function handleStartCall(client) {
+    const started = await startCall({ user, clientId: client.id, showToast });
+    if (!started) return;
+    setActiveCall({ roomToken: started.roomToken, isInitiator: true });
+    await supabase.from('activities').insert([{
+      user_id: user.id, client_id: client.id, activity_type: 'Call',
+      activity_date: new Date().toISOString().split('T')[0],
+      description: `Started an in-app video call with ${client.name}.`,
+    }]);
+  }
+
+  async function handleEndActiveCall() {
+    if (activeCall?.roomToken) await endCall(activeCall.roomToken);
+    setActiveCall(null);
   }
 
   // ==========================================
@@ -6908,6 +6980,18 @@ export default function App() {
         </button>
       )}
 
+      {/* MEDIA ROUND A — A-6: scan a business card. Sits above the add FAB
+          because at a networking event this is the faster path in. */}
+      {user && appStep === 'CLIENTS' && !viewingClient && (
+        <button
+          onClick={() => setShowCardScanner(true)}
+          className="fixed bottom-24 right-4 md:bottom-28 md:right-8 z-50 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 px-4 py-3 rounded-full shadow-xl hover:scale-105 transition-all active:scale-95 text-[13px] font-semibold"
+          title="Scan a business card"
+        >
+          Scan a card
+        </button>
+      )}
+
       {/* FIX: page padding lives on the inner wrapper so it can never fight the
           sidebar offset (md:pl-60) for padding-left â€” content always sits beside
           the 240px nav at every breakpoint, no horizontal scrollbar. */}
@@ -10420,6 +10504,12 @@ export default function App() {
               </div>
             )}
 
+            {/* MEDIA ROUND A — A-5: browser-extension capture token */}
+            <div className="bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">
+              <h2 className="text-[15px] font-bold text-gray-900 dark:text-white mb-2">Capture</h2>
+              <CaptureTokenSettings user={user} showToast={showToast} />
+            </div>
+
             {/* FEATURE 10 — Team & Workspace (first section) */}
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
               <h2 className="text-[15px] font-bold text-gray-900 mb-2">Team & Workspace</h2>
@@ -11485,6 +11575,9 @@ export default function App() {
                 {aiBusy ? 'Thinking…' : 'AI Brief'}
               </button>
               <button type="button" onClick={() => { setEmailTo(viewingClient.email || ''); setShowEmailComposer(true); }} className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition-colors">Send Email</button>
+              {/* MEDIA ROUND A — record an async update, or start a live call */}
+              <button type="button" onClick={() => setActiveProfileTab('media')} className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Record a video update</button>
+              <button type="button" onClick={() => handleStartCall(viewingClient)} className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Video Call</button>
               <button type="button" onClick={() => handleExportPDF(viewingClient)} className="hidden sm:block px-4 py-2 text-[13px] font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Export PDF</button>
               {canEdit && (
                 <button type="button" onClick={() => {
@@ -11817,10 +11910,64 @@ export default function App() {
                   { key: 'interviews', label: 'Interviews', count: infoInterviews.filter(iv => iv.client_id === viewingClient.id).length },
                   { key: 'tasks', label: 'Tasks', count: tasks.filter(t => t.client_id === viewingClient.id).length },
                   { key: 'files', label: 'Files' },
+                  { key: 'media', label: 'Media', count: videoMessages.length + callRecordings.length + voiceMemos.length },
                   { key: 'deals', label: 'Deals', count: deals.filter(d => d.client_id === viewingClient.id).length },
                 ]}
               />
               <div className="space-y-6">
+
+              {/* TAB: MEDIA — Round A (A-1 video, A-3 recordings, A-4 memos) */}
+              {activeProfileTab === 'media' && (
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-2">Video Updates</h4>
+                    {canEdit && (
+                      <div className="mb-3">
+                        <VideoMessageRecorder
+                          user={user} clientId={viewingClient.id} showToast={showToast}
+                          onSaved={v => setVideoMessages(prev => [v, ...prev])} />
+                      </div>
+                    )}
+                    <VideoMessageList
+                      user={user} videos={videoMessages} showToast={showToast}
+                      onDeleted={id => setVideoMessages(prev => prev.filter(v => v.id !== id))} />
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
+                    <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-2">Call Recordings</h4>
+                    {canEdit && (
+                      <div className="mb-3">
+                        <AudioRecorderWithNotes
+                          user={user} clientId={viewingClient.id} showToast={showToast}
+                          onSaved={(rec, notes) => {
+                            setCallRecordings(prev => [rec, ...prev]);
+                            if (notes?.length) setCallNoteTimestamps(prev => [...prev, ...notes]);
+                          }} />
+                      </div>
+                    )}
+                    <RecordingList
+                      recordings={callRecordings} noteTimestamps={callNoteTimestamps} showToast={showToast}
+                      onDeleted={id => {
+                        setCallRecordings(prev => prev.filter(r => r.id !== id));
+                        setCallNoteTimestamps(prev => prev.filter(n => n.recording_id !== id));
+                      }} />
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
+                    <h4 className="text-[12px] font-bold uppercase tracking-wider text-gray-400 mb-2">Voice Memos</h4>
+                    {canEdit && (
+                      <div className="mb-3">
+                        <VoiceMemoRecorder
+                          user={user} clientId={viewingClient.id} showToast={showToast}
+                          onSaved={m => setVoiceMemos(prev => [m, ...prev])} />
+                      </div>
+                    )}
+                    <VoiceMemoList
+                      memos={voiceMemos} showToast={showToast}
+                      onDeleted={id => setVoiceMemos(prev => prev.filter(m => m.id !== id))} />
+                  </div>
+                </div>
+              )}
 
               {/* TAB: FILES (Feature 7) */}
               {activeProfileTab === 'files' && (
@@ -12513,6 +12660,34 @@ export default function App() {
             )}
 
             {/* V3 F59/F60/F62/F65 — proposals for this deal */}
+            {/* MEDIA ROUND A — video updates + voice memos attached to this deal */}
+            {editingDeal && (
+              <div className="max-w-2xl mx-auto w-full px-4 sm:px-6 pb-6 space-y-4">
+                <div>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Video Updates</p>
+                  <div className="mb-3">
+                    <VideoMessageRecorder
+                      user={user} clientId={editingDeal.client_id || null} dealId={editingDeal.id} showToast={showToast}
+                      onSaved={v => setDealVideoMessages(prev => [v, ...prev])} />
+                  </div>
+                  <VideoMessageList
+                    user={user} videos={dealVideoMessages} showToast={showToast}
+                    onDeleted={id => setDealVideoMessages(prev => prev.filter(v => v.id !== id))} />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Voice Memos</p>
+                  <div className="mb-3">
+                    <VoiceMemoRecorder
+                      user={user} clientId={editingDeal.client_id || null} dealId={editingDeal.id} showToast={showToast}
+                      onSaved={m => setDealVoiceMemos(prev => [m, ...prev])} />
+                  </div>
+                  <VoiceMemoList
+                    memos={dealVoiceMemos} showToast={showToast}
+                    onDeleted={id => setDealVoiceMemos(prev => prev.filter(m => m.id !== id))} />
+                </div>
+              </div>
+            )}
+
             {editingDeal && (
               <div className="max-w-2xl mx-auto w-full px-4 sm:px-6 pb-6">
                 <div className="flex items-center justify-between mb-3">
@@ -13673,6 +13848,33 @@ export default function App() {
 
       {/* Part 2.1 — post-enroll confirmation (persists after the enroll panel closes) */}
       <EnrollResultPanel result={enrollResult} onClose={() => setEnrollResult(null)} />
+
+      {/* MEDIA ROUND A — A-2 live call overlay (full-screen, above everything) */}
+      {activeCall && (
+        <VideoCallRoom
+          roomToken={activeCall.roomToken}
+          isInitiator={activeCall.isInitiator}
+          onEnd={handleEndActiveCall}
+        />
+      )}
+
+      {/* MEDIA ROUND A — A-6 business card scanner (global: capture anyone, anywhere) */}
+      {showCardScanner && (
+        <div className="fixed inset-0 z-50 bg-white dark:bg-gray-950 overflow-y-auto">
+          <div className="max-w-2xl mx-auto p-6 sm:p-10">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-[18px] font-bold text-gray-900 dark:text-white">Scan a business card</h2>
+              <button type="button" onClick={() => setShowCardScanner(false)}
+                className="px-4 py-2 text-[13px] font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800">
+                Close
+              </button>
+            </div>
+            <BusinessCardScanner
+              user={user} showToast={showToast}
+              onSaved={c => { setClients(prev => [c, ...prev]); setShowCardScanner(false); }} />
+          </div>
+        </div>
+      )}
 
       {/* TOAST NOTIFICATIONS — bottom-right stack, countdown bar, Undo (F6) */}
       {toasts.slice(-4).map((toast, i) => (
