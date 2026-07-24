@@ -967,7 +967,12 @@ export function CaptureTokenSettings({ user, showToast }) {
   const [loading, setLoading] = useState(true);
   const [revealed, setRevealed] = useState(false);
 
-  const endpoint = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/capture-extension`;
+  // Same-origin Next.js route (service-role backed). A functionally identical
+  // Supabase edge function is also deployed at
+  // `${NEXT_PUBLIC_SUPABASE_URL}/functions/v1/capture-extension` for
+  // deployments where SUPABASE_SERVICE_ROLE_KEY isn't in the Next runtime.
+  const [endpoint, setEndpoint] = useState('');
+  useEffect(() => { setEndpoint(`${window.location.origin}/api/v1/capture-extension`); }, []);
 
   useEffect(() => {
     let alive = true;

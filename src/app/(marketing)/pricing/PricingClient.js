@@ -6,6 +6,9 @@
 import { useState, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
+// REAL PAYMENTS B-1 — Stripe / MoMo method selector
+import { PricingCheckoutFlow } from '../../components/Billing';
+import { supabase } from '../../../lib/supabase';
 
 const EASE = [0.22, 1, 0.36, 1];
 const GlobeScene = dynamic(() => import('@/components/marketing/GlobeScene'), { ssr: false, loading: () => null });
@@ -90,7 +93,7 @@ function BillingToggle({ annual, onToggle }) {
   );
 }
 
-function PricingCard({ tier, annual }) {
+function PricingCard({ tier, annual, onChoose }) {
   const ref = useRef(null);
   const [tilt, setTilt] = useState({ rx: 0, ry: 0, px: 50, py: 50 });
   function onMove(e) {
@@ -148,14 +151,23 @@ function PricingCard({ tier, annual }) {
           ))}
         </ul>
 
-        <a href="/?signup=1"
-          className={`block text-center py-3 rounded-xl text-[13px] font-semibold transition-all ${
-            tier.recommended
-              ? 'bg-white text-black hover:shadow-[0_0_30px_-4px_rgba(255,255,255,0.35)]'
-              : 'border border-white/10 text-white hover:bg-white/[0.04] hover:border-white/20'
-          }`}>
-          {tier.cta}
-        </a>
+        {/* Free stays a plain signup link; paid tiers open the payment-method
+            selector, which asks a server route for a hosted checkout URL. */}
+        {tier.price === 0 ? (
+          <a href="/?signup=1"
+            className="block text-center py-3 rounded-xl text-[13px] font-semibold transition-all border border-white/10 text-white hover:bg-white/[0.04] hover:border-white/20">
+            {tier.cta}
+          </a>
+        ) : (
+          <button type="button" onClick={() => onChoose(tier)}
+            className={`block w-full text-center py-3 rounded-xl text-[13px] font-semibold transition-all ${
+              tier.recommended
+                ? 'bg-white text-black hover:shadow-[0_0_30px_-4px_rgba(255,255,255,0.35)]'
+                : 'border border-white/10 text-white hover:bg-white/[0.04] hover:border-white/20'
+            }`}>
+            {tier.cta}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -173,6 +185,18 @@ export default function PricingClient() {
   const [openFaq, setOpenFaq] = useState(null);
   const [hoverCol, setHoverCol] = useState(null);
   const [showGlobe, setShowGlobe] = useState(false);
+  // B-1 — checkout state. Checkout needs a session (the routes derive the user
+  // from the access token), so an anonymous visitor is sent to sign in first.
+  const [checkoutTier, setCheckoutTier] = useState(null);
+  const [checkoutMsg, setCheckoutMsg] = useState(null);
+
+  async function handleChoose(tier) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { window.location.href = '/?signup=1'; return; }
+    setCheckoutMsg(null);
+    setCheckoutTier(tier);
+  }
+
   useEffect(() => {
     const wide = window.matchMedia('(min-width: 1024px)').matches;
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -194,8 +218,28 @@ export default function PricingClient() {
 
       {/* TIER CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto px-6 pb-10 items-stretch">
-        {TIERS.map(tier => <PricingCard key={tier.key} tier={tier} annual={annual} />)}
+        {TIERS.map(tier => <PricingCard key={tier.key} tier={tier} annual={annual} onChoose={handleChoose} />)}
       </div>
+
+      {/* B-1 — payment method selector (Stripe card / MoMo wallet) */}
+      {checkoutTier && (
+        <div className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={e => { if (e.target === e.currentTarget) setCheckoutTier(null); }}>
+          <div className="w-full max-w-sm">
+            <PricingCheckoutFlow
+              tier={checkoutTier}
+              billingCycle={annual ? 'annual' : 'monthly'}
+              showToast={(m, t) => setCheckoutMsg({ message: m, type: t })}
+              onCancel={() => setCheckoutTier(null)}
+            />
+            {checkoutMsg && (
+              <p className={`mt-3 text-center text-[12px] font-semibold ${checkoutMsg.type === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>
+                {checkoutMsg.message}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* CINEMATIC EMAIL AUTOMATION — globe reprise + canvas mock */}
       <section className="relative py-32 my-8 overflow-hidden">

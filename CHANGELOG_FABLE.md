@@ -1015,3 +1015,258 @@ SDK needs a Node server.
 
 `npx next build` — compiled successfully; `/v/[token]` and `/call/[token]`
 registered as dynamic routes.
+
+---
+
+# Real Payments — Stripe (cards) + MoMo Wallet
+
+Branch: `feat/real-payments`
+
+## The one rule everything here is built around
+
+**A plan upgrade is granted only by a signature-verified server-side
+webhook/IPN.** Never by a client-side redirect, never by a `?checkout=success`
+query param. Two consequences, both deliberate:
+
+- A user who pays and closes the tab before the redirect fires **is still
+  upgraded**, because the provider called the webhook independently.
+- A user who hand-types `?checkout=success` **is not upgraded**, because
+  nothing server-side confirmed anything. The billing page simply re-reads the
+  database and shows whatever plan is actually there.
+
+## Migration — `supabase/migrations/20260724_real_payments.sql`
+
+Applied live 2026-07-24. Three tables: `subscriptions` (UNIQUE on `user_id`,
+so the webhook upserts are safe to repeat), `payment_transactions` (UNIQUE on
+`provider_transaction_id`, so a replayed webhook can't double-record), and
+`momo_pricing` seeded with the four VND prices.
+
+`subscriptions` and `payment_transactions` each have **exactly one policy: a
+SELECT policy.** There is no client INSERT/UPDATE/DELETE policy at all. This is
+the core security property of the whole part — every write goes through the
+service-role key inside a handler that has already verified a provider
+signature.
+
+- **Manual test — verified live:** as role `authenticated` with a real user's
+  JWT claims, `insert into subscriptions (…, plan 'max') `→
+  `ERROR 42501: new row violates row-level security policy for table
+  "subscriptions"`. Same for `payment_transactions`. `select` on
+  `momo_pricing` is allowed (it's public catalogue data).
+
+## B-1 — Pricing page payment-method selector
+
+`PricingCheckoutFlow` in `src/app/components/Billing.js`. Paid tier CTAs on
+`/pricing` (previously dead links to `/?signup=1`) now open a Stripe / MoMo
+chooser. The MoMo row shows the real VND price read from `momo_pricing`.
+Anonymous visitors are sent to sign up first, because both checkout routes
+identify the user from their access token server-side.
+
+- **Manual test:** open `/pricing`, toggle annual, click "Start Pro" → the
+  selector shows `4.900.000 ₫` for MoMo annual. Signed out → redirected to
+  signup instead.
+
+## B-2 — `POST /api/checkout/stripe`
+
+Creates a Checkout Session and returns its URL. Grants nothing. The plan and
+cycle are validated against a fixed allow-list and the **price ID comes from
+env, not the request**, so a client cannot name its own amount. Reuses an
+existing `stripe_customer_id` so a returning subscriber doesn't get a second
+customer record. `metadata` + `subscription_data.metadata` carry the plan to
+the webhook.
+
+## B-3 — `POST /api/webhooks/stripe` — the only Stripe upgrade path
+
+`stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET)` runs
+before anything else. Raw body is read with `req.text()` and the route is
+`runtime: 'nodejs'` + `force-dynamic`, because signature verification needs the
+exact bytes.
+
+Handles `checkout.session.completed` (upsert subscription + `usage_meters.plan`
++ record the transaction), `customer.subscription.updated`,
+`customer.subscription.deleted` (→ `plan: 'free'`), `invoice.payment_failed`
+(→ `past_due`). Deviations from the spec draft, both deliberate:
+
+- **Idempotency:** a prior `payment_transactions` row with the same session id
+  short-circuits. Stripe retries; without this, a retry would double-record.
+- **Subscription lookups key on `stripe_subscription_id`, not `metadata`** —
+  metadata is absent on subscriptions edited outside our checkout flow (e.g.
+  cancelled from the Billing Portal), which would have made those events silent
+  no-ops.
+- Handler errors return **500 so Stripe retries**, rather than swallowing an
+  upgrade the customer already paid for.
+
+- **Manual test — signature logic verified live 2026-07-24** (against the real
+  `stripe` SDK, `whsec_` test secret):
+  - forged event, **no** `stripe-signature` header → **REJECTED**
+    ("No stripe-signature header value was provided")
+  - forged event, made-up signature `t=123,v1=deadbeef` → **REJECTED**
+    ("No signatures found matching the expected signature")
+  - genuine event signed with the real secret → **ACCEPTED**, `type` parsed
+  This is what proves the check is real rather than decorative.
+- **Manual test (end-to-end, needs your keys):** with Stripe test keys set, pay
+  with `4242 4242 4242 4242`. `subscriptions.plan` and `usage_meters.plan` both
+  become the purchased plan; `payment_transactions` gets a `succeeded` row.
+  Then `curl -X POST <url>/api/webhooks/stripe -d '{"type":"checkout.session.completed"}'`
+  → **400**.
+
+## B-4 — `POST /api/checkout/momo`
+
+The HMAC-SHA256 raw string is written out **literally**, one key per line, so
+the required order is reviewable at a glance rather than depending on an
+object's iteration order. Amount is read from `momo_pricing` — never from the
+request. A **pending** `payment_transactions` row is written *before* redirecting,
+so the IPN always has something to reconcile against; if MoMo is unreachable or
+rejects the request, that row is flipped to `failed` rather than left dangling.
+
+Points at MoMo's **sandbox** (`test-payment.momo.vn`). Overridable with
+`MOMO_ENDPOINT`; switch to `payment.momo.vn` only once the merchant account is
+verified for production.
+
+- **Manual test — verified live:** the generated key order is
+  `accessKey,amount,extraData,ipnUrl,orderId,orderInfo,partnerCode,redirectUrl,requestId,requestType`
+  — confirmed byte-identical to sorted order.
+
+## B-5 — `POST /api/webhooks/momo` — the only MoMo upgrade path
+
+Signature verified against MoMo's longer IPN field list, compared with
+`crypto.timingSafeEqual` so the check can't be probed byte-by-byte. Idempotent:
+a transaction already `succeeded` returns `{ok:true, already:true}` and does
+nothing.
+
+Three checks added beyond the spec draft, because `extraData` alone shouldn't
+be the authority on who gets upgraded:
+
+- `extra.user_id` must match the pending row's `user_id`
+- `extra.plan` must match the pending row's `plan`
+- `body.amount` must match the pending row's `amount`
+
+Any mismatch → 400, no upgrade.
+
+- **Manual test — signature logic verified live 2026-07-24:**
+  - IPN with **no** signature → **REJECTED**
+  - IPN with a bogus 64-char signature → **REJECTED**
+  - IPN correctly signed with the secret → **ACCEPTED**
+  - correctly signed, then **amount tampered** after signing → **REJECTED**
+- **Manual test (idempotency):** POST the same successful `orderId` twice → the
+  second returns `already: true`, and `payment_transactions` still holds one row
+  with one `succeeded` status.
+
+## B-6 — `momo-renewal-reminder` edge function (deployed v3, cron `0 7 * * *`)
+
+MoMo's standard merchant API has **no recurring charge** — each period is a
+fresh payment. Handled in two halves, expiry first so an already-expired
+subscription can't also receive a "renews soon" email:
+
+1. Anything past `current_period_end` → `status: 'expired'`, `plan: 'free'`,
+   and `usage_meters.plan → 'free'`. **No silent free extension of a paid plan.**
+2. Anything expiring within 3 days → a reminder email via Resend, saying plainly
+   that MoMo won't auto-charge and that the data stays if the plan lapses.
+
+**Two real bugs found and fixed during verification:**
+
+- The auth gate was written as `if (CRON_TOKEN) { … }`, which **failed open**
+  when the variable was unset — an unauthenticated caller got a 200 and could
+  have been used to spam reminder emails. Now fails closed.
+- The first cron job read the Vault secret as `'CRON_TOKEN'`, but this project's
+  secret is lowercase **`cron_token`**. The job would have silently sent an
+  empty bearer token forever. Rescheduled correctly, and the function now uses
+  the same `get_cron_token` SECURITY DEFINER RPC that `sequence-runner` uses,
+  so no new edge-function secret is needed.
+
+- **Manual test — verified live 2026-07-24, four runs:**
+  - unauthenticated POST → **401** `{"error":"unauthorized"}`
+  - wrong bearer token → **401**
+  - real cron command (Vault `cron_token`), subscription 2 days past its period
+    end → **200** `{"ok":true,"reminded":0,"downgraded":1}`, and the row went
+    `pro/active` → `free/expired` with `usage_meters.plan` → `free`
+  - real cron command, subscription expiring in 2 days → **200**
+    `{"reminded":0,"downgraded":0,"skipped":["<uid>: no email"]}` — the reminder
+    branch selected the right row and reported honestly why it couldn't send
+    (that test account has no email address; a real account with
+    `RESEND_API_KEY` set sends).
+  All test rows were deleted afterwards; `subscriptions`, `payment_transactions`
+  and `usage_meters` are all back to 0 rows.
+
+## B-7 — Settings → Billing
+
+`BillingSettings` renders in two places: the in-app Settings screen, and a
+standalone `/settings/billing` page (the `success_url` / `redirectUrl` target
+for both providers). Shows the real plan, status pill, renewal date, provider,
+and full payment history from `payment_transactions`.
+
+Returning from a provider triggers a **short re-poll** (6 × 2.5s) with the
+message "Payment received — confirming with the provider…", because the webhook
+may land a moment after the redirect. It never assumes an upgrade from the URL.
+
+Stripe subscribers get **Manage subscription** → `GET /api/billing/stripe-portal`
+→ a real Billing Portal session, scoped to their own `stripe_customer_id`. MoMo
+subscribers get **Renew via MoMo** plus a plain-language note that MoMo doesn't
+auto-renew and their data stays if the plan lapses.
+
+## A-5 follow-up: `/api/v1/capture-extension`
+
+`SUPABASE_SERVICE_ROLE_KEY` turned out to be present in `.env.local` (it was
+added mid-session, after the Part I recon read the file). The Next.js route the
+original spec asked for now exists at `src/app/api/v1/capture-extension/route.js`
+alongside `src/lib/supabaseAdmin.js`, and Settings → Capture shows it as the
+endpoint. The `capture-extension` edge function stays deployed as a fallback for
+deployments without the key in the Next runtime; both behave identically.
+
+## ENVIRONMENT VARIABLES — required before real payments can process
+
+**None of these are set yet.** Set them in Vercel (Project → Settings →
+Environment Variables). Values are yours to generate; nothing here is a secret
+this repo should ever contain.
+
+| Variable | Where it comes from | Mode |
+|---|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API | already set locally; **must also be set in Vercel** |
+| `NEXT_PUBLIC_APP_URL` | your deployed origin, e.g. `https://yourcrm.app` | required — used for every redirect and the IPN URL |
+| `STRIPE_SECRET_KEY` | Stripe Dashboard → API keys | `sk_test_…` first, `sk_live_…` at launch |
+| `STRIPE_WEBHOOK_SECRET` | Stripe Dashboard → Developers → Webhooks, after adding the endpoint | `whsec_…`, differs between test and live |
+| `STRIPE_PRICE_PRO_MONTHLY` | Stripe → Products, one recurring Price each | `price_…` |
+| `STRIPE_PRICE_PRO_ANNUAL` | " | `price_…` |
+| `STRIPE_PRICE_MAX_MONTHLY` | " | `price_…` |
+| `STRIPE_PRICE_MAX_ANNUAL` | " | `price_…` |
+| `MOMO_PARTNER_CODE` | business.momo.vn on signup | sandbox first, then live merchant code |
+| `MOMO_ACCESS_KEY` | " | " |
+| `MOMO_SECRET_KEY` | " | " |
+| `MOMO_ENDPOINT` | optional override | defaults to sandbox; set to `https://payment.momo.vn/v2/gateway/api/create` for production |
+
+Supabase edge-function secrets for `momo-renewal-reminder`:
+`RESEND_API_KEY`, `BILLING_FROM_EMAIL` (a domain verified in Resend), `APP_URL`.
+Without `RESEND_API_KEY` the job still expires lapsed plans correctly and reports
+each unsent reminder in its `skipped` array.
+
+Every route degrades honestly rather than crashing: unset Stripe/MoMo keys make
+the matching checkout return **503 "not configured yet"**, and the webhooks
+return 503 instead of pretending to verify.
+
+## What I could not do for you
+
+Create your Stripe account, register your business with MoMo, or generate real
+API keys — all three require your own KYC/business verification with each
+provider. The integration layer is complete and its signature logic is verified;
+it needs your credentials to move real money.
+
+## Going live — the order that matters
+
+1. Create Stripe + MoMo merchant accounts; complete verification.
+2. In Stripe, create four recurring Prices (pro/max × monthly/annual).
+3. Set every variable above in Vercel, starting with **test-mode** keys.
+4. In Stripe → Developers → Webhooks, add `https://<your-domain>/api/webhooks/stripe`
+   subscribed to `checkout.session.completed`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, `invoice.payment_failed`. Copy the signing
+   secret into `STRIPE_WEBHOOK_SECRET`.
+5. MoMo's `ipnUrl` (`https://<your-domain>/api/webhooks/momo`) is already sent
+   with every request; confirm it in the merchant dashboard when available.
+6. Test end to end in sandbox: card `4242 4242 4242 4242`, and a MoMo sandbox
+   wallet.
+7. Only then swap to live keys and set `MOMO_ENDPOINT` to production.
+
+## Build
+
+`npx next build` — compiled successfully. Six API routes registered:
+`/api/billing/stripe-portal`, `/api/checkout/momo`, `/api/checkout/stripe`,
+`/api/v1/capture-extension`, `/api/webhooks/momo`, `/api/webhooks/stripe`,
+plus the `/settings/billing` page.
