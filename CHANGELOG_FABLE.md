@@ -805,3 +805,19 @@ New **Toolkit** nav view (tabbed) plus pure helpers, all deterministic, zero AI/
 - **B7 `domain-health-check` (deployed, verify_jwt on).** Real SPF/DKIM/DMARC via Deno's built-in `Deno.resolveDns` TXT lookups — no external API, no key. Hardened vs the prompt's sketch: the user id comes from the **caller's JWT**, not the request body (the sketch trusted `userId` from the body, which would let anyone write rows for another user). Domain input is normalised (strips scheme/path) and regex-validated. Persists to `domain_health_checks`.
 - **F31 `fx-rates-update` (deployed + cron + verified live).** Pulls open.er-api.com `/latest/USD` (free, keyless), stores `rate_to_usd` so conversion is `value * fx_rate_to_usd`. **Invoked it for real: `{"ok":true,"count":166}`**, and confirmed sane values in the DB (EUR 1.1387, GBP 1.3327, JPY 0.0061, USD 1.0000). Scheduled via pg_cron `fx-rates-update` at `0 6 * * *`, confirmed `active=true` alongside the existing sequence-runner job. No secret embedded in the cron command (the function is verify_jwt=false, so none is needed).
 - **Manual test:** `curl -X POST .../functions/v1/fx-rates-update` returns a count and `select * from fx_rates` shows fresh rates; calling `domain-health-check` with `{"domain":"gmail.com"}` and a valid session returns real pass/missing statuses and writes a `domain_health_checks` row.
+
+## 50-feature pass — honest status
+**Built, verified, and live (~12 of 50):** the full Step-0 schema foundation for *all* 50 features (35 tables, every one with a real RLS policy, 2 SECURITY DEFINER functions, all new columns — verified by query, not assumed), plus these working features: C12 offer comparator, C13 interview practice (50 questions seeded), B10 negotiation scripts, B8 reputation dashboard, A5 networking score, D20 scheduling overlap, J48 deal-won confetti, G33 burnout signal, B7 domain-health-check (deployed), F31 FX rates (deployed + cron + **invoked live**). Pure helpers for J45/A2/E23/B6/C16 are written and exported.
+
+**Not built this pass** — schema is ready for every one of them, but the UI/function layer was not reached, and I'd rather say so than ship stubs the prompt explicitly forbids:
+- **A**: alumni directory UI, warm-intro finder UI, public card page + routes, template marketplace.
+- **C**: C14 job-watch edge function + UI, C15 deadline widget, C16 skill-gap panel.
+- **D**: D17 video messages, D18 WebRTC calling, D19 audio recorder, D21 voice memos (all need a Storage bucket + public routes).
+- **E**: E22 Chrome extension + capture endpoint, E23 parser UI hook, E24 OCR scanner UI (tesseract.js is installed), E25 domain enrich, E26 visitor log.
+- **F**: F27 territory UI/auto-assign, F28 import presets, F29 deal rooms, F30 consent gate in `handleBulkEnroll`.
+- **G**: G32 session timer, G34 Wrapped, G35 daily digest. **B11** weekly digest. (Both digests need `RESEND_API_KEY` configured.)
+- **H**: H36 A/B tests, H37 multi-path branching, H38 Zapier spec, H39 recipe sharing, H40 send retries (H37/H40 also need a sequence-runner redeploy).
+- **I**: I41 white-label theming (a real cross-component refactor), I42 usage meters, I43 referrals, I44 API dashboard.
+- **J**: J45 palette wiring, J46 cursors, J47 story view, J49 offline sync.
+
+Also still outstanding from the prior pass: the **sequence-runner redeploy** (its 4.3/5.1/7.1 changes are committed but not deployed), and the **Gmail reconnect** — nothing auto-sends until that consent screen is approved.
