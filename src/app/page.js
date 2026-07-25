@@ -25,6 +25,8 @@ import {
 } from './components/MediaCapture';
 // REAL PAYMENTS — Settings → Billing (plan, renewal, payment history)
 import { BillingSettings } from './components/Billing';
+// MANUAL MOMO QR — admin approval panel + owner price/QR config (self-gating)
+import { AdminManualPayments, ManualPayConfigForm } from './components/ManualMomoPay';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
 // V9 marketing home — outer-space system (root page is outside the (marketing)
@@ -10511,6 +10513,11 @@ export default function App() {
               <h2 className="text-[15px] font-bold text-gray-900 dark:text-white mb-3">Billing</h2>
               <BillingSettings user={user} showToast={showToast} />
             </div>
+
+            {/* MANUAL MOMO QR — admin-only panels. Each renders its own card,
+                or nothing at all unless profiles.is_admin is true. */}
+            <AdminManualPayments user={user} showToast={showToast} />
+            <ManualPayConfigForm user={user} showToast={showToast} />
 
             {/* MEDIA ROUND A — A-5: browser-extension capture token */}
             <div className="bg-white dark:bg-gray-900 p-6 sm:p-8 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-md transition-shadow">

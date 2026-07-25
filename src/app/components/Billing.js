@@ -13,6 +13,7 @@
 // ============================================================================
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { ManualMomoQrPanel } from './ManualMomoPay';
 
 const btnBase = 'px-4 py-2 text-[13px] font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
 
@@ -64,9 +65,10 @@ async function authedFetch(url, options = {}) {
 // ============================================================================
 // B-1 — payment method selection
 // ============================================================================
-export function PricingCheckoutFlow({ tier, billingCycle, showToast, onCancel }) {
+export function PricingCheckoutFlow({ tier, billingCycle, showToast, onCancel, onActivated }) {
   const [loading, setLoading] = useState(null); // null | 'stripe' | 'momo'
   const [momoPrice, setMomoPrice] = useState(null);
+  const [manualQr, setManualQr] = useState(false); // swap to the QR panel
 
   useEffect(() => {
     let alive = true;
@@ -92,6 +94,19 @@ export function PricingCheckoutFlow({ tier, billingCycle, showToast, onCancel })
     }
   }
 
+  // Once the user picks manual QR, hand off entirely to the QR panel.
+  if (manualQr) {
+    return (
+      <ManualMomoQrPanel
+        tier={tier}
+        billingCycle={billingCycle}
+        showToast={showToast}
+        onBack={() => setManualQr(false)}
+        onActivated={onActivated}
+      />
+    );
+  }
+
   return (
     <div className="p-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
       <p className="text-[14px] font-bold mb-1 text-gray-900 dark:text-white">Choose a payment method</p>
@@ -104,9 +119,17 @@ export function PricingCheckoutFlow({ tier, billingCycle, showToast, onCancel })
       </button>
 
       <button type="button" onClick={() => go('momo')} disabled={!!loading}
-        className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-400 transition-colors disabled:opacity-50">
+        className="w-full flex items-center justify-between px-4 py-3 mb-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-400 transition-colors disabled:opacity-50">
         <span className="text-[13px] font-semibold text-gray-900 dark:text-white">MoMo Wallet</span>
         <span className="text-[11px] text-gray-400">{momoPrice ? formatVND(momoPrice) : '—'}</span>
+      </button>
+
+      {/* Manual QR — the payer transfers via their own MoMo app and an admin
+          confirms it. Works without any MoMo merchant integration. */}
+      <button type="button" onClick={() => setManualQr(true)} disabled={!!loading}
+        className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-400 transition-colors disabled:opacity-50">
+        <span className="text-[13px] font-semibold text-gray-900 dark:text-white">Pay with MoMo QR</span>
+        <span className="text-[11px] text-gray-400">Scan &amp; transfer</span>
       </button>
 
       {loading && <p className="text-[12px] text-gray-400 mt-3 text-center">Redirecting to {loading === 'stripe' ? 'Stripe' : 'MoMo'}…</p>}

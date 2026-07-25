@@ -231,6 +231,7 @@ export default function PricingClient() {
               billingCycle={annual ? 'annual' : 'monthly'}
               showToast={(m, t) => setCheckoutMsg({ message: m, type: t })}
               onCancel={() => setCheckoutTier(null)}
+              onActivated={() => { window.location.href = '/settings/billing'; }}
             />
             {checkoutMsg && (
               <p className={`mt-3 text-center text-[12px] font-semibold ${checkoutMsg.type === 'error' ? 'text-red-400' : 'text-emerald-400'}`}>

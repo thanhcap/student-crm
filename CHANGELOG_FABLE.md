@@ -1270,3 +1270,102 @@ it needs your credentials to move real money.
 `/api/billing/stripe-portal`, `/api/checkout/momo`, `/api/checkout/stripe`,
 `/api/v1/capture-extension`, `/api/webhooks/momo`, `/api/webhooks/stripe`,
 plus the `/settings/billing` page.
+
+---
+
+# Manual MoMo QR Payments (UI only)
+
+Branch: `feat/manual-momo-qr`
+
+**No backend was created, changed, or migrated.** The tables and four RPCs were
+already deployed. This pass is purely the React UI that calls them via the
+existing `supabase` client. Step 0 confirmed against the live DB: all four RPCs
+exist with the exact signatures given (`create_manual_payment(p_plan, p_cycle)`,
+`list_pending_manual_payments()`, `approve_manual_payment(p_code)`,
+`reject_manual_payment(p_code, p_reason DEFAULT null)`), `manual_pay_config`
+has its seeded row, and `profiles.is_admin` is a boolean. Reading the
+`create_manual_payment` body confirmed the code is stored in
+`payment_transactions.provider_transaction_id` with `provider='manual_qr'` and
+statuses `pending`/`succeeded`/`cancelled`/`rejected` — which is exactly what
+the payer poll and admin panel key on.
+
+New file: `src/app/components/ManualMomoPay.js`. Wired into the existing
+`PricingCheckoutFlow` (a third method button) and the in-app Settings screen.
+
+## Screen 1 — MoMo QR checkout (`ManualMomoQrPanel`)
+
+- Added a **"Pay with MoMo QR"** button beside Stripe / MoMo Wallet in
+  `PricingCheckoutFlow`. Choosing it swaps the whole panel to the QR view.
+- On mount, calls `create_manual_payment({ p_plan, p_cycle })`. **No amount is
+  ever sent** — the server sets it. A `useRef` guard prevents React's dev
+  double-invoke from creating (and thus cancelling) a second code.
+- Shows: the QR image large and scannable, the exact amount + currency
+  (`50,000 VND`), the code in a big monospace box with a Copy button and the
+  line "Add this code to your MoMo transfer message — it's how we match your
+  payment.", plus `receiver_name`/`receiver_handle`/`instructions` when present.
+- Polls the payer's own `payment_transactions` row every 10s (immediate first
+  check). `succeeded` → success state "You're on Pro! 🎉" and fires
+  `onActivated`; `rejected`/`cancelled` → gentle "This request was cancelled —
+  start again." All timers cleared on unmount and on state change.
+- A thrown `create_manual_payment` error (e.g. price not configured) is shown as
+  a toast and an inline "Try again", not a crash.
+
+## Screen 2 — Admin approval panel (`AdminManualPayments`)
+
+- **Self-gating:** reads the current user's `profiles.is_admin` on mount and
+  renders `null` for everyone else — the Settings card doesn't even appear.
+- Loads `list_pending_manual_payments()` on open + a Refresh button. Table
+  columns: User (email + username) · Plan · Cycle · Amount · Code · Requested.
+- **Confirm** → `approve_manual_payment({ p_code })`, removes the row, toasts
+  "Activated Pro for <email>". A subheading reminds the admin to verify the
+  transfer in their MoMo app first.
+- **Reject** → `window.prompt` for an optional reason →
+  `reject_manual_payment({ p_code, p_reason })`, removes the row. Cancelling the
+  prompt aborts.
+- Empty state: "No payments waiting for approval." Any RPC error → toast.
+
+## Screen 3 — Owner price & QR settings (`ManualPayConfigForm`)
+
+Built because `plan_prices` is **empty** — without it, `create_manual_payment`
+throws for everyone and the feature can't be used. Also self-gating on
+`is_admin`.
+
+- Prices: four inputs (pro/max × monthly/annual) upserted into `plan_prices`
+  on `(plan, billing_cycle)` (verified that's the primary key). Values in VND.
+- Config: updates the single `manual_pay_config` row (`id = 1`) —
+  `qr_image_url` (with a live preview), `receiver_name`, `receiver_handle`,
+  `code_prefix`, `instructions`.
+
+## Verified live end-to-end (2026-07-25), then all test data deleted
+
+Using a real non-admin user (Long Cap) and the real admin account, via the
+actual RPCs under `role authenticated` with each user's JWT claims:
+
+1. No price configured → `create_manual_payment` throws
+   `price not configured for pro monthly` (Screen 1's error path is real).
+2. After seeding a price, `create_manual_payment('pro','monthly')` returned
+   `{ code: SUB-5BC7B6, amount: 50000, currency: VND, … }` and wrote a `pending`
+   row.
+3. The non-admin could `select status` on **their own** row (the poll) → `pending`.
+4. The non-admin calling `list_pending_manual_payments()` → **`not authorized`**.
+5. The admin's `list_pending_manual_payments()` returned the row with
+   `user_email` + `username`.
+6. `approve_manual_payment('SUB-5BC7B6')` → `{ ok: true, plan: pro, period_end … }`.
+7. The payer's poll then read **`succeeded`** — Screen 1 flips to success within
+   one cycle.
+8. Creating two codes in a row left only the newest `pending`; the previous went
+   `cancelled` (one active code per user).
+
+Cleanup confirmed: manual transactions, the test subscription/usage row, and the
+seeded price were all deleted — `plan_prices` is back to 0 rows.
+
+## Owner setup note
+
+Before anyone can pay: an admin opens **Settings → Manual Payment Settings**,
+sets the four VND prices and the QR image URL / receiver details, and saves. (Or
+seeds `plan_prices` and `manual_pay_config` directly, as the prompt notes is
+already happening outside Fable.)
+
+## Build
+
+`npx next build` — compiled successfully.
