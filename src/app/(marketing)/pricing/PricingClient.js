@@ -94,35 +94,25 @@ function BillingToggle({ annual, onToggle }) {
 }
 
 function PricingCard({ tier, annual, onChoose, owner }) {
-  const ref = useRef(null);
-  const [tilt, setTilt] = useState({ rx: 0, ry: 0, px: 50, py: 50 });
-  function onMove(e) {
-    const el = ref.current; if (!el) return;
-    const r = el.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width;
-    const py = (e.clientY - r.top) / r.height;
-    setTilt({ rx: (0.5 - py) * 12, ry: (px - 0.5) * 14, px: px * 100, py: py * 100 });
-  }
-  function onLeave() { setTilt({ rx: 0, ry: 0, px: 50, py: 50 }); }
+  // Part C5 — Apple hover: a clean upward lift + precise shadow, no tilt.
+  const [hovered, setHovered] = useState(false);
   const price = annual ? Math.round(tier.price * 0.85) : tier.price;
 
   return (
-    <div ref={ref} onMouseMove={onMove} onMouseLeave={onLeave}
+    <motion.div
+      onHoverStart={() => setHovered(true)} onHoverEnd={() => setHovered(false)}
+      animate={hovered
+        ? { y: -8, boxShadow: '0 24px 60px rgba(41,151,255,0.18)' }
+        : { y: 0, boxShadow: '0 2px 16px rgba(0,0,0,0.35)' }}
+      transition={{ type: 'spring', stiffness: 300, damping: 25 }}
       className={`relative will-change-transform rounded-[24px] p-[1px] ${
-        tier.recommended ? 'bg-gradient-to-br from-violet-500 via-cyan-500 to-amber-400' : 'bg-white/[0.08]'
-      }`}
-      style={{
-        transform: `perspective(800px) rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg) translateY(${tilt.rx ? -4 : 0}px)`,
-        transition: 'transform 500ms cubic-bezier(0.22,1,0.36,1)',
-      }}>
-      {/* cursor light */}
-      <div className="absolute inset-0 rounded-[24px] overflow-hidden pointer-events-none"
-           style={{ background: `radial-gradient(500px circle at ${tilt.px}% ${tilt.py}%, rgba(255,255,255,0.06), transparent 50%)` }} />
+        tier.recommended ? 'bg-gradient-to-br from-[#2997FF] to-[#0071E3]' : 'bg-white/[0.08]'
+      }`}>
       <div className={`relative rounded-[23px] p-7 h-full ${tier.recommended ? 'bg-[#0A0A18]' : 'bg-[#0C0C16]'}`}>
         {tier.recommended && (
           <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 text-[10px] font-bold uppercase tracking-[0.12em]
-                           bg-gradient-to-r from-violet-500 to-cyan-400 text-black rounded-full whitespace-nowrap
-                           shadow-[0_0_24px_-4px_rgba(139,92,246,0.5)] animate-[shimmer_3s_ease-in-out_infinite]"
+                           bg-gradient-to-r from-[#2997FF] to-[#0071E3] text-white rounded-full whitespace-nowrap
+                           shadow-[0_0_24px_-4px_rgba(41,151,255,0.5)] animate-[shimmer_3s_ease-in-out_infinite]"
                 style={{ backgroundSize: '200% 100%' }}>
             Recommended
           </span>
@@ -172,7 +162,7 @@ function PricingCard({ tier, annual, onChoose, owner }) {
           </button>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 

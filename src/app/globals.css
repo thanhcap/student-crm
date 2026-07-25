@@ -13,6 +13,23 @@
   --color-text-primary: #F3F5F9;
   --color-text-secondary: #7E89A1;
 
+  /* ==========================================================================
+     LANDING PAGE PALETTE (Part C) — Apple-inspired, one source of truth.
+     Defined in @theme so Tailwind v4 emits them to :root (a bare :root{} block
+     gets dropped by the compiler). The marketing landing commits to Apple's
+     DARK product-page look (true black, near-white text, Apple blue accent),
+     which sits naturally over the existing star-field / 3D Earth. Old
+     purple/cyan/amber accents are replaced by --land-accent on the landing.
+     ========================================================================== */
+  --land-bg:      #000000;
+  --land-surface: #1C1C1E;
+  --land-text:    #F5F5F7;
+  --land-text-2:  #98989D;
+  --land-accent:  #2997FF;
+  --land-accent-2: #0071E3;
+  --land-border:  rgba(255,255,255,0.10);
+  --land-glass:   rgba(28,28,30,0.72);
+
   /* Status Color Matrix */
   --color-accent-cyan: #4DE8FF;
   --color-accent-violet: #BF7BFF;

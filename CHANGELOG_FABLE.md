@@ -1481,3 +1481,43 @@ config, so you see who's coming up where you set it.
 **B4.** `automation_triggers` is fetched on app load alongside sequences/tasks.
 
 Build: `npx next build` — compiled successfully.
+
+## Part C — Apple-motion landing redesign
+
+**C1 — New palette.** Landing commits to Apple's dark product-page look: true
+black background, near-white text (#F5F5F7), Apple blue accent (#2997FF). The
+old purple/cyan/amber accents are gone from the landing (verified: zero
+violet/cyan/amber classes remain in the landing region). The 3D Earth stays; its
+atmospheric glow is now Apple blue.
+- Implementation note: the palette is documented as `--land-*` tokens in
+  `globals.css` `@theme`, **but Tailwind v4 tree-shakes theme vars that are only
+  referenced from inline JS styles** (which the compiler can't see), so they
+  resolve empty at runtime. Verified this live in the browser, then switched the
+  landing + nav to the literal Apple hex values so the palette actually renders.
+
+**C2 — Scroll/entrance reveals.** New `SplitReveal` component animates headlines
+word-by-word (opacity + rise + blur clear, Apple's cubic-bezier). The hero
+headline uses mount-triggered animation (reliable above the fold); section
+headlines use `whileInView`.
+
+**C3 — Parallax hero.** `useScroll`/`useTransform` anchor the Earth (drifts to
+18%) while the copy scrolls faster (55%) and fades — the Apple "product float".
+
+**C4 — Feature reveals.** The existing feature/how-it-works/automation sections
+keep their scroll-triggered entrance animations under the new palette.
+
+**C5 — Pricing card hover.** Replaced the cursor-tilt card with an Apple spring
+lift (`y: -8` + a precise Apple-blue shadow, `spring` transition). The
+Recommended badge and Pro border are now Apple blue. **Verified live.**
+
+**C6 — Nav frosting.** `MarketingNav` is transparent at the top and frosts to
+glass (blur + saturate + hairline border + shadow) once scrolled past 48px.
+**Verified live** (transparent at top in the hero screenshot).
+
+Browser-verified live: black palette, Apple-blue "AI-Powered Networking" label,
+blue Earth glow, transparent→frosted nav, blue Recommended badge. (The
+word-by-word reveal only freezes in the automated preview because that tab runs
+`document.visibilityState === 'hidden'`, which pauses framer-motion's rAF; it
+plays normally for a focused user.)
+
+Build: `npx next build` — compiled successfully; 17/17 pages generated.

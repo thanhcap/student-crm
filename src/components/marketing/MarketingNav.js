@@ -2,7 +2,7 @@
 // V9 — floating glass nav shared by every marketing page. Sits ON TOP of the
 // 3D scene. Auth entry points use the live modal flow (/?login=1, /?signup=1).
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { LogoFull } from '../Logo';
 
@@ -16,12 +16,25 @@ const LINKS = [
 export default function MarketingNav() {
   const path = usePathname();
   const [open, setOpen] = useState(false);
+  // Part C6 — Apple nav: transparent at the very top, frosted glass on scroll.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const handler = () => setScrolled(window.scrollY > 48);
+    handler();
+    window.addEventListener('scroll', handler, { passive: true });
+    return () => window.removeEventListener('scroll', handler);
+  }, []);
   return (
     <nav className="fixed top-0 inset-x-0 z-50">
       <div className="mx-auto max-w-6xl px-6 mt-4">
-        <div className="flex items-center justify-between h-14 px-5 rounded-2xl
-                        bg-white/[0.04] backdrop-blur-xl border border-white/[0.08]
-                        shadow-[0_0_30px_-10px_rgba(139,92,246,0.15)]">
+        <div className="flex items-center justify-between h-14 px-5 rounded-2xl transition-all duration-500 border"
+          style={{
+            background: scrolled ? 'rgba(28,28,30,0.72)' : 'transparent',
+            backdropFilter: scrolled ? 'blur(20px) saturate(180%)' : 'none',
+            WebkitBackdropFilter: scrolled ? 'blur(20px) saturate(180%)' : 'none',
+            borderColor: scrolled ? 'rgba(255,255,255,0.10)' : 'transparent',
+            boxShadow: scrolled ? '0 8px 30px -12px rgba(0,0,0,0.5)' : 'none',
+          }}>
           <Link href="/" aria-label="Home"><LogoFull /></Link>
 
           <div className="hidden md:flex items-center gap-1">

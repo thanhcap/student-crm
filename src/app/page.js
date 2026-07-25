@@ -30,7 +30,7 @@ import SmartAutomationsView, { UpcomingBirthdaysWidget } from './components/Smar
 // MANUAL MOMO QR — admin approval panel + owner price/QR config (self-gating)
 import { AdminManualPayments, ManualPayConfigForm } from './components/ManualMomoPay';
 import dynamic from 'next/dynamic';
-import { motion } from 'framer-motion';
+import { motion, useScroll, useTransform } from 'framer-motion';
 // V9 marketing home — outer-space system (root page is outside the (marketing)
 // route group but composes the same SpaceBackground/Nav/Footer pieces).
 import './(marketing)/marketing.css';
@@ -70,6 +70,34 @@ const T = {
 };
 const SP = { xs: 'gap-2', sm: 'gap-3', md: 'gap-5', lg: 'gap-8', xl: 'gap-12' };
 const EASE = [0.22, 1, 0.36, 1];
+
+// Part C — Apple's signature easing + a word-by-word "writes itself" reveal.
+const EASE_APPLE = [0.25, 0.46, 0.45, 0.94];
+function SplitReveal({ text, className = '', style, delay = 0, as = 'span', mount = false }) {
+  const words = String(text).split(' ');
+  const Tag = motion[as] || motion.span;
+  // Above-the-fold headlines animate on mount (reliable, no observer); others
+  // reveal on scroll into view.
+  const trigger = mount
+    ? { animate: 'visible' }
+    : { whileInView: 'visible', viewport: { once: true, amount: 0.2 } };
+  return (
+    <Tag className={className} style={style}
+      initial="hidden" {...trigger}
+      variants={{ visible: { transition: { staggerChildren: 0.045, delayChildren: delay } } }}>
+      {words.map((word, i) => (
+        <motion.span key={i} style={{ display: 'inline-block', marginRight: '0.28em' }}
+          variants={{
+            hidden: { opacity: 0, y: 18, filter: 'blur(6px)' },
+            visible: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.6, ease: EASE_APPLE } },
+          }}>
+          {word}
+        </motion.span>
+      ))}
+    </Tag>
+  );
+}
+
 const ACCENT = {
   trigger:   { bar: 'bg-violet-500',  soft: 'bg-violet-500/10',  text: 'text-violet-600 dark:text-violet-400' },
   email:     { bar: 'bg-blue-500',    soft: 'bg-blue-500/10',    text: 'text-blue-600 dark:text-blue-400' },
@@ -1779,6 +1807,14 @@ function LandingPage({ onLogin, onSignup }) {
     show: { opacity: 1, y: 0, transition: { duration: 0.8, ease: EASE } },
   };
 
+  // Part C3 — Apple "product float" parallax: the Earth is anchored and drifts
+  // slower than the copy scrolling past it.
+  const heroRef = useRef(null);
+  const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] });
+  const earthY = useTransform(scrollYProgress, [0, 1], ['0%', '18%']);
+  const copyY = useTransform(scrollYProgress, [0, 1], ['0%', '55%']);
+  const copyOpacity = useTransform(scrollYProgress, [0, 0.6], [1, 0]);
+
   const FEATURES_STRIP = [
     { label: 'Relationships', desc: 'Full contact history, company links, and engagement scores in one view.' },
     { label: 'Deals Pipeline', desc: 'Drag deals across stages. Won deals trigger onboarding emails automatically.' },
@@ -1794,32 +1830,32 @@ function LandingPage({ onLogin, onSignup }) {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col text-white">
+    <div className="min-h-screen flex flex-col" style={{ background: '#000000', color: '#F5F5F7' }}>
       <SpaceBackground />
       <MarketingNav />
 
       <main className="relative z-10 flex-1">
-        {/* HERO — Earth left, copy right */}
-        <section className="relative min-h-screen flex items-center pt-24 pb-16">
+        {/* HERO — Earth left (anchored, slow parallax), copy right (faster) */}
+        <section ref={heroRef} className="relative min-h-screen flex items-center pt-24 pb-16">
           <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-4 items-center w-full">
             {/* LEFT — the Earth (real space; this is the hero, not a decoration) */}
-            <div className="relative h-[420px] lg:h-[680px] lg:-ml-16 order-2 lg:order-1">
+            <motion.div style={{ y: earthY }} className="relative h-[420px] lg:h-[680px] lg:-ml-16 order-2 lg:order-1">
               {show3d ? <GlobeScene /> : (
                 <div className="w-full h-full flex items-center justify-center">
                   <div className="w-[70%] max-w-[400px] aspect-square rounded-full"
-                       style={{ background: 'radial-gradient(circle at 35% 35%, #1a4a8a, #0a1628 70%)', boxShadow: '0 0 100px 30px rgba(77,166,255,0.08), inset 0 0 60px rgba(77,166,255,0.05)' }} />
+                       style={{ background: 'radial-gradient(circle at 35% 35%, #1a4a8a, #0a1628 70%)', boxShadow: '0 0 100px 30px rgba(41,151,255,0.12), inset 0 0 60px rgba(41,151,255,0.06)' }} />
                 </div>
               )}
-            </div>
+            </motion.div>
 
-            {/* RIGHT — copy */}
-            <motion.div variants={fadeUp} initial="hidden" animate="show" className="max-w-lg lg:ml-auto order-1 lg:order-2">
-              <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-violet-400 mb-4">AI-Powered Networking</p>
-              <h1 className="text-[40px] lg:text-[56px] font-semibold leading-[1.05] tracking-[-0.03em] mb-5" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
-                Your network,<br />
-                <span className="bg-gradient-to-r from-violet-400 via-cyan-400 to-amber-300 bg-clip-text text-transparent">visualized.</span>
+            {/* RIGHT — copy (parallax faster than the Earth, fades on scroll) */}
+            <motion.div style={{ y: copyY, opacity: copyOpacity }} className="max-w-lg lg:ml-auto order-1 lg:order-2">
+              <p className="text-[11px] font-bold uppercase tracking-[0.15em] mb-4" style={{ color: '#2997FF' }}>AI-Powered Networking</p>
+              <h1 className="text-[40px] lg:text-[56px] font-semibold leading-[1.05] tracking-[-0.03em] mb-5" style={{ fontFamily: 'var(--font-space-grotesk)', color: '#F5F5F7' }}>
+                <SplitReveal as="span" mount text="Your network," className="block" />
+                <SplitReveal as="span" mount text="visualized." className="block" style={{ color: '#2997FF' }} delay={0.15} />
               </h1>
-              <p className="text-[16px] leading-relaxed text-white/55 mb-8 max-w-md">
+              <p className="text-[16px] leading-relaxed mb-8 max-w-md" style={{ color: '#98989D' }}>
                 Build relationships that compound. Track every connection, automate your outreach,
                 and let AI tell you exactly who needs your attention — all in one place.
               </p>
@@ -1841,7 +1877,7 @@ function LandingPage({ onLogin, onSignup }) {
         <section className="py-24 overflow-hidden">
           <div className="max-w-6xl mx-auto px-6 mb-10">
             <motion.p variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-              className="text-[11px] font-bold uppercase tracking-[0.15em] text-cyan-400 mb-3">Everything you need</motion.p>
+              className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#2997FF] mb-3">Everything you need</motion.p>
             <motion.h2 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
               className="text-[32px] font-semibold tracking-[-0.02em]" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
               Not just a CRM. A networking engine.
@@ -1853,7 +1889,7 @@ function LandingPage({ onLogin, onSignup }) {
                 initial={{ opacity: 0, x: 40 }} whileInView={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.08, duration: 0.6, ease: EASE }} viewport={{ once: true }}
                 className="min-w-[280px] snap-start p-6 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12] transition-all group">
-                <p className="text-[13px] font-bold text-white mb-2 group-hover:text-violet-400 transition-colors">{f.label}</p>
+                <p className="text-[13px] font-bold text-white mb-2 group-hover:text-[#2997FF] transition-colors">{f.label}</p>
                 <p className="text-[13px] leading-relaxed text-white/40">{f.desc}</p>
               </motion.div>
             ))}
@@ -1871,7 +1907,7 @@ function LandingPage({ onLogin, onSignup }) {
               {HOW_STEPS.map((s, i) => (
                 <motion.div key={s.n} variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
                   className={i % 2 === 1 ? 'md:mt-12' : ''}>
-                  <p className="text-[13px] font-bold text-amber-300/80 mb-2" style={{ fontFamily: 'var(--font-space-grotesk)' }}>{s.n}</p>
+                  <p className="text-[13px] font-bold text-[#2997FF] mb-2" style={{ fontFamily: 'var(--font-space-grotesk)' }}>{s.n}</p>
                   <h3 className="text-[19px] font-semibold text-white mb-2">{s.t}</h3>
                   <p className="text-[14px] leading-relaxed text-white/45 max-w-sm">{s.d}</p>
                 </motion.div>
@@ -1882,10 +1918,10 @@ function LandingPage({ onLogin, onSignup }) {
 
         {/* AUTOMATION SHOWCASE — the differentiator, cinematic space */}
         <section className="py-32 relative overflow-hidden">
-          <div className="absolute inset-0 -z-[1]" style={{ background: 'radial-gradient(50% 60% at 50% 40%, rgba(139,92,246,0.08), transparent)' }} aria-hidden />
+          <div className="absolute inset-0 -z-[1]" style={{ background: 'radial-gradient(50% 60% at 50% 40%, rgba(41,151,255,0.10), transparent)' }} aria-hidden />
           <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[0.8fr_1.2fr] gap-12 items-center">
             <motion.div variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}>
-              <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-violet-400 mb-3">Email Automation</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#2997FF] mb-3">Email Automation</p>
               <h2 className="text-[32px] font-semibold tracking-[-0.02em] mb-4" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
                 Build the sequence once. Never click “send” again.
               </h2>
@@ -1894,7 +1930,7 @@ function LandingPage({ onLogin, onSignup }) {
                 and turn it on. It runs on its own schedule, stops the moment someone replies, and shows
                 you exactly who’s engaging.
               </p>
-              <a href="/features" className="text-[13px] font-semibold text-cyan-400 hover:text-cyan-300 transition-colors">Explore the canvas →</a>
+              <a href="/features" className="text-[13px] font-semibold text-[#2997FF] hover:text-[#5cadff] transition-colors">Explore the canvas →</a>
             </motion.div>
             {/* PLACEHOLDER: swap for a real campaign-canvas screenshot/video */}
             <motion.div initial={{ opacity: 0, scale: 0.96 }} whileInView={{ opacity: 1, scale: 1 }}
@@ -1902,7 +1938,7 @@ function LandingPage({ onLogin, onSignup }) {
               className="rounded-[24px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-sm p-6 h-[380px] flex flex-col justify-center gap-3">
               {['Trigger — Deal marked Won', 'Email — “Welcome aboard”', 'Wait — 3 days', 'Condition — replied?', 'Goal — stop on reply'].map((row, i) => (
                 <div key={row} className="rounded-xl border-l-2 bg-white/[0.03] px-4 py-3"
-                     style={{ borderLeftColor: ['#8B5CF6', '#06B6D4', '#71717A', '#F59E0B', '#10B981'][i] }}>
+                     style={{ borderLeftColor: ['#2997FF', '#0071E3', '#5cadff', '#2997FF', '#34c759'][i] }}>
                   <p className="text-[12.5px] font-semibold text-white/75">{row}</p>
                 </div>
               ))}
@@ -1936,15 +1972,14 @@ function LandingPage({ onLogin, onSignup }) {
 
         {/* FINAL CTA — gradient bleed + small globe reprise (non-interactive) */}
         <section className="relative py-32 overflow-hidden">
-          <div className="absolute inset-0 -z-[1]" style={{ background: 'linear-gradient(180deg, transparent, rgba(139,92,246,0.10) 40%, rgba(6,182,212,0.08))' }} aria-hidden />
+          <div className="absolute inset-0 -z-[1]" style={{ background: 'linear-gradient(180deg, transparent, rgba(41,151,255,0.10) 40%, rgba(0,113,227,0.08))' }} aria-hidden />
           <div className="max-w-4xl mx-auto px-6 text-center">
             <div className="relative h-[220px] mb-4 pointer-events-none">
               {show3d ? <GlobeScene interactive={false} small /> : null}
             </div>
-            <motion.h2 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-              className="text-[36px] lg:text-[44px] font-semibold tracking-[-0.03em] mb-6" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
-              The people you know are the career you get.
-            </motion.h2>
+            <SplitReveal as="h2" text="The people you know are the career you get."
+              className="block text-[36px] lg:text-[44px] font-semibold tracking-[-0.03em] mb-6"
+              style={{ fontFamily: 'var(--font-space-grotesk)', color: '#F5F5F7' }} />
             <div className="flex items-center justify-center gap-3">
               <a href="/?signup=1" className="px-7 py-3.5 text-[14px] font-semibold text-black bg-white rounded-xl hover:shadow-[0_0_30px_-4px_rgba(255,255,255,0.35)] transition-all">Start Free</a>
               <a href="/pricing" className="px-7 py-3.5 text-[14px] font-semibold text-white/70 border border-white/10 rounded-xl hover:text-white hover:border-white/25 transition-all">See Pricing</a>
