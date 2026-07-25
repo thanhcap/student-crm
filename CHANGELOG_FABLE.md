@@ -1434,3 +1434,50 @@ other in-app upgrade banners or paywalls to suppress. The public pricing page is
 owner-aware (A6).
 
 Build: `npx next build` — compiled successfully.
+
+## Part B — Smart birthday automation UI
+
+The sequence-runner (deployed **v11**, confirmed live) already evaluates
+`sequence_triggers.trigger_event = 'birthday_approaching'` on the */15 cron:
+for each enabled trigger it scans every client with a `birthday`, matches
+month-day against today + N days (user-local), and auto-enrolls them — **no
+manual enrollment**. The only thing missing was the UI to set it up. This adds
+it. (The runner's birthday block, previously an uncommitted local change that
+was already deployed, is committed here now that it's in scope.)
+
+**New file `SmartAutomations.js`** — `SmartAutomationsView` + `SmartTriggerCard`
++ `UpcomingBirthdaysWidget`. New nav entry **Smart Automations** (all three nav
+lists) → `appStep === 'AUTOMATIONS'`.
+
+**Birthday card (B2).** Enable, choose "days before" (0/1/2/3/7), edit the email
+subject + body (with `{{first_name}}` etc.), and save. Saving:
+1. upserts the UI-facing `automation_triggers` row, then
+2. reconciles the runner-facing rows: a dedicated `email_sequences` row
+   ("Happy Birthday (Auto)"), one `email` `sequence_step`, and the
+   `sequence_triggers` row (`trigger_event='birthday_approaching'`,
+   `trigger_config={days}`) the runner actually reads. Enable/disable toggles
+   the sequence's `is_active`.
+
+**Bug caught during live verification:** the draft set
+`email_sequences.trigger_type = 'birthday_approaching'`, which **violates that
+column's CHECK constraint** (allowed: manual/new_relationship/…/task_completed —
+not birthday). The runner keys off `sequence_triggers.trigger_event` + the
+sequence's `is_active`, *not* this column, so the sequence is created as
+`'manual'` and found again by its stable name. Verified live: inserting the
+exact row shapes the UI writes (email_sequences + sequence_steps +
+sequence_triggers + automation_triggers) now succeeds; all test rows deleted.
+
+**Who-will-receive panel** shows the live count of relationships with/without a
+birthday set. **Re-Engagement and Anniversary** cards are shown but clearly
+marked "Coming soon — not firing yet", because the runner only evaluates
+birthdays today; nothing would send for those, and we don't imply otherwise.
+
+**B3.** The relationship edit form already has a birthday date input, and the
+dashboard already has an upcoming-birthdays widget with a pre-drafted email —
+both pre-existing. The new `UpcomingBirthdaysWidget` (next-14-days, with a "Send
+message" quick link) is rendered on the Automations page itself, beside the
+config, so you see who's coming up where you set it.
+
+**B4.** `automation_triggers` is fetched on app load alongside sequences/tasks.
+
+Build: `npx next build` — compiled successfully.

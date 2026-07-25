@@ -4,6 +4,7 @@
 // Resend (RESEND_API_KEY + email_settings.resend_from_email) for cold outreach.
 // v5 additions: cold_contacts enrollments, unsubscribe list enforcement, unsubscribe
 // footer link, prospect→contacted lifecycle.
+// v6: server-side birthday_approaching trigger evaluation (time-based enroll).
 // Auth: service-role key, OR a cron token looked up from Supabase Vault at request time
 // (name='cron_token' — see `vault.create_secret`). This intentionally avoids both (a)
 // hardcoding any literal secret in this committed source file, and (b) requiring a
@@ -95,7 +96,56 @@ Deno.serve(async (req: Request) => {
   }
   const projectUrl = Deno.env.get('SUPABASE_URL')!;
   const today = new Date().toISOString().split('T')[0];
-  const out = { sent: 0, tasks: 0, skipped: 0, completed: 0, waited: 0, unsubscribed: 0, quota_deferred: 0, needs_reauth: 0, errors: [] as string[] };
+  const out = { sent: 0, enrolled: 0, tasks: 0, skipped: 0, completed: 0, waited: 0, unsubscribed: 0, quota_deferred: 0, needs_reauth: 0, errors: [] as string[] };
+
+  // --- Time-based trigger evaluation: birthday_approaching --------------------
+  // The web client only fires ACTION-based triggers (deal_won, tag_applied, ...)
+  // from CRM handlers. Birthdays are time-based, so nothing was ever enrolling
+  // them. Evaluate here on the */15 cron: for each enabled birthday_approaching
+  // trigger, enroll relationships whose birthday (month-day) is exactly N days
+  // out. Idempotent per birthday cycle so the */15 cadence can't double-enroll.
+  try {
+    const { data: bTrigs } = await admin.from('sequence_triggers')
+      .select('*').eq('enabled', true).eq('trigger_event', 'birthday_approaching');
+    for (const trig of bTrigs || []) {
+      const days = Number((trig?.trigger_config || {}).days ?? 0);
+      const { data: bseq } = await admin.from('email_sequences')
+        .select('id, is_active, status').eq('id', trig.sequence_id).maybeSingle();
+      if (!bseq || !(bseq.is_active || bseq.status === 'active')) continue;
+      // Target month-day = (today + N days) in the user's local timezone.
+      const { data: bset } = await admin.from('email_settings')
+        .select('send_tz_offset').eq('user_id', trig.user_id).maybeSingle();
+      const off = (bset?.send_tz_offset || 0) * 60000;
+      const target = new Date(Date.now() + off + days * 86400000);
+      const mmdd = `${String(target.getUTCMonth() + 1).padStart(2, '0')}-${String(target.getUTCDate()).padStart(2, '0')}`;
+      const { data: cands } = await admin.from('clients')
+        .select('id, email, birthday').eq('user_id', trig.user_id).not('birthday', 'is', null);
+      for (const cl of cands || []) {
+        if (String(cl.birthday).slice(5, 10) !== mmdd) continue;
+        // Idempotency: skip if already active, or already completed this cycle (~300d).
+        const { data: existing } = await admin.from('sequence_enrollments')
+          .select('id, status, enrolled_at')
+          .eq('user_id', trig.user_id).eq('sequence_id', trig.sequence_id).eq('client_id', cl.id);
+        const cutoff = Date.now() - 300 * 86400000;
+        const blocked = (existing || []).some((e: any) =>
+          e.status === 'active' ||
+          (e.status === 'completed' && new Date(e.enrolled_at).getTime() > cutoff));
+        if (blocked) continue;
+        if (cl.email) {
+          const { data: unsub } = await admin.from('unsubscribes').select('id')
+            .eq('user_id', trig.user_id).eq('email', String(cl.email).toLowerCase()).maybeSingle();
+          if (unsub) continue;
+        }
+        const { error: insErr } = await admin.from('sequence_enrollments').insert({
+          sequence_id: trig.sequence_id, user_id: trig.user_id, client_id: cl.id,
+          cold_contact_id: null, status: 'active', current_step: 0, next_send_at: today,
+        });
+        if (!insErr) out.enrolled++;
+      }
+    }
+  } catch (e) {
+    out.errors.push(`birthday_eval: ${String(e)}`);
+  }
 
   const { data: due } = await admin.from('sequence_enrollments')
     .select('*').eq('status', 'active').not('next_send_at', 'is', null).lte('next_send_at', today).limit(200);

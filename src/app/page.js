@@ -25,6 +25,8 @@ import {
 } from './components/MediaCapture';
 // REAL PAYMENTS — Settings → Billing (plan, renewal, payment history)
 import { BillingSettings } from './components/Billing';
+// SMART AUTOMATIONS (Part B) — birthday auto-send config + dashboard widget
+import SmartAutomationsView, { UpcomingBirthdaysWidget } from './components/SmartAutomations';
 // MANUAL MOMO QR — admin approval panel + owner price/QR config (self-gating)
 import { AdminManualPayments, ManualPayConfigForm } from './components/ManualMomoPay';
 import dynamic from 'next/dynamic';
@@ -2213,6 +2215,7 @@ export default function App() {
   // N8N — EMAIL SEQUENCE WORKFLOW STATES
   const [sequences, setSequences] = useState([]);
   const [sequenceSteps, setSequenceSteps] = useState([]);
+  const [automationTriggers, setAutomationTriggers] = useState([]); // Part B
   const [sequenceEnrollments, setSequenceEnrollments] = useState([]);
   const [newSeqName, setNewSeqName] = useState('');
   const [newSeqTrigger, setNewSeqTrigger] = useState('manual');
@@ -2730,6 +2733,8 @@ export default function App() {
       fetchImportHistory(),
       fetchCareerData(session.user.id),
       fetchProposals(session.user.id),
+      fetchAutomationTriggers(session.user.id), // Part B
+
       // V3 F75/F77 — MFA state + audit trail
       supabase.auth.mfa.listFactors().then(({ data }) => setMfaFactors(data?.totp || [])),
       supabase.auth.mfa.getAuthenticatorAssuranceLevel().then(({ data }) => {
@@ -5138,6 +5143,12 @@ export default function App() {
     await supabase.from('notifications').update({ deleted_at: new Date().toISOString() }).in('id', readIds);
   }
 
+  // Part B — time-based automation triggers (birthday, etc.)
+  async function fetchAutomationTriggers(userId) {
+    const { data } = await supabase.from('automation_triggers').select('*').eq('user_id', userId).order('created_at');
+    setAutomationTriggers(data || []);
+  }
+
   async function fetchProfile(userId) {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (data && !error) {
@@ -6784,6 +6795,7 @@ export default function App() {
               ['CLIENTS', 'Relationships'],
               ['DEALS', 'Deals'],
               ['N8N', 'Email Automation'],
+              ['AUTOMATIONS', 'Smart Automations'],
               ['GLOBAL_TASKS', 'Tasks'],
               ['CALENDAR', 'Calendar'],
               ['REPORTS', 'Reports'],
@@ -6992,6 +7004,7 @@ export default function App() {
                 ['CLIENTS', 'Relationships'],
                 ['DEALS', 'Deals'],
                 ['N8N', 'Email Automation'],
+                ['AUTOMATIONS', 'Smart Automations'],
                 ['GLOBAL_TASKS', 'Tasks'],
                 ['CALENDAR', 'Calendar'],
                 ['REPORTS', 'Reports'],
@@ -9478,6 +9491,27 @@ export default function App() {
             sends={sequenceSends}
             applications={applications}
           />
+        )}
+
+        {/* Part B — Smart Automations (birthday auto-send config) */}
+        {appStep === 'AUTOMATIONS' && (
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-3xl mx-auto space-y-6">
+            <SmartAutomationsView
+              user={user}
+              showToast={showToast}
+              clients={clients}
+              automationTriggers={automationTriggers}
+              setAutomationTriggers={setAutomationTriggers}
+              sequences={sequences}
+              setSequences={setSequences}
+              sequenceSteps={sequenceSteps}
+              setSequenceSteps={setSequenceSteps}
+            />
+            <UpcomingBirthdaysWidget
+              clients={clients}
+              onQuickEmail={(c) => { setViewingClient(c); setEmailTo(c.email || ''); setShowEmailComposer(true); }}
+            />
+          </div>
         )}
 
         {appStep === 'CAREER' && (
