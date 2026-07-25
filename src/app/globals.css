@@ -13,23 +13,6 @@
   --color-text-primary: #F3F5F9;
   --color-text-secondary: #7E89A1;
 
-  /* ==========================================================================
-     LANDING PAGE PALETTE (Part C) — Apple-inspired, one source of truth.
-     Defined in @theme so Tailwind v4 emits them to :root (a bare :root{} block
-     gets dropped by the compiler). The marketing landing commits to Apple's
-     DARK product-page look (true black, near-white text, Apple blue accent),
-     which sits naturally over the existing star-field / 3D Earth. Old
-     purple/cyan/amber accents are replaced by --land-accent on the landing.
-     ========================================================================== */
-  --land-bg:      #000000;
-  --land-surface: #1C1C1E;
-  --land-text:    #F5F5F7;
-  --land-text-2:  #98989D;
-  --land-accent:  #2997FF;
-  --land-accent-2: #0071E3;
-  --land-border:  rgba(255,255,255,0.10);
-  --land-glass:   rgba(28,28,30,0.72);
-
   /* Status Color Matrix */
   --color-accent-cyan: #4DE8FF;
   --color-accent-violet: #BF7BFF;
@@ -46,6 +29,52 @@
   --color-ink-2: #070319;
   --color-accent: #A068FF;
   --font-urbanist: var(--font-urbanist), sans-serif;
+}
+
+/* ==========================================================================
+   LANDING PAGE PALETTE (orbit redesign) — bright, not dark outer space.
+   Plain :root (not @theme) so the values survive: Tailwind v4 tree-shakes
+   @theme vars that are only referenced from inline styles. Dark handled by
+   BOTH the OS media query (marketing pages render standalone) and the app's
+   .dark class toggle (the root landing lives inside the app shell).
+   ========================================================================== */
+:root {
+  --land-bg:       #FFFFFF;
+  --land-bg-2:     #F2F2F7;
+  --land-surface:  #FFFFFF;
+  --land-text:     #1D1D1F;
+  --land-text-2:   #6E6E73;
+  --land-accent:   #0071E3;
+  --land-accent-2: #34C759;
+  --land-border:   rgba(0,0,0,0.08);
+  --land-glass:    rgba(255,255,255,0.85);
+  --land-hero-bg:  linear-gradient(135deg,#f0f4ff 0%,#fce4ec 35%,#f3e5f5 65%,#e8f5e9 100%);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --land-bg:       #0A0A0F;
+    --land-bg-2:     #111118;
+    --land-surface:  #1C1C28;
+    --land-text:     #F0F0FF;
+    --land-text-2:   #9090A8;
+    --land-accent:   #5B8FF9;
+    --land-accent-2: #34D399;
+    --land-border:   rgba(255,255,255,0.08);
+    --land-glass:    rgba(28,28,40,0.85);
+    --land-hero-bg:  linear-gradient(135deg,#0f0f1a 0%,#1a0f28 40%,#0f1a15 100%);
+  }
+}
+:root.dark, .dark {
+  --land-bg:       #0A0A0F;
+  --land-bg-2:     #111118;
+  --land-surface:  #1C1C28;
+  --land-text:     #F0F0FF;
+  --land-text-2:   #9090A8;
+  --land-accent:   #5B8FF9;
+  --land-accent-2: #34D399;
+  --land-border:   rgba(255,255,255,0.08);
+  --land-glass:    rgba(28,28,40,0.85);
+  --land-hero-bg:  linear-gradient(135deg,#0f0f1a 0%,#1a0f28 40%,#0f1a15 100%);
 }
 
 /* Base DOM Configuration — light by default, dark when the .dark class is set.

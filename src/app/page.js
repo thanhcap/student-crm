@@ -12,7 +12,7 @@ import EmailCommandCenter from './components/EmailCommandCenter';
 import EmailCampaignGallery, { GmailConnectionBadge, RunnerHealthBadge } from './components/EmailCampaignGallery';
 import EnrollmentPanel, { audienceMatchesClient, EnrollResultPanel } from './components/EnrollmentPanel';
 import ColdContactsManager from './components/ColdContactsManager';
-import EmailSettingsPanel from './components/EmailSettingsPanel';
+import EmailSettingsPanel, { GmailOAuthHelp } from './components/EmailSettingsPanel';
 // 50-FEATURE EXPANSION — deterministic toolkit + pure helpers (no AI)
 import OutreachToolkit, { fireConfetti, checkBurnoutSignal } from './components/OutreachToolkit';
 // MEDIA CAPTURE ROUND A — screen/mic capture, WebRTC calling, card OCR
@@ -30,23 +30,17 @@ import SmartAutomationsView, { UpcomingBirthdaysWidget } from './components/Smar
 // MANUAL MOMO QR — admin approval panel + owner price/QR config (self-gating)
 import { AdminManualPayments, ManualPayConfigForm } from './components/ManualMomoPay';
 import dynamic from 'next/dynamic';
-import { motion, useScroll, useTransform } from 'framer-motion';
-// V9 marketing home — outer-space system (root page is outside the (marketing)
-// route group but composes the same SpaceBackground/Nav/Footer pieces).
+import { motion } from 'framer-motion';
+// Landing home — bright orbit redesign. The Three.js Earth (GlobeScene) and the
+// star-field SpaceBackground are gone; a pure-CSS OrbitSection is the hero.
 import './(marketing)/marketing.css';
-import SpaceBackground from '@/components/marketing/SpaceBackground';
 import MarketingNav from '@/components/marketing/MarketingNav';
 import MarketingFooter from '@/components/marketing/MarketingFooter';
-
-// Three.js touches `window` — must never SSR. Fallback keeps the footprint.
-const GlobeScene = dynamic(() => import('@/components/marketing/GlobeScene'), {
+import OrbitSection from '@/components/landing/OrbitSection';
+// Below-the-fold sections lazy-load (Part 4.3) — kept out of the initial bundle.
+const LandingBelowFold = dynamic(() => import('@/components/landing/LandingBelowFold'), {
   ssr: false,
-  loading: () => (
-    <div className="w-full h-full flex items-center justify-center">
-      <div className="w-[70%] max-w-[400px] aspect-square rounded-full"
-           style={{ background: 'radial-gradient(circle at 35% 35%, #1a4a8a, #0a1628 70%)', boxShadow: '0 0 100px 30px rgba(77,166,255,0.08)' }} />
-    </div>
-  ),
+  loading: () => <div style={{ height: 800 }} />,
 });
 
 // ==========================================
@@ -88,8 +82,8 @@ function SplitReveal({ text, className = '', style, delay = 0, as = 'span', moun
       {words.map((word, i) => (
         <motion.span key={i} style={{ display: 'inline-block', marginRight: '0.28em' }}
           variants={{
-            hidden: { opacity: 0, y: 18, filter: 'blur(6px)' },
-            visible: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.6, ease: EASE_APPLE } },
+            hidden: { opacity: 0, y: 18 },
+            visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE_APPLE } },
           }}>
           {word}
         </motion.span>
@@ -1796,196 +1790,48 @@ function EmailStudio({ node, sequence, templates, contacts, fromAddress, resolve
 // sessions never see it — checkSession routes them straight to the Dashboard.
 // ==========================================
 function LandingPage({ onLogin, onSignup }) {
-  // V9 — outer-space marketing home. The 3D Earth (GlobeScene) is the hero:
-  // Earth LEFT, copy RIGHT. WebGL only on desktop + no-reduced-motion; the
-  // CSS GlobeFallback holds the same footprint everywhere else.
-  const isDesktop = useMediaQuery('(min-width: 1024px)');
-  const reducedMotion = usePrefersReducedMotion();
-  const show3d = isDesktop && !reducedMotion;
-  const fadeUp = {
-    hidden: { opacity: 0, y: 28 },
-    show: { opacity: 1, y: 0, transition: { duration: 0.8, ease: EASE } },
-  };
-
-  // Part C3 — Apple "product float" parallax: the Earth is anchored and drifts
-  // slower than the copy scrolling past it.
-  const heroRef = useRef(null);
-  const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] });
-  const earthY = useTransform(scrollYProgress, [0, 1], ['0%', '18%']);
-  const copyY = useTransform(scrollYProgress, [0, 1], ['0%', '55%']);
-  const copyOpacity = useTransform(scrollYProgress, [0, 0.6], [1, 0]);
-
-  const FEATURES_STRIP = [
-    { label: 'Relationships', desc: 'Full contact history, company links, and engagement scores in one view.' },
-    { label: 'Deals Pipeline', desc: 'Drag deals across stages. Won deals trigger onboarding emails automatically.' },
-    { label: 'Email Automation', desc: 'Build multichannel sequences that send themselves and stop on reply.' },
-    { label: 'AI Summaries', desc: 'One click to understand any relationship — powered by Claude.' },
-    { label: 'Lead Scoring', desc: 'Know who to call today, ranked by real engagement signals.' },
-  ];
-  const HOW_STEPS = [
-    { n: '01', t: 'Import your people', d: 'CSV, Gmail, or one at a time — every contact lands in a scored pipeline.' },
-    { n: '02', t: 'Draw the sequence', d: 'Email, wait, condition, LinkedIn — drag the steps onto a canvas and connect the arrows.' },
-    { n: '03', t: 'Turn it on', d: 'It sends on your schedule, inside your caps, and stops the second someone replies.' },
-    { n: '04', t: 'Follow up like a human', d: 'Opens, clicks and replies surface in one inbox. You show up exactly when it matters.' },
-  ];
-
+  // Orbit redesign — bright hero, pure-CSS OrbitSection (no WebGL). Below-fold
+  // sections lazy-load. Hero headline uses a mount-triggered word reveal.
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#000000', color: '#F5F5F7' }}>
-      <SpaceBackground />
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--land-bg)', color: 'var(--land-text)' }}>
       <MarketingNav />
 
       <main className="relative z-10 flex-1">
-        {/* HERO — Earth left (anchored, slow parallax), copy right (faster) */}
-        <section ref={heroRef} className="relative min-h-screen flex items-center pt-24 pb-16">
-          <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-4 items-center w-full">
-            {/* LEFT — the Earth (real space; this is the hero, not a decoration) */}
-            <motion.div style={{ y: earthY }} className="relative h-[420px] lg:h-[680px] lg:-ml-16 order-2 lg:order-1">
-              {show3d ? <GlobeScene /> : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <div className="w-[70%] max-w-[400px] aspect-square rounded-full"
-                       style={{ background: 'radial-gradient(circle at 35% 35%, #1a4a8a, #0a1628 70%)', boxShadow: '0 0 100px 30px rgba(41,151,255,0.12), inset 0 0 60px rgba(41,151,255,0.06)' }} />
-                </div>
-              )}
-            </motion.div>
+        {/* HERO — orbit left, copy right, on a bright mesh-gradient wash */}
+        <section className="relative flex items-center pt-24 pb-16" style={{ minHeight: '100vh', background: 'var(--land-hero-bg)' }}>
+          <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-8 items-center w-full">
+            {/* LEFT — CSS orbit animation */}
+            <div className="relative order-2 lg:order-1 flex justify-center">
+              <OrbitSection />
+            </div>
 
-            {/* RIGHT — copy (parallax faster than the Earth, fades on scroll) */}
-            <motion.div style={{ y: copyY, opacity: copyOpacity }} className="max-w-lg lg:ml-auto order-1 lg:order-2">
-              <p className="text-[11px] font-bold uppercase tracking-[0.15em] mb-4" style={{ color: '#2997FF' }}>AI-Powered Networking</p>
-              <h1 className="text-[40px] lg:text-[56px] font-semibold leading-[1.05] tracking-[-0.03em] mb-5" style={{ fontFamily: 'var(--font-space-grotesk)', color: '#F5F5F7' }}>
+            {/* RIGHT — copy */}
+            <div className="max-w-lg lg:ml-auto order-1 lg:order-2">
+              <p className="text-[11px] font-bold uppercase tracking-[0.15em] mb-4" style={{ color: 'var(--land-accent)' }}>AI-Powered Networking</p>
+              <h1 className="text-[40px] lg:text-[56px] font-semibold leading-[1.05] tracking-[-0.03em] mb-5" style={{ fontFamily: 'var(--font-space-grotesk)', color: 'var(--land-text)' }}>
                 <SplitReveal as="span" mount text="Your network," className="block" />
-                <SplitReveal as="span" mount text="visualized." className="block" style={{ color: '#2997FF' }} delay={0.15} />
+                <SplitReveal as="span" mount text="visualized." className="block" style={{ color: 'var(--land-accent)' }} delay={0.12} />
               </h1>
-              <p className="text-[16px] leading-relaxed mb-8 max-w-md" style={{ color: '#98989D' }}>
+              <p className="text-[16px] leading-relaxed mb-8 max-w-md" style={{ color: 'var(--land-text-2)' }}>
                 Build relationships that compound. Track every connection, automate your outreach,
                 and let AI tell you exactly who needs your attention — all in one place.
               </p>
               <div className="flex items-center gap-3">
-                <a href="/?signup=1" className="px-6 py-3 text-[14px] font-semibold text-black bg-white rounded-xl hover:shadow-[0_0_30px_-4px_rgba(255,255,255,0.35)] transition-all">Start Free</a>
-                <a href="/features" className="px-6 py-3 text-[14px] font-semibold text-white/70 border border-white/10 rounded-xl hover:text-white hover:border-white/25 transition-all">See Features</a>
+                <a href="/?signup=1" className="px-6 py-3 text-[14px] font-semibold text-white rounded-xl transition-all hover:opacity-90" style={{ background: 'var(--land-accent)' }}>Start Free</a>
+                <a href="/features" className="px-6 py-3 text-[14px] font-semibold rounded-xl transition-all" style={{ color: 'var(--land-text)', border: '1px solid var(--land-border)' }}>See Features</a>
               </div>
               {/* trust signals — quiet, factual */}
-              <div className="flex items-center gap-6 mt-10 pt-6 border-t border-white/[0.06]">
-                <div><p className="text-[22px] font-bold text-white" style={{ fontFamily: 'var(--font-space-grotesk)' }}>100+</p><p className="text-[11px] text-white/35">auto-sends per day</p></div>
-                <div><p className="text-[22px] font-bold text-white" style={{ fontFamily: 'var(--font-space-grotesk)' }}>0</p><p className="text-[11px] text-white/35">manual clicks after setup</p></div>
-                <div><p className="text-[22px] font-bold text-white" style={{ fontFamily: 'var(--font-space-grotesk)' }}>AI</p><p className="text-[11px] text-white/35">tells you who to call</p></div>
+              <div className="flex items-center gap-6 mt-10 pt-6" style={{ borderTop: '1px solid var(--land-border)' }}>
+                <div><p className="text-[22px] font-bold" style={{ fontFamily: 'var(--font-space-grotesk)', color: 'var(--land-text)' }}>100+</p><p className="text-[11px]" style={{ color: 'var(--land-text-2)' }}>auto-sends per day</p></div>
+                <div><p className="text-[22px] font-bold" style={{ fontFamily: 'var(--font-space-grotesk)', color: 'var(--land-text)' }}>0</p><p className="text-[11px]" style={{ color: 'var(--land-text-2)' }}>manual clicks after setup</p></div>
+                <div><p className="text-[22px] font-bold" style={{ fontFamily: 'var(--font-space-grotesk)', color: 'var(--land-text)' }}>AI</p><p className="text-[11px]" style={{ color: 'var(--land-text-2)' }}>tells you who to call</p></div>
               </div>
-            </motion.div>
-          </div>
-        </section>
-
-        {/* FEATURES STRIP — horizontal scroll, slides in from the right */}
-        <section className="py-24 overflow-hidden">
-          <div className="max-w-6xl mx-auto px-6 mb-10">
-            <motion.p variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-              className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#2997FF] mb-3">Everything you need</motion.p>
-            <motion.h2 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-              className="text-[32px] font-semibold tracking-[-0.02em]" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
-              Not just a CRM. A networking engine.
-            </motion.h2>
-          </div>
-          <div className="flex gap-5 px-6 overflow-x-auto pb-4 snap-x snap-mandatory">
-            {FEATURES_STRIP.map((f, i) => (
-              <motion.div key={f.label}
-                initial={{ opacity: 0, x: 40 }} whileInView={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.08, duration: 0.6, ease: EASE }} viewport={{ once: true }}
-                className="min-w-[280px] snap-start p-6 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] hover:border-white/[0.12] transition-all group">
-                <p className="text-[13px] font-bold text-white mb-2 group-hover:text-[#2997FF] transition-colors">{f.label}</p>
-                <p className="text-[13px] leading-relaxed text-white/40">{f.desc}</p>
-              </motion.div>
-            ))}
-          </div>
-        </section>
-
-        {/* HOW IT WORKS — deliberately asymmetric two-column rhythm */}
-        <section className="py-24">
-          <div className="max-w-6xl mx-auto px-6">
-            <motion.h2 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-              className="text-[32px] font-semibold tracking-[-0.02em] mb-14 max-w-md" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
-              From cold list to warm pipeline in four moves.
-            </motion.h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-16 gap-y-12">
-              {HOW_STEPS.map((s, i) => (
-                <motion.div key={s.n} variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-                  className={i % 2 === 1 ? 'md:mt-12' : ''}>
-                  <p className="text-[13px] font-bold text-[#2997FF] mb-2" style={{ fontFamily: 'var(--font-space-grotesk)' }}>{s.n}</p>
-                  <h3 className="text-[19px] font-semibold text-white mb-2">{s.t}</h3>
-                  <p className="text-[14px] leading-relaxed text-white/45 max-w-sm">{s.d}</p>
-                </motion.div>
-              ))}
             </div>
           </div>
         </section>
 
-        {/* AUTOMATION SHOWCASE — the differentiator, cinematic space */}
-        <section className="py-32 relative overflow-hidden">
-          <div className="absolute inset-0 -z-[1]" style={{ background: 'radial-gradient(50% 60% at 50% 40%, rgba(41,151,255,0.10), transparent)' }} aria-hidden />
-          <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[0.8fr_1.2fr] gap-12 items-center">
-            <motion.div variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}>
-              <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-[#2997FF] mb-3">Email Automation</p>
-              <h2 className="text-[32px] font-semibold tracking-[-0.02em] mb-4" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
-                Build the sequence once. Never click “send” again.
-              </h2>
-              <p className="text-[14.5px] leading-relaxed text-white/50 mb-6">
-                Drag nodes onto a canvas — email, wait, condition, LinkedIn — connect them with arrows,
-                and turn it on. It runs on its own schedule, stops the moment someone replies, and shows
-                you exactly who’s engaging.
-              </p>
-              <a href="/features" className="text-[13px] font-semibold text-[#2997FF] hover:text-[#5cadff] transition-colors">Explore the canvas →</a>
-            </motion.div>
-            {/* PLACEHOLDER: swap for a real campaign-canvas screenshot/video */}
-            <motion.div initial={{ opacity: 0, scale: 0.96 }} whileInView={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.9, ease: EASE }} viewport={{ once: true, margin: '-80px' }}
-              className="rounded-[24px] border border-white/[0.08] bg-white/[0.02] backdrop-blur-sm p-6 h-[380px] flex flex-col justify-center gap-3">
-              {['Trigger — Deal marked Won', 'Email — “Welcome aboard”', 'Wait — 3 days', 'Condition — replied?', 'Goal — stop on reply'].map((row, i) => (
-                <div key={row} className="rounded-xl border-l-2 bg-white/[0.03] px-4 py-3"
-                     style={{ borderLeftColor: ['#2997FF', '#0071E3', '#5cadff', '#2997FF', '#34c759'][i] }}>
-                  <p className="text-[12.5px] font-semibold text-white/75">{row}</p>
-                </div>
-              ))}
-            </motion.div>
-          </div>
-        </section>
-
-        {/* TESTIMONIALS — placeholder structure, populate with real quotes later */}
-        <section className="py-24">
-          <div className="max-w-6xl mx-auto px-6">
-            <motion.h2 variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-              className="text-[32px] font-semibold tracking-[-0.02em] mb-12" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
-              People who network for a living.
-            </motion.h2>
-            {/* TODO: replace placeholder quotes with real user testimonials before launch */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {[
-                { q: 'Placeholder quote — how the pipeline changed a job search.', a: 'Student, placeholder' },
-                { q: 'Placeholder quote — an agency running cold outreach on autopilot.', a: 'Founder, placeholder' },
-                { q: 'Placeholder quote — a consultant who stopped losing follow-ups.', a: 'Consultant, placeholder' },
-              ].map((t, i) => (
-                <motion.blockquote key={i} variants={fadeUp} initial="hidden" whileInView="show" viewport={{ once: true }}
-                  className={`p-6 rounded-2xl bg-white/[0.03] border border-white/[0.06] ${i === 1 ? 'md:-mt-6' : ''}`}>
-                  <p className="text-[14px] leading-relaxed text-white/60 mb-4">“{t.q}”</p>
-                  <footer className="text-[12px] font-semibold text-white/35">{t.a}</footer>
-                </motion.blockquote>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* FINAL CTA — gradient bleed + small globe reprise (non-interactive) */}
-        <section className="relative py-32 overflow-hidden">
-          <div className="absolute inset-0 -z-[1]" style={{ background: 'linear-gradient(180deg, transparent, rgba(41,151,255,0.10) 40%, rgba(0,113,227,0.08))' }} aria-hidden />
-          <div className="max-w-4xl mx-auto px-6 text-center">
-            <div className="relative h-[220px] mb-4 pointer-events-none">
-              {show3d ? <GlobeScene interactive={false} small /> : null}
-            </div>
-            <SplitReveal as="h2" text="The people you know are the career you get."
-              className="block text-[36px] lg:text-[44px] font-semibold tracking-[-0.03em] mb-6"
-              style={{ fontFamily: 'var(--font-space-grotesk)', color: '#F5F5F7' }} />
-            <div className="flex items-center justify-center gap-3">
-              <a href="/?signup=1" className="px-7 py-3.5 text-[14px] font-semibold text-black bg-white rounded-xl hover:shadow-[0_0_30px_-4px_rgba(255,255,255,0.35)] transition-all">Start Free</a>
-              <a href="/pricing" className="px-7 py-3.5 text-[14px] font-semibold text-white/70 border border-white/10 rounded-xl hover:text-white hover:border-white/25 transition-all">See Pricing</a>
-            </div>
-          </div>
-        </section>
+        {/* Everything below the fold lazy-loads (Part 4.3) */}
+        <LandingBelowFold />
       </main>
 
       <MarketingFooter />
@@ -10374,10 +10220,13 @@ export default function App() {
                       </p>
                     </div>
                   </div>
-                  <button onClick={handleConnectGmail}
-                    className="shrink-0 px-5 py-2.5 text-[13px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition-colors shadow-sm">
-                    {gmailConn ? 'Reconnect Gmail' : 'Connect Gmail'}
-                  </button>
+                  <div className="w-full sm:w-auto">
+                    <button onClick={handleConnectGmail}
+                      className="shrink-0 px-5 py-2.5 text-[13px] font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl transition-colors shadow-sm">
+                      {gmailConn ? 'Reconnect Gmail' : 'Connect Gmail'}
+                    </button>
+                    <GmailOAuthHelp />
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900">

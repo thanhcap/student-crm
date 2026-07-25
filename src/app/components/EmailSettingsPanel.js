@@ -12,6 +12,24 @@ import { useState } from 'react';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+// Part 5 — always-visible help for the Google "Access blocked" error. Fable
+// can't fix this (it's a Google Cloud Console setting the owner must change),
+// so we explain it clearly right where people hit it.
+export function GmailOAuthHelp() {
+  return (
+    <div className="mt-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900">
+      <p className="text-[12px] font-semibold text-amber-800 dark:text-amber-300 mb-1">
+        “Access blocked” error?
+      </p>
+      <p className="text-[12px] text-amber-700/80 dark:text-amber-400/70 leading-relaxed">
+        The Gmail integration is currently in testing mode, so only pre-approved email addresses
+        can connect. To allow more accounts: Google Cloud Console → APIs &amp; Services → OAuth
+        consent screen → add the address under “Test users”, or publish the app for full verification.
+      </p>
+    </div>
+  );
+}
+
 // AUTO-SEND 2.1 — friendly hour labels + common timezones
 function hourLabel(h) {
   return h === 0 ? '12:00 AM' : h < 12 ? `${h}:00 AM` : h === 12 ? '12:00 PM' : `${h - 12}:00 PM`;
@@ -102,6 +120,7 @@ export default function EmailSettingsPanel({
               className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 rounded-xl hover:opacity-90">
               {gmailConn ? 'Reconnect Gmail' : 'Connect Gmail'}
             </button>
+            <GmailOAuthHelp />
           </div>
         )}
       </Card>

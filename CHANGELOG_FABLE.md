@@ -1521,3 +1521,90 @@ word-by-word reveal only freezes in the automated preview because that tab runs
 plays normally for a focused user.)
 
 Build: `npx next build` — compiled successfully; 17/17 pages generated.
+
+---
+
+# Orbit Landing + Dynamic QR + FPS + New Theme
+
+Branch: `feat/orbit-landing-qr-perf`
+
+## Part 1 — CSS orbit animation replaces the Three.js Earth
+- New `src/components/landing/OrbitSection.js`: pure CSS/JS. A 40s
+  `crm-spin` track with each app icon counter-spinning (`crm-counter`) to stay
+  upright; icons positioned on a 160px-radius circle, appear/disappear per
+  active profile with a 40ms cascade and a springy cubic-bezier, and the center
+  avatar cycles 5 profiles (Sales Pro / Student / Founder / Networker /
+  Consultant) with a scale-in emoji. No WebGL, no `requestAnimationFrame` — the
+  spin runs on the compositor thread. Honors `prefers-reduced-motion`.
+- The landing (`LandingPage` in `page.js`) no longer imports `SpaceBackground`
+  or `GlobeScene`; the `useScroll`/parallax and the Earth are gone. **Verified
+  live: the orbit renders with the center avatar + orbiting icons.**
+- Three.js is **still used** by `(marketing)/{features,pricing,layout}`,
+  `Hero3D.js`, `HeroScene.js`, and the marketing 3D components — so it stays in
+  `package.json`; it's only removed from the landing per the prompt.
+
+## Part 2 — New color theme (bright, not outer space)
+- `globals.css`: the `--land-*` palette is now a **plain `:root` block** (plus a
+  `prefers-color-scheme: dark` query and a `.dark` class override), not
+  `@theme` — because Tailwind v4 tree-shakes `@theme` vars referenced only from
+  inline styles (that's the bug from the previous pass; a real `:root{}`
+  survives). **Verified live: `getComputedStyle` returns the values and the hero
+  shows the light mesh gradient.** Light default (white / near-black text /
+  #0071E3 blue / mesh-gradient hero), refined slate dark — no space black, no
+  star-field, no nebula glow divs on the landing.
+- The landing and its below-fold sections consume `var(--land-*)` throughout;
+  all the old dark hex / white-on-black classes are gone.
+
+## Part 3 — Dynamic MoMo QR (encodes amount + code)
+- Installed `qrcode.react` (^4.2.0).
+- New `DynamicMomoQR` in `ManualMomoPay.js` renders a `QRCodeSVG`. When
+  `receiver_handle` (MoMo phone) is set, the QR encodes a MoMo deep link —
+  `momo://app?action=transfer&isScanQR=true&phone=…&amount=…&comment=<code>` —
+  so a scan pre-fills amount + code. Without a phone it falls back to a
+  code-only QR plus manual `PayRow`s (transfer-to / amount / description, with
+  copy buttons) and a clear "admin must set the phone" note. Replaced the static
+  `<img src={qr_image_url}>` in `ManualMomoQrPanel`.
+- The admin config field is relabeled **"MoMo phone number"** (placeholder
+  `0901234567`, hint that it's required for the dynamic QR); it saves to
+  `manual_pay_config.receiver_handle` in the existing update call. (Note: the
+  amount in the deep link is only as trustworthy as the MoMo app honors — the
+  server-verified payment code in the description remains the source of truth
+  for confirming a payment.)
+
+## Part 4 — FPS
+- Removing the WebGL Earth is the big win (the render loop was the bottleneck).
+- Removed the `filter: blur(...)` from `SplitReveal`'s variants (the only
+  blur-in-transition on the landing).
+- Every `whileInView` on the landing/below-fold carries `viewport={{ once: true }}`.
+- Below-the-fold sections extracted to `LandingBelowFold.js` and **lazy-loaded
+  with `dynamic(..., { ssr: false })`** — the hero (orbit + copy + CTA) stays in
+  the initial bundle.
+- Transitions shortened to ~0.5s snappy easings (was 0.8–0.9s).
+
+## Part 5 — Google OAuth "Access blocked" help
+- New always-visible `GmailOAuthHelp` shown below the Connect Gmail button in
+  both `EmailSettingsPanel` and the in-app Email Automation Gmail card. Fable
+  cannot change Google Cloud Console settings — this explains the fix to the
+  owner.
+
+### TO FIX "ACCESS BLOCKED" FOR OTHER GMAIL ACCOUNTS (human steps)
+QUICK FIX (up to 100 test users):
+1. Go to https://console.cloud.google.com
+2. Select this app's project
+3. APIs & Services → OAuth consent screen
+4. Scroll to "Test users" → Add users → enter the emails that need to connect
+5. They can now connect without being blocked
+
+PRODUCTION FIX (any user — required for public launch):
+1. Same page → "Publish app"
+2. gmail.send is a sensitive scope → Google requires verification (1–6 weeks)
+3. Until verified, users see a warning but can click Advanced → Proceed
+
+## Notes
+- Owner subscription (`thanhcapvan09@gmail.com`, `plan=max`, `provider=owner`,
+  expires 2099) confirmed untouched. No `activities` writes in this pass.
+- The hero word-by-word reveal only freezes in the automated preview because
+  that tab runs `document.visibilityState === 'hidden'` (framer-motion pauses
+  rAF); it plays for a focused user.
+
+Build: `npx next build` — compiled successfully; 17/17 pages generated.

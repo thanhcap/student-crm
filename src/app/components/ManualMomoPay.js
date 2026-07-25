@@ -17,7 +17,78 @@
 // the code is stored in provider_transaction_id with provider='manual_qr'.
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
+
+// ============================================================================
+// DYNAMIC MOMO QR (Part 3) — encodes phone + amount + code so a MoMo scan
+// pre-fills everything. Falls back to a code-only QR + manual instructions when
+// no receiver phone is configured. Generated client-side with qrcode.react —
+// no more static uploaded PNG.
+// ============================================================================
+function buildMomoLink({ phone, amount, description }) {
+  // MoMo app deep link — scanning the QR opens MoMo with the fields pre-filled.
+  const p = new URLSearchParams({
+    action: 'transfer', isScanQR: 'true',
+    phone, amount: String(Math.round(amount)), comment: description,
+  });
+  return `momo://app?${p.toString()}`;
+}
+
+function PayRow({ label, value, copyable, accent, showToast }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[11px] text-gray-400 shrink-0">{label}</span>
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className={`text-[13px] font-semibold truncate ${accent ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-900 dark:text-white'}`}>
+          {value}
+        </span>
+        {copyable && (
+          <button type="button" onClick={() => { navigator.clipboard?.writeText(String(value)); showToast?.('Copied!', 'success'); }}
+            className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-500 hover:bg-gray-300 transition-colors">
+            Copy
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DynamicMomoQR({ amount, paymentCode, config, showToast }) {
+  const hasPhone = Boolean(config?.receiver_handle);
+  const qrValue = hasPhone
+    ? buildMomoLink({ phone: config.receiver_handle, amount, description: paymentCode })
+    : paymentCode; // fallback: code-only QR
+
+  return (
+    <div className="flex flex-col items-center gap-4">
+      <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100">
+        <QRCodeSVG value={qrValue} size={200} level="M" />
+      </div>
+
+      {hasPhone ? (
+        <p className="text-[12px] text-gray-500 text-center max-w-[220px]">
+          Open MoMo → Scan this QR → Amount and code are auto-filled → Tap Pay
+        </p>
+      ) : (
+        <p className="text-[11px] text-amber-600 text-center">
+          Dynamic QR requires the MoMo phone number to be configured by the admin.
+          Use the payment code below to transfer manually.
+        </p>
+      )}
+
+      <div className="w-full rounded-xl bg-gray-50 dark:bg-gray-800/50 p-4 space-y-2">
+        <PayRow label="Transfer to" value={config?.receiver_name || 'Thanh Cap'} showToast={showToast} />
+        {hasPhone && <PayRow label="MoMo number" value={config.receiver_handle} copyable showToast={showToast} />}
+        <PayRow label="Amount" value={formatVND(amount)} accent showToast={showToast} />
+        <PayRow label="Description" value={paymentCode} copyable accent showToast={showToast} />
+        <p className="text-[10px] text-amber-600 dark:text-amber-400 pt-1">
+          The description/code must match exactly for your payment to be confirmed.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 // Local copy (not imported from Billing) to avoid a circular import: Billing
 // imports ManualMomoQrPanel from here.
@@ -171,42 +242,10 @@ export function ManualMomoQrPanel({ tier, billingCycle, showToast, onBack, onAct
       <p className="text-[14px] font-bold text-gray-900 dark:text-white">Pay with MoMo QR</p>
       <p className="text-[12px] text-gray-400 mb-4 capitalize">{planLabel(payment.plan)} · {payment.billing_cycle}</p>
 
-      {payment.qr_image_url ? (
-        <img src={payment.qr_image_url} alt="MoMo payment QR code"
-          className="w-56 h-56 object-contain mx-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white mb-4" />
-      ) : (
-        <p className="text-[12px] text-amber-600 dark:text-amber-400 text-center mb-4">
-          No QR image is configured yet — use the receiver details below.
-        </p>
-      )}
-
-      <div className="text-center mb-4">
-        <p className="text-[24px] font-bold tabular-nums text-gray-900 dark:text-white">
-          {formatVND(payment.amount)}
-        </p>
-        <p className="text-[11px] text-gray-400">{payment.currency}</p>
-      </div>
-
+      {/* Part 3 — dynamic QR encodes phone + amount + code (no static PNG) */}
       <div className="mb-4">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">Payment code</p>
-        <div className="flex items-center gap-2">
-          <code className="flex-1 px-3 py-2.5 rounded-lg bg-gray-100 dark:bg-gray-800 font-mono text-[16px] font-bold tracking-wide text-gray-900 dark:text-white text-center select-all">
-            {payment.code}
-          </code>
-          <button type="button" className={BTN.ghost} onClick={copyCode}>{copied ? 'Copied' : 'Copy'}</button>
-        </div>
-        <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-2">
-          Add this code to your MoMo transfer message — it’s how we match your payment.
-        </p>
+        <DynamicMomoQR amount={payment.amount} paymentCode={payment.code} config={payment} showToast={showToast} />
       </div>
-
-      {(payment.receiver_name || payment.receiver_handle) && (
-        <div className="mb-4 text-[13px]">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">Send to</p>
-          {payment.receiver_name && <p className="text-gray-900 dark:text-gray-100 font-semibold">{payment.receiver_name}</p>}
-          {payment.receiver_handle && <p className="text-gray-500 dark:text-gray-400 font-mono">{payment.receiver_handle}</p>}
-        </div>
-      )}
 
       {payment.instructions && (
         <p className="text-[12px] text-gray-500 dark:text-gray-400 mb-4 leading-relaxed whitespace-pre-line">
@@ -496,8 +535,9 @@ export function ManualPayConfigForm({ user, showToast }) {
               <input value={config.receiver_name || ''} onChange={setCfg('receiver_name')} className={inputCls} />
             </label>
             <label className="block">
-              <span className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">Receiver handle</span>
-              <input value={config.receiver_handle || ''} onChange={setCfg('receiver_handle')} placeholder="MoMo phone / @handle" className={inputCls} />
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">MoMo phone number</span>
+              <input value={config.receiver_handle || ''} onChange={setCfg('receiver_handle')} placeholder="0901234567" className={inputCls} />
+              <span className="block text-[10px] text-gray-400 mt-1">Required for the dynamic QR — the number users transfer to.</span>
             </label>
           </div>
           <label className="block max-w-[160px]">
