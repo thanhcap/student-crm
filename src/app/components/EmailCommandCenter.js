@@ -14,6 +14,51 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 
 // ---------------------------------------------------------------------------
+// A1 — Inbox HTML rendering.
+// Auto-sent emails are stored in email_inbox.body_full as raw HTML (the runner
+// appends an unsubscribe footer). Rendering that as plain text is why users saw
+// literal "> Don't want these emails?" and bare angle brackets. Render it as
+// sanitized HTML instead. Content is the user's own re-synced sent mail, so a
+// regex strip of the dangerous tags is sufficient here (no new dependency).
+// ---------------------------------------------------------------------------
+export function sanitizeEmailHtml(html) {
+  return (html || '')
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
+    // strip the 1×1 open-tracking pixel from the in-app view
+    .replace(/<img[^>]+src="[^"]*\/track\/open\/[^"]*"[^>]*>/gi, '')
+    // hide the unsubscribe footer in-app — it's only meaningful when read in Gmail
+    .replace(/<p[^>]*>[^<]*Don'?t want these emails\?[\s\S]*?<\/p>/gi, '')
+    .replace(/on\w+\s*=\s*"[^"]*"/gi, '')   // drop inline event handlers
+    .replace(/on\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/javascript:/gi, '');
+}
+
+export function stripHtml(html) {
+  return (html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+}
+
+// Heuristic: content synced from Gmail is HTML; older/plain rows aren't.
+function looksLikeHtml(s) {
+  return /<\/?[a-z][\s\S]*>/i.test(s || '');
+}
+
+function EmailBodyRenderer({ html }) {
+  const raw = html || '';
+  if (!looksLikeHtml(raw)) {
+    // Plain-text body — keep the original whitespace-preserving rendering.
+    return <div className="text-[13.5px] leading-relaxed text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{raw}</div>;
+  }
+  return (
+    <div
+      className="text-[13.5px] leading-relaxed text-gray-800 dark:text-gray-200 max-w-none break-words [&_a]:text-blue-600 [&_a]:underline [&_p]:my-2 [&_ul]:list-disc [&_ul]:ml-5 [&_img]:max-w-full [&_img]:rounded-lg"
+      dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(raw) }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 2.5 — Deterministic reply classifier (an AI upgrade can slot in on top:
 // anything returning 'unclassified' is a candidate for the ai-summary route)
 // ---------------------------------------------------------------------------
@@ -367,6 +412,7 @@ export default function EmailCommandCenter({
     setInboxError(null);
     const { data, error } = await supabase.from('email_inbox')
       .select('id, client_id, cold_contact_id, sequence_id, send_id, gmail_message_id, gmail_thread_id, from_email, from_name, subject, body_preview, classification, is_read, is_starred, received_at')
+      .is('deleted_at', null) // A3 — hide soft-deleted rows
       .order('received_at', { ascending: false, nullsFirst: false })
       .limit(2000);
     if (error) { setInboxError(error.message); setInboxMeta([]); return; }
@@ -475,6 +521,17 @@ export default function EmailCommandCenter({
       const { data } = await supabase.from('email_inbox').select('body_full').eq('id', row.id).maybeSingle();
       setBodies(prev => ({ ...prev, [row.id]: data?.body_full || '' }));
     }
+  }
+
+  // A3 — soft-delete an inbox row.
+  async function deleteMessage(row, e) {
+    e?.stopPropagation();
+    setInboxMeta(prev => prev.filter(r => r.id !== row.id));
+    if (selectedId === row.id) setSelectedId(null);
+    const { error } = await supabase.from('email_inbox')
+      .update({ deleted_at: new Date().toISOString() }).eq('id', row.id);
+    if (error) { showToast(error.message, 'error'); loadInbox(); return; }
+    showToast('Email removed from inbox.', 'success');
   }
 
   async function toggleStar(row, e) {
@@ -829,7 +886,7 @@ export default function EmailCommandCenter({
                   const name = displayName(row);
                   return (
                     <button key={row.id} onClick={() => openMessage(row)}
-                      className={`w-full text-left px-3 py-2.5 border-b border-gray-50 dark:border-gray-800/60 transition-colors ${selectedId === row.id ? 'bg-indigo-50/60 dark:bg-indigo-950/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>
+                      className={`group w-full text-left px-3 py-2.5 border-b border-gray-50 dark:border-gray-800/60 transition-colors ${selectedId === row.id ? 'bg-indigo-50/60 dark:bg-indigo-950/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>
                       <div className="flex items-center gap-2.5">
                         <span className="w-9 h-9 rounded-full grid place-items-center text-white text-[12px] font-bold shrink-0" style={{ background: avatarColor(row.from_email || name) }}>
                           {initialsOf(name)}
@@ -840,10 +897,12 @@ export default function EmailCommandCenter({
                             <span className={`text-[13px] truncate ${row.is_read ? 'font-medium text-gray-700 dark:text-gray-300' : 'font-bold text-gray-900 dark:text-white'}`}>{name}</span>
                             <span className="ml-auto text-[10.5px] text-gray-400 shrink-0">{relTime(row.received_at)}</span>
                             <button onClick={e => toggleStar(row, e)} className={`shrink-0 text-[13px] leading-none ${row.is_starred ? 'text-amber-500' : 'text-gray-200 dark:text-gray-700 hover:text-amber-400'}`} title={row.is_starred ? 'Unstar' : 'Star'}>★</button>
+                            {/* A3 — hover-reveal delete */}
+                            <button onClick={e => deleteMessage(row, e)} className="shrink-0 text-[13px] leading-none text-gray-200 dark:text-gray-700 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete">🗑</button>
                           </div>
                           <p className={`text-[12px] truncate ${row.is_read ? 'text-gray-500' : 'text-gray-800 dark:text-gray-200 font-semibold'}`}>{row.subject || '(no subject)'}</p>
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            <p className="text-[11.5px] text-gray-400 truncate flex-1">{row.body_preview}</p>
+                            <p className="text-[11.5px] text-gray-400 truncate flex-1">{stripHtml(row.body_preview)}</p>
                             {row.classification && row.classification !== 'unclassified' && (
                               <span className={`shrink-0 px-1.5 py-px rounded text-[9.5px] font-bold ${cls.chip}`}>{cls.label}</span>
                             )}
@@ -919,6 +978,7 @@ export default function EmailCommandCenter({
                     <a href={`https://mail.google.com/mail/u/${encodeURIComponent(gmailConn.email_address)}/#all/${selected.gmail_thread_id}`} target="_blank" rel="noopener noreferrer"
                       className="px-2.5 py-1 text-[11.5px] font-semibold text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Open thread ↗</a>
                   )}
+                  <button onClick={() => deleteMessage(selected)} className="ml-auto px-2.5 py-1 text-[11.5px] font-semibold text-red-600 border border-red-200 dark:border-red-900 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30">Delete</button>
                 </div>
 
                 {/* classification-driven suggestions */}
@@ -933,9 +993,12 @@ export default function EmailCommandCenter({
                   </div>
                 )}
 
-                {/* body */}
-                <div className="text-[13.5px] leading-relaxed text-gray-800 dark:text-gray-200 whitespace-pre-wrap py-2 min-h-[80px]">
-                  {selected.id in bodies ? (bodies[selected.id] || selected.body_preview || <span className="text-gray-400">No body captured for this message.</span>)
+                {/* body — A1: render HTML properly (not as literal text) */}
+                <div className="py-2 min-h-[80px]">
+                  {selected.id in bodies
+                    ? (bodies[selected.id] || selected.body_preview
+                        ? <EmailBodyRenderer html={bodies[selected.id] || selected.body_preview} />
+                        : <span className="text-[13.5px] text-gray-400">No body captured for this message.</span>)
                     : <span className="inline-block w-2/3 h-4 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" />}
                 </div>
 

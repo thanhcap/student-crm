@@ -204,7 +204,41 @@ export function BillingSettings({ user, showToast }) {
 
   if (loading) return <p className="text-[13px] text-gray-400">Loading billing…</p>;
 
+  // A9 / Part D — owner account: distinct gold badge, "Expires never", no CTAs.
+  const isOwner = subscription?.provider === 'owner';
   const isPaid = subscription && subscription.plan !== 'free' && ['active', 'past_due'].includes(subscription.status);
+
+  if (isOwner) {
+    return (
+      <div>
+        <div className="p-5 rounded-2xl border border-amber-200 dark:border-amber-900/60 bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/20 mb-4">
+          <div className="flex items-center gap-2">
+            <p className="text-[16px] font-bold capitalize text-amber-900 dark:text-amber-200">
+              {subscription.plan} · Owner
+            </p>
+            <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-700 dark:text-amber-300 rounded-full">∞</span>
+          </div>
+          <p className="text-[12px] text-amber-800/70 dark:text-amber-300/70 mt-1">
+            Owner account · Expires never · every feature unlocked.
+          </p>
+        </div>
+        {transactions.length > 0 && (
+          <>
+            <h3 className="text-[13px] font-bold uppercase tracking-wider text-gray-400 mt-6 mb-2">Payment History</h3>
+            <div className="space-y-1">
+              {transactions.map(t => (
+                <div key={t.id} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800/50 text-[13px]">
+                  <span className="capitalize text-gray-900 dark:text-gray-100 min-w-0 truncate">{t.plan} · {t.billing_cycle}</span>
+                  <span className="tabular-nums text-gray-900 dark:text-gray-100 shrink-0">{formatMoney(t)}</span>
+                  <StatusPill status={t.status} />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div>

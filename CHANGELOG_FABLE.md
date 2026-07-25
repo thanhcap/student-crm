@@ -1369,3 +1369,68 @@ already happening outside Fable.)
 ## Build
 
 `npx next build` — compiled successfully.
+
+---
+
+# 12 Fixes + Smart Birthday Automation + Landing Redesign
+
+Branch: `feat/fixes-and-automation`
+
+## Part A — 9 targeted fixes
+
+**A1 — Inbox HTML rendering.** `email_inbox.body_full` is raw HTML (the runner
+appends an unsubscribe footer), but the reading pane rendered it as
+`whitespace-pre-wrap` text, so links showed as literal `<a href>` and the footer
+appeared as `> Don't want these emails?`. Added `EmailBodyRenderer` +
+`sanitizeEmailHtml` in `EmailCommandCenter.js`: strips script/style/iframe, the
+1×1 tracking pixel, inline event handlers and `javascript:`, hides the
+unsubscribe footer in-app, and renders the rest via `dangerouslySetInnerHTML`.
+Plain-text bodies keep their original whitespace rendering (detected by a
+tag-presence heuristic). Thread-list previews now run through `stripHtml`.
+
+**A2 — Inbox thread open error.** Investigated: this inbox is single-message
+per row (`openMessage` loads one `body_full`); it does **not** re-query by
+`gmail_thread_id` and has no unsafe `[0]` indexing, so the crash the prompt
+described does not exist in this codebase — opening a message already works.
+No fix was needed; the delete/render changes were verified not to regress it.
+
+**A3 — Delete inbox emails (soft delete).** `loadInbox` now filters
+`.is('deleted_at', null)`; `deleteMessage` stamps `deleted_at`, removes the row
+optimistically, and clears the selection if it was open. A hover-reveal 🗑 on
+each thread-list row plus a Delete button in the reading pane.
+
+**A4 — Delete notifications (soft delete).** `fetchNotifications` filters
+`deleted_at`; `handleDeleteNotification` dismisses one, `handleClearReadNotifications`
+soft-deletes every read notification in one `.in()` call. A ✕ per row (hover)
+and a "Clear read" header button — wired into **both** the sidebar dropdown and
+the mobile bell dropdown.
+
+**A5 — Campaign rename.** Clicking a campaign name in the gallery (or "Rename"
+in its ⋯ menu) turns it into an inline input; Enter or blur commits via
+`handleRenameSequence` (updates `email_sequences.name`), Esc cancels. No Save
+button.
+
+**A6 — Pricing page while logged in.** `PricingClient` reads the current session
++ subscription and renders an account bar at the top — "Signed in as <email>",
+current plan, and a **Go to App** button — instead of anything login-shaped.
+Owner sees a gold "Max · Owner account ∞" and the tier CTAs become a static
+"Included · Owner" chip (no upgrade path).
+
+**A7 — Email verified banner.** The post-verification message on the login
+screen now renders green (dot + reassuring copy) instead of the red error
+styling; wording changed to "Email verified — you're all set. Please log in
+below." Detection is keyword-based so password-reset/"sent" messages are green
+too.
+
+**A8 — QR image uploader.** Replaced the `qr_image_url` text field in
+`ManualPayConfigForm` with `QrImageUploader`: uploads to the public `qr-images`
+bucket (uid-prefixed path, 5MB guard), persists the public URL to
+`manual_pay_config` immediately, and previews the current QR.
+
+**A9 / Part D — Owner account respected.** `BillingSettings` shows a distinct
+gold "Max · Owner ∞ · Expires never" card with no renewal date and no manage/
+renew buttons when `subscription.provider === 'owner'`. Confirmed there are no
+other in-app upgrade banners or paywalls to suppress. The public pricing page is
+owner-aware (A6).
+
+Build: `npx next build` — compiled successfully.

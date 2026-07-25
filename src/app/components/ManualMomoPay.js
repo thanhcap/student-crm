@@ -352,6 +352,45 @@ const PRICE_ROWS = [
 
 const inputCls = 'w-full px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:border-gray-400';
 
+// A8 — QR uploader. Stores in the public `qr-images` bucket and persists the
+// public URL immediately, so the QR is never lost if the admin forgets to hit
+// Save. Path is prefixed with the uid to keep uploads tidy per-owner.
+function QrImageUploader({ user, currentUrl, onUploaded, showToast }) {
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef(null);
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { showToast?.('QR image must be under 5MB.', 'error'); return; }
+    setUploading(true);
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+    const path = `${user.id}/qr-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from('qr-images').upload(path, file, { upsert: true, contentType: file.type });
+    if (error) { showToast?.(`Upload failed: ${error.message}`, 'error'); setUploading(false); return; }
+    const { data: { publicUrl } } = supabase.storage.from('qr-images').getPublicUrl(path);
+    // Persist straight away so it survives even without a separate Save click.
+    await supabase.from('manual_pay_config').update({ qr_image_url: publicUrl }).eq('id', 1);
+    onUploaded(publicUrl);
+    setUploading(false);
+    showToast?.('QR image uploaded.', 'success');
+  }
+
+  return (
+    <div>
+      {currentUrl && (
+        <img src={currentUrl} alt="Current QR code"
+          className="w-40 h-40 object-contain rounded-xl border border-gray-200 dark:border-gray-700 bg-white mb-2" />
+      )}
+      <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+      <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+        className="px-4 py-2 text-[13px] font-semibold rounded-xl text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+        {uploading ? 'Uploading…' : currentUrl ? 'Replace QR image' : 'Upload QR image'}
+      </button>
+    </div>
+  );
+}
+
 export function ManualPayConfigForm({ user, showToast }) {
   const [isAdmin, setIsAdmin] = useState(null);
   const [prices, setPrices] = useState({}); // "pro:monthly" -> amount_vnd string
@@ -440,13 +479,17 @@ export function ManualPayConfigForm({ user, showToast }) {
         <h3 className="text-[15px] font-bold text-gray-900 dark:text-white mb-1">QR &amp; Receiver</h3>
         <p className="text-[12px] text-gray-400 mb-3">Shown on the payer’s checkout screen.</p>
         <div className="space-y-3 max-w-lg">
-          <label className="block">
-            <span className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">QR image URL</span>
-            <input value={config.qr_image_url || ''} onChange={setCfg('qr_image_url')} placeholder="https://…/momo-qr.png" className={inputCls} />
-          </label>
-          {config.qr_image_url && (
-            <img src={config.qr_image_url} alt="QR preview" className="w-32 h-32 object-contain rounded-lg border border-gray-200 dark:border-gray-700 bg-white" />
-          )}
+          {/* A8 — real file upload to the public qr-images bucket (the old
+              text field held an unusable local file path). */}
+          <div>
+            <span className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">QR image</span>
+            <QrImageUploader
+              user={user}
+              currentUrl={config.qr_image_url}
+              showToast={showToast}
+              onUploaded={url => setConfig(c => ({ ...c, qr_image_url: url }))}
+            />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="block text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">Receiver name</span>

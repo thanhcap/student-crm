@@ -81,9 +81,22 @@ function AggStat({ label, value, accent, onClick }) {
   );
 }
 
-function CampaignCard({ seq, seqSteps, onOpen, onDuplicate, onToggle, onDelete, onQuickEnroll }) {
+function CampaignCard({ seq, seqSteps, onOpen, onDuplicate, onToggle, onDelete, onQuickEnroll, onRename }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [draftName, setDraftName] = useState(seq.name);
   const menuRef = useRef(null);
+  const renameRef = useRef(null);
+
+  useEffect(() => { if (renaming) renameRef.current?.focus(); }, [renaming]);
+
+  // A5 — commit on Enter or blur; Esc cancels.
+  function commitRename() {
+    const clean = draftName.trim();
+    setRenaming(false);
+    if (clean && clean !== seq.name) onRename?.(clean);
+    else setDraftName(seq.name);
+  }
 
   useEffect(() => {
     if (!showMenu) return;
@@ -100,9 +113,26 @@ function CampaignCard({ seq, seqSteps, onOpen, onDuplicate, onToggle, onDelete, 
       className="group relative p-5 rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-lg transition-all cursor-pointer">
       <div className="flex items-start justify-between mb-3">
         <div className="min-w-0 flex-1">
-          <h3 className="text-[15px] font-bold text-gray-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-            {seq.name}
-          </h3>
+          {renaming ? (
+            <input
+              ref={renameRef}
+              value={draftName}
+              onChange={e => setDraftName(e.target.value)}
+              onClick={e => e.stopPropagation()}
+              onBlur={commitRename}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
+                if (e.key === 'Escape') { setDraftName(seq.name); setRenaming(false); }
+              }}
+              className="w-full text-[15px] font-bold text-gray-900 dark:text-white bg-transparent border-b border-indigo-400 focus:outline-none"
+            />
+          ) : (
+            <h3 onClick={e => { e.stopPropagation(); setDraftName(seq.name); setRenaming(true); }}
+              className="text-[15px] font-bold text-gray-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors"
+              title="Click to rename">
+              {seq.name}
+            </h3>
+          )}
           {seq.description && <p className="text-[12px] text-gray-400 mt-0.5 line-clamp-1">{seq.description}</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0 ml-3">
@@ -118,6 +148,7 @@ function CampaignCard({ seq, seqSteps, onOpen, onDuplicate, onToggle, onDelete, 
             {showMenu && (
               <div className="absolute right-0 top-8 z-20 w-44 py-1 bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700"
                 onClick={e => e.stopPropagation()}>
+                <MenuBtn onClick={() => { setDraftName(seq.name); setRenaming(true); setShowMenu(false); }}>Rename</MenuBtn>
                 <MenuBtn onClick={() => { onToggle(); setShowMenu(false); }}>{live ? 'Pause campaign' : 'Activate campaign'}</MenuBtn>
                 <MenuBtn onClick={() => { onQuickEnroll(); setShowMenu(false); }}>Enroll contacts</MenuBtn>
                 <MenuBtn onClick={() => { onDuplicate(); setShowMenu(false); }}>Duplicate</MenuBtn>
@@ -278,7 +309,7 @@ export default function EmailCampaignGallery({
   sequences, steps, enrollments, sends, loading,
   clients, coldContacts,
   templates, onApplyTemplate,
-  onOpen, onDuplicate, onToggle, onDelete, onQuickEnroll, onCreateNew, onOpenInbox,
+  onOpen, onDuplicate, onToggle, onDelete, onQuickEnroll, onCreateNew, onOpenInbox, onRename,
 }) {
   const [sortBy, setSortBy] = useState('recent');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -393,6 +424,7 @@ export default function EmailCampaignGallery({
               onToggle={() => onToggle(seq)}
               onDelete={() => onDelete(seq)}
               onQuickEnroll={() => onQuickEnroll(seq)}
+              onRename={(name) => onRename?.(seq, name)}
             />
           ))}
         </div>

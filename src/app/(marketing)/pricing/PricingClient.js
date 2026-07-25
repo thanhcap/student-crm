@@ -93,7 +93,7 @@ function BillingToggle({ annual, onToggle }) {
   );
 }
 
-function PricingCard({ tier, annual, onChoose }) {
+function PricingCard({ tier, annual, onChoose, owner }) {
   const ref = useRef(null);
   const [tilt, setTilt] = useState({ rx: 0, ry: 0, px: 50, py: 50 });
   function onMove(e) {
@@ -151,9 +151,12 @@ function PricingCard({ tier, annual, onChoose }) {
           ))}
         </ul>
 
-        {/* Free stays a plain signup link; paid tiers open the payment-method
-            selector, which asks a server route for a hosted checkout URL. */}
-        {tier.price === 0 ? (
+        {/* A6/A9 — owner already has everything: no upgrade CTAs, ever. */}
+        {owner ? (
+          <div className="block text-center py-3 rounded-xl text-[13px] font-semibold border border-amber-400/30 text-amber-300 bg-amber-500/5">
+            Included · Owner
+          </div>
+        ) : tier.price === 0 ? (
           <a href="/?signup=1"
             className="block text-center py-3 rounded-xl text-[13px] font-semibold transition-all border border-white/10 text-white hover:bg-white/[0.04] hover:border-white/20">
             {tier.cta}
@@ -189,6 +192,20 @@ export default function PricingClient() {
   // from the access token), so an anonymous visitor is sent to sign in first.
   const [checkoutTier, setCheckoutTier] = useState(null);
   const [checkoutMsg, setCheckoutMsg] = useState(null);
+  // A6 — a logged-in visitor should see their account, not sign-up CTAs.
+  const [account, setAccount] = useState(null); // { email, plan, provider } | null
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!alive || !user) return;
+      const { data: sub } = await supabase.from('subscriptions')
+        .select('plan, provider').eq('user_id', user.id).maybeSingle();
+      if (alive) setAccount({ email: user.email, plan: sub?.plan || 'free', provider: sub?.provider || null });
+    })();
+    return () => { alive = false; };
+  }, []);
 
   async function handleChoose(tier) {
     const { data: { session } } = await supabase.auth.getSession();
@@ -203,8 +220,35 @@ export default function PricingClient() {
     setShowGlobe(wide && !reduced);
   }, []);
 
+  const isOwner = account?.provider === 'owner';
+
   return (
     <div className="pb-8">
+      {/* A6 — logged-in account bar: show plan + a way back to the app, never a
+          login form. Owner gets a distinct gold "Max · Owner" treatment. */}
+      {account && (
+        <div className="max-w-5xl mx-auto px-6 pt-6">
+          <div className={`flex items-center justify-between gap-4 p-4 rounded-2xl border ${isOwner
+            ? 'border-amber-400/40 bg-gradient-to-r from-amber-500/10 to-yellow-500/5'
+            : 'border-white/10 bg-white/[0.04]'}`}>
+            <div>
+              <p className="text-[13px] font-semibold text-white">Signed in as {account.email}</p>
+              <p className="text-[12px] text-white/50 mt-0.5">
+                {isOwner ? (
+                  <span className="font-semibold text-amber-300">Max · Owner account ∞</span>
+                ) : (
+                  <>Current plan: <span className="font-semibold capitalize text-white/80">{account.plan}</span></>
+                )}
+              </p>
+            </div>
+            <a href="/"
+              className="shrink-0 px-4 py-2 rounded-xl text-[13px] font-semibold bg-white text-black hover:bg-white/90 transition-colors">
+              Go to App
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* HEADER */}
       <header className="max-w-4xl mx-auto px-6 pt-12 pb-8 text-center">
         <motion.h1 initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: EASE }}
@@ -218,7 +262,7 @@ export default function PricingClient() {
 
       {/* TIER CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto px-6 pb-10 items-stretch">
-        {TIERS.map(tier => <PricingCard key={tier.key} tier={tier} annual={annual} onChoose={handleChoose} />)}
+        {TIERS.map(tier => <PricingCard key={tier.key} tier={tier} annual={annual} onChoose={handleChoose} owner={isOwner} />)}
       </div>
 
       {/* B-1 — payment method selector (Stripe card / MoMo wallet) */}
