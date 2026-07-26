@@ -17,24 +17,17 @@
 // the code is stored in provider_transaction_id with provider='manual_qr'.
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../../lib/supabase';
 
 // ============================================================================
-// DYNAMIC MOMO QR (Part 3) — encodes phone + amount + code so a MoMo scan
-// pre-fills everything. Falls back to a code-only QR + manual instructions when
-// no receiver phone is configured. Generated client-side with qrcode.react —
-// no more static uploaded PNG.
+// MOMO QR (Part 3, corrected) — MoMo's scanner only reads MoMo's own napas /
+// VietQR payload, which is issued by MoMo itself; a `momo://…` deep link or a
+// plain-text QR scans as "invalid". A personal MoMo QR also can't have an
+// arbitrary amount baked in from just a phone number. So the scannable code is
+// the admin's real uploaded MoMo QR image (qr_image_url), and the amount + code
+// are shown as prominent copyable text — the payer scans, enters the amount,
+// and pastes the code into the transfer note.
 // ============================================================================
-function buildMomoLink({ phone, amount, description }) {
-  // MoMo app deep link — scanning the QR opens MoMo with the fields pre-filled.
-  const p = new URLSearchParams({
-    action: 'transfer', isScanQR: 'true',
-    phone, amount: String(Math.round(amount)), comment: description,
-  });
-  return `momo://app?${p.toString()}`;
-}
-
 function PayRow({ label, value, copyable, accent, showToast }) {
   return (
     <div className="flex items-center justify-between gap-2">
@@ -54,26 +47,26 @@ function PayRow({ label, value, copyable, accent, showToast }) {
   );
 }
 
-function DynamicMomoQR({ amount, paymentCode, config, showToast }) {
+function MomoQR({ amount, paymentCode, config, showToast }) {
+  const qrUrl = config?.qr_image_url;
   const hasPhone = Boolean(config?.receiver_handle);
-  const qrValue = hasPhone
-    ? buildMomoLink({ phone: config.receiver_handle, amount, description: paymentCode })
-    : paymentCode; // fallback: code-only QR
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100">
-        <QRCodeSVG value={qrValue} size={200} level="M" />
-      </div>
-
-      {hasPhone ? (
-        <p className="text-[12px] text-gray-500 text-center max-w-[220px]">
-          Open MoMo → Scan this QR → Amount and code are auto-filled → Tap Pay
-        </p>
+      {qrUrl ? (
+        <>
+          <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100">
+            <img src={qrUrl} alt="MoMo payment QR" width={200} height={200}
+              className="w-[200px] h-[200px] object-contain" />
+          </div>
+          <p className="text-[12px] text-gray-500 text-center max-w-[240px]">
+            Open MoMo → Scan this QR → enter the amount below → paste the code into the note → Pay
+          </p>
+        </>
       ) : (
-        <p className="text-[11px] text-amber-600 text-center">
-          Dynamic QR requires the MoMo phone number to be configured by the admin.
-          Use the payment code below to transfer manually.
+        <p className="text-[11px] text-amber-600 text-center max-w-[240px]">
+          No MoMo QR is set up yet. Ask the admin to upload their MoMo QR image in
+          Settings, then transfer manually using the details below.
         </p>
       )}
 
@@ -81,9 +74,9 @@ function DynamicMomoQR({ amount, paymentCode, config, showToast }) {
         <PayRow label="Transfer to" value={config?.receiver_name || 'Thanh Cap'} showToast={showToast} />
         {hasPhone && <PayRow label="MoMo number" value={config.receiver_handle} copyable showToast={showToast} />}
         <PayRow label="Amount" value={formatVND(amount)} accent showToast={showToast} />
-        <PayRow label="Description" value={paymentCode} copyable accent showToast={showToast} />
+        <PayRow label="Note / code" value={paymentCode} copyable accent showToast={showToast} />
         <p className="text-[10px] text-amber-600 dark:text-amber-400 pt-1">
-          The description/code must match exactly for your payment to be confirmed.
+          The note/code must match exactly, or your payment can’t be confirmed.
         </p>
       </div>
     </div>
@@ -244,7 +237,7 @@ export function ManualMomoQrPanel({ tier, billingCycle, showToast, onBack, onAct
 
       {/* Part 3 — dynamic QR encodes phone + amount + code (no static PNG) */}
       <div className="mb-4">
-        <DynamicMomoQR amount={payment.amount} paymentCode={payment.code} config={payment} showToast={showToast} />
+        <MomoQR amount={payment.amount} paymentCode={payment.code} config={payment} showToast={showToast} />
       </div>
 
       {payment.instructions && (
