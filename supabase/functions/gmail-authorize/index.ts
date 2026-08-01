@@ -1,8 +1,10 @@
-// gmail-authorize v4 — builds the Google OAuth consent URL server-side (no
+// gmail-authorize v5 — builds the Google OAuth consent URL server-side (no
 // client env needed) and redirects the browser there. Scopes: gmail.send (the
-// runner sends), gmail.readonly (gmail-sync polls replies), userinfo.email
-// (gmail-oauth stores the account address — v3 omitted readonly; the old
-// client-side URL omitted userinfo.email, which is why email_address was NULL).
+// runner sends) + userinfo.email (gmail-oauth stores the account address).
+// gmail.readonly was REMOVED: it is a Google "restricted" scope requiring a
+// paid CASA assessment to publish. Reply-detection now uses IMAP + a Gmail App
+// Password (imap-connect / gmail-sync v12), which is outside OAuth scopes, so
+// only gmail.send (a free "sensitive" scope) needs verification.
 // Public endpoint, same trust model as the gmail-oauth callback.
 // Usage: GET /functions/v1/gmail-authorize?user_id=<auth.users.id>
 Deno.serve(async (req: Request) => {
@@ -17,7 +19,6 @@ Deno.serve(async (req: Request) => {
   const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/gmail-oauth`;
   const scope = [
     'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/userinfo.email',
   ].join(' ');
 

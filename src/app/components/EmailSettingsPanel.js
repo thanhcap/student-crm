@@ -9,8 +9,119 @@
 // upsert — this component is pure interface.
 // ============================================================================
 import { useState } from 'react';
+import { supabase } from '../../lib/supabase';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function relTimeShort(iso) {
+  if (!iso) return 'Not yet';
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `${h}h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+// Part 2.1 — Reply Tracking via IMAP + Gmail App Password. Separate from
+// "Connect Gmail" (OAuth, for sending). The app password is submitted once,
+// validated + encrypted server-side by imap-connect, and never kept in state.
+function ImapReplyTrackingCard({ connection, showToast, onImapChanged }) {
+  const [appPassword, setAppPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const inputCls = 'flex-1 px-3 py-2 text-[13px] border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-lg focus:outline-none focus:border-gray-400';
+  const base = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1`;
+
+  async function handleSave() {
+    const cleaned = appPassword.replace(/\s/g, '');
+    if (cleaned.length !== 16) {
+      showToast('App passwords are 16 characters (Google shows them in 4-character groups).', 'error');
+      return;
+    }
+    setSaving(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    let result = {};
+    try {
+      const res = await fetch(`${base}/imap-connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ appPassword: cleaned }),
+      });
+      result = await res.json().catch(() => ({}));
+      setAppPassword(''); // never keep the credential in state after submission
+      if (!res.ok) { showToast(`Connection failed: ${result.error || 'try again'}`, 'error'); setSaving(false); return; }
+    } catch {
+      setAppPassword('');
+      showToast('Network error — try again.', 'error'); setSaving(false); return;
+    }
+    setSaving(false);
+    showToast('Reply tracking enabled.', 'success');
+    onImapChanged?.();
+  }
+
+  async function handleDisable() {
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetch(`${base}/imap-disconnect`, { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } });
+    showToast('Reply tracking disabled.', 'success');
+    onImapChanged?.();
+  }
+
+  return (
+    <Card title="Reply Tracking" desc="Automatically detect replies in your inbox and update campaign stats. Uses a Google App Password — separate from your sign-in, and different from the Connect Gmail step above (which handles sending).">
+      <div className="flex items-center justify-between mb-3 -mt-2">
+        {connection?.imap_enabled ? (
+          <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400 rounded-full">Active</span>
+        ) : (
+          <span className="px-2 py-0.5 text-[10px] font-bold uppercase bg-gray-100 dark:bg-gray-800 text-gray-500 rounded-full">Not connected</span>
+        )}
+      </div>
+
+      {connection?.imap_connect_error && (
+        <div className="p-2.5 mb-3 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900">
+          <p className="text-[11px] text-red-600 dark:text-red-400">{connection.imap_connect_error}</p>
+        </div>
+      )}
+
+      {!connection?.imap_enabled ? (
+        <>
+          <div className="flex gap-2 mb-2">
+            <input type="password" value={appPassword} onChange={e => setAppPassword(e.target.value)}
+              placeholder="xxxx xxxx xxxx xxxx" className={inputCls} maxLength={19} autoComplete="off" />
+            <button onClick={handleSave} disabled={saving}
+              className="px-4 py-2 text-[13px] font-semibold text-white bg-gray-900 dark:bg-white dark:text-gray-900 rounded-lg hover:opacity-90 disabled:opacity-50">
+              {saving ? 'Connecting…' : 'Enable'}
+            </button>
+          </div>
+          <button onClick={() => setShowHelp(v => !v)} className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline">
+            {showHelp ? 'Hide' : 'How do I get an App Password?'}
+          </button>
+          {showHelp && (
+            <div className="mt-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50 space-y-2">
+              <ol className="text-[12px] text-gray-500 dark:text-gray-400 list-decimal list-inside space-y-1.5">
+                <li>Make sure 2-Step Verification is turned on for your Google account.</li>
+                <li>Go to <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 underline">myaccount.google.com/apppasswords</a></li>
+                <li>Enter a name like “Relationship CRM” and click Create.</li>
+                <li>Copy the 16-character code Google shows you and paste it above.</li>
+              </ol>
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                Note: this won’t work for Google Workspace accounts if your organization’s admin has disabled app passwords.
+              </p>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="flex items-center justify-between">
+          <p className="text-[12px] text-gray-400">Last synced: {relTimeShort(connection.imap_last_synced_at)}</p>
+          <button onClick={handleDisable}
+            className="px-3 py-1.5 text-[12px] font-semibold text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+            Disable
+          </button>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 // Part 5 — always-visible help for the Google "Access blocked" error. Fable
 // can't fix this (it's a Google Cloud Console setting the owner must change),
@@ -71,7 +182,7 @@ function SettingsSkeleton() {
 
 export default function EmailSettingsPanel({
   emailSettings, settingsLoaded, onSave,
-  gmailConn, gmailSyncing, onConnectGmail, onSyncNow, onDisconnectGmail,
+  gmailConn, gmailSyncing, onConnectGmail, onSyncNow, onDisconnectGmail, onImapChanged,
   unsubscribes, onRemoveUnsubscribe,
   showToast,
 }) {
@@ -124,6 +235,9 @@ export default function EmailSettingsPanel({
           </div>
         )}
       </Card>
+
+      {/* Part 2.1 — Reply Tracking (IMAP + App Password), separate from sending */}
+      <ImapReplyTrackingCard connection={gmailConn} showToast={showToast} onImapChanged={onImapChanged} />
 
       {/* Auto-send master switch + caps */}
       <Card title="Auto-send" desc="The runner only sends when this is on, inside your window, under your caps.">

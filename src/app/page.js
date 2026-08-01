@@ -3754,8 +3754,10 @@ export default function App() {
   }
 
   async function fetchGmailConn(userId) {
+    // Explicit columns only — the encrypted IMAP password
+    // (imap_app_password_encrypted) is DELIBERATELY never selected client-side.
     const { data } = await supabase.from('gmail_connections')
-      .select('id, email_address, connected_at, last_synced_at, revoked_at, needs_reauth')
+      .select('id, email_address, connected_at, last_synced_at, revoked_at, needs_reauth, imap_enabled, imap_connect_error, imap_last_synced_at')
       .eq('user_id', userId).is('revoked_at', null).maybeSingle();
     setGmailConn(data || null);
   }
@@ -10377,6 +10379,7 @@ export default function App() {
                   onConnectGmail={handleConnectGmail}
                   onSyncNow={handleGmailSyncNow}
                   onDisconnectGmail={handleDisconnectGmail}
+                  onImapChanged={() => user && fetchGmailConn(user.id)}
                   unsubscribes={unsubscribesList}
                   onRemoveUnsubscribe={handleRemoveUnsubscribe}
                   showToast={showToast}

@@ -1707,3 +1707,87 @@ FOR PUBLIC LAUNCH (any user can connect):
 
 Build: `npx next build` — compiled successfully; 19/19 pages (incl. /privacy, /terms).
 Owner subscription (plan=max, provider=owner) confirmed untouched.
+
+---
+
+# Drop gmail.readonly → IMAP + App Password reply sync (free Google verification)
+
+Branch: `feat/imap-reply-sync-free-verification`
+
+## Why
+`gmail.readonly` is a Google **restricted** scope requiring a paid CASA security
+assessment ($15k+/yr) to publish. `gmail.send` alone is a **sensitive** scope —
+free to verify. This pass removes `gmail.readonly` and moves reply-detection to
+IMAP + a Gmail App Password (outside OAuth scopes entirely, so outside CASA).
+
+## REQUIRED HUMAN ACTION — set the IMAP encryption key
+Reply tracking cannot store credentials until this is set. In Supabase →
+Edge Functions → Secrets, add:
+
+    IMAP_ENCRYPTION_KEY = <a random 32-byte hex string>
+
+Generate one with: `openssl rand -hex 32`. (I generated a value and gave it to
+you in chat — it is deliberately NOT written here so it never lives in the repo.)
+`imap-connect`, `imap-disconnect`, and `gmail-sync` all read this secret; without
+it they return `server_misconfigured` and store nothing.
+
+## Part 1 — gmail-authorize v5 (deployed)
+Scope list is now **only** `gmail.send` + `userinfo.email`. Verified live: the
+generated OAuth URL's `scope` param contains exactly those two, no
+`gmail.readonly`. Sending is unaffected (still OAuth). Already-granted readonly
+on old tokens is harmless and no longer used.
+
+## Part 2 — IMAP reply sync
+- **Migration `imap_password_crypto_rpcs`** (applied): `store_imap_password` and
+  `get_imap_password`, both SECURITY DEFINER, `search_path = public, extensions`
+  (pgcrypto lives in `extensions` on Supabase). **Deviation from the spec, for
+  security:** rather than returning the encrypted bytea to the edge function and
+  writing it back (a JSON/bytea round-trip that risks corruption and exposure),
+  the encrypted bytea **never leaves Postgres** — `store` encrypts+writes,
+  `get` reads+decrypts and returns only plaintext. Verified live: the pgcrypto
+  round-trip works, and `has_function_privilege` confirms `anon` and
+  `authenticated` = false, `service_role` = true.
+- **`imap-connect`** (deployed): auth-gated; validates the 16-char app password
+  against `imap.gmail.com:993` over TLS **before** storing; on failure returns a
+  generic error (never leaks the credential); on success calls
+  `store_imap_password`. Never logs or echoes the password.
+- **`imap-disconnect`** (deployed): nulls `imap_app_password_encrypted`, sets
+  `imap_enabled=false`, resets `imap_last_uid=0`.
+- **`gmail-sync` v12** (deployed): IMAP transport (`imapflow`) + `mailparser`
+  instead of Gmail API reads. **All matching/classification/`replied_at`/inbox
+  logic preserved from v11** (deterministic byEmail + resolveMatch; replied_at
+  stamped for every inbound classification). Reads the password via
+  `get_imap_password` and selects **explicit columns only** — never the
+  encrypted column. Uses `imap_last_uid` as a watermark so old mail is never
+  re-scanned.
+- **Settings UI**: a new **Reply Tracking** card (`ImapReplyTrackingCard` in
+  `EmailSettingsPanel`), separate from Connect Gmail, with the App Password
+  how-to (2SV → myaccount.google.com/apppasswords). The password is cleared from
+  React state immediately after submission. `fetchGmailConn` now selects the
+  non-sensitive `imap_*` status columns (never the encrypted one).
+
+### Verification notes (honest)
+- All three functions deploy **ACTIVE** and boot cleanly (return a clean 401 on
+  bad auth), which confirms `imapflow`/`mailparser` load in the Supabase edge
+  runtime. The **actual IMAP connection to Gmail** can only be exercised with a
+  real Gmail App Password — the owner's live credential, which I must not
+  handle — so end-to-end reply-fetch is validated by the owner the first time
+  they enable Reply Tracking. `imap-connect` is built to fail loudly (real
+  error, nothing stored) if the credential or the runtime's TCP path is wrong.
+
+## Part 3 — Google OAuth verification (free track)
+Only `gmail.send` (sensitive) + `userinfo.email`/`openid`/`profile` remain.
+STEPS:
+1. console.cloud.google.com → project → APIs & Services → OAuth consent screen
+2. Branding: app name, logo, support email filled in
+3. Audience: confirm scopes show ONLY gmail.send + userinfo.email/openid/profile
+4. Ensure /privacy and /terms are live and linked (built earlier — confirm)
+5. "Publish app" (Testing → In production)
+6. Verification prompt (gmail.send is sensitive): provide a demo video (sign in →
+   connect Gmail → send a sequence email → show it arrived) and confirm the
+   privacy policy mentions Gmail data usage
+7. Submit. Sensitive-only (no CASA): days to ~2 weeks. App stays usable while
+   pending (Advanced → Go to [app]).
+COST: $0 — no CASA assessment for gmail.send-only verification.
+
+Owner subscription untouched. No `outcome`; `activity_date` is a DATE.
