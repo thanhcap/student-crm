@@ -27,20 +27,27 @@ import {
 import { BillingSettings } from './components/Billing';
 // SMART AUTOMATIONS (Part B) — birthday auto-send config + dashboard widget
 import SmartAutomationsView, { UpcomingBirthdaysWidget } from './components/SmartAutomations';
+// PLAN GATING — feature matrix + upgrade modal/gate
+import { hasFeature, contactLimit } from '../constants/plans';
+import { UpgradeModal } from './components/FeatureGate';
+
+// Which nav steps are gated, and to what plan/feature. Owner (plan=max) passes.
+const NAV_LOCK = {
+  N8N:         { feature: 'emailSequences',     requiredPlan: 'pro' },
+  NETWORK:     { feature: 'networkGraph',       requiredPlan: 'pro' },
+  AUTOMATIONS: { feature: 'birthdayAutomation', requiredPlan: 'pro' },
+};
 // MANUAL MOMO QR — admin approval panel + owner price/QR config (self-gating)
 import { AdminManualPayments, ManualPayConfigForm } from './components/ManualMomoPay';
 import dynamic from 'next/dynamic';
 import { motion } from 'framer-motion';
-// Landing home — bright orbit redesign. The Three.js Earth (GlobeScene) and the
-// star-field SpaceBackground are gone; a pure-CSS OrbitSection is the hero.
+// Landing home — floating-icon hero (teamworkgraph-inspired). No WebGL/Three.js.
 import './(marketing)/marketing.css';
-import MarketingNav from '@/components/marketing/MarketingNav';
-import MarketingFooter from '@/components/marketing/MarketingFooter';
-import OrbitSection from '@/components/landing/OrbitSection';
-// Below-the-fold sections lazy-load (Part 4.3) — kept out of the initial bundle.
-const LandingBelowFold = dynamic(() => import('@/components/landing/LandingBelowFold'), {
+import FloatingIconsHero from '@/components/landing/FloatingIconsHero';
+// Below-the-fold feature sections lazy-load — kept out of the initial bundle.
+const LandingFeatureSections = dynamic(() => import('@/components/landing/LandingFeatureSections'), {
   ssr: false,
-  loading: () => <div style={{ height: 800 }} />,
+  loading: () => <div style={{ height: 600, background: '#0E1117' }} />,
 });
 
 // ==========================================
@@ -1790,51 +1797,30 @@ function EmailStudio({ node, sequence, templates, contacts, fromAddress, resolve
 // sessions never see it — checkSession routes them straight to the Dashboard.
 // ==========================================
 function LandingPage({ onLogin, onSignup }) {
-  // Orbit redesign — bright hero, pure-CSS OrbitSection (no WebGL). Below-fold
-  // sections lazy-load. Hero headline uses a mount-triggered word reveal.
+  // Floating-icon hero (teamworkgraph-inspired dark canvas) + scroll-reveal
+  // feature sections. No WebGL, no Three.js, no orbit.
+  const go = onSignup || (() => { window.location.href = '/?signup=1'; });
+  const signIn = onLogin || (() => { window.location.href = '/?login=1'; });
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--land-bg)', color: 'var(--land-text)' }}>
-      <MarketingNav />
+    <div style={{ minHeight: '100vh', background: '#0E1117', display: 'flex', flexDirection: 'column' }}>
+      <FloatingIconsHero onGetStarted={go} onSignIn={signIn} />
+      <LandingFeatureSections />
 
-      <main className="relative z-10 flex-1">
-        {/* HERO — orbit left, copy right, on a bright mesh-gradient wash */}
-        <section className="relative flex items-center pt-24 pb-16" style={{ minHeight: '100vh', background: 'var(--land-hero-bg)' }}>
-          <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-8 items-center w-full">
-            {/* LEFT — CSS orbit animation */}
-            <div className="relative order-2 lg:order-1 flex justify-center">
-              <OrbitSection />
-            </div>
-
-            {/* RIGHT — copy */}
-            <div className="max-w-lg lg:ml-auto order-1 lg:order-2">
-              <p className="text-[11px] font-bold uppercase tracking-[0.15em] mb-4" style={{ color: 'var(--land-accent)' }}>AI-Powered Networking</p>
-              <h1 className="text-[40px] lg:text-[56px] font-semibold leading-[1.05] tracking-[-0.03em] mb-5" style={{ fontFamily: 'var(--font-space-grotesk)', color: 'var(--land-text)' }}>
-                <SplitReveal as="span" mount text="Your network," className="block" />
-                <SplitReveal as="span" mount text="visualized." className="block" style={{ color: 'var(--land-accent)' }} delay={0.12} />
-              </h1>
-              <p className="text-[16px] leading-relaxed mb-8 max-w-md" style={{ color: 'var(--land-text-2)' }}>
-                Build relationships that compound. Track every connection, automate your outreach,
-                and let AI tell you exactly who needs your attention — all in one place.
-              </p>
-              <div className="flex items-center gap-3">
-                <a href="/?signup=1" className="px-6 py-3 text-[14px] font-semibold text-white rounded-xl transition-all hover:opacity-90" style={{ background: 'var(--land-accent)' }}>Start Free</a>
-                <a href="/features" className="px-6 py-3 text-[14px] font-semibold rounded-xl transition-all" style={{ color: 'var(--land-text)', border: '1px solid var(--land-border)' }}>See Features</a>
-              </div>
-              {/* trust signals — quiet, factual */}
-              <div className="flex items-center gap-6 mt-10 pt-6" style={{ borderTop: '1px solid var(--land-border)' }}>
-                <div><p className="text-[22px] font-bold" style={{ fontFamily: 'var(--font-space-grotesk)', color: 'var(--land-text)' }}>100+</p><p className="text-[11px]" style={{ color: 'var(--land-text-2)' }}>auto-sends per day</p></div>
-                <div><p className="text-[22px] font-bold" style={{ fontFamily: 'var(--font-space-grotesk)', color: 'var(--land-text)' }}>0</p><p className="text-[11px]" style={{ color: 'var(--land-text-2)' }}>manual clicks after setup</p></div>
-                <div><p className="text-[22px] font-bold" style={{ fontFamily: 'var(--font-space-grotesk)', color: 'var(--land-text)' }}>AI</p><p className="text-[11px]" style={{ color: 'var(--land-text-2)' }}>tells you who to call</p></div>
-              </div>
-            </div>
+      {/* Footer — dark, with the launch-required legal links */}
+      <footer style={{ background: '#0B0D12', borderTop: '1px solid rgba(255,255,255,0.06)', padding: '40px 32px' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 18 }}>🤝</span>
+            <span style={{ color: '#F0F0FF', fontWeight: 700, fontSize: 15 }}>Relationship CRM</span>
           </div>
-        </section>
-
-        {/* Everything below the fold lazy-loads (Part 4.3) */}
-        <LandingBelowFold />
-      </main>
-
-      <MarketingFooter />
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            <a href="/pricing" style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, textDecoration: 'none' }}>Pricing</a>
+            <a href="/privacy" style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, textDecoration: 'none' }}>Privacy</a>
+            <a href="/terms" style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, textDecoration: 'none' }}>Terms</a>
+          </div>
+          <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, margin: 0 }}>© {new Date().getFullYear()} Relationship CRM</p>
+        </div>
+      </footer>
     </div>
   );
 }
@@ -2097,6 +2083,21 @@ export default function App() {
   const [sequences, setSequences] = useState([]);
   const [sequenceSteps, setSequenceSteps] = useState([]);
   const [automationTriggers, setAutomationTriggers] = useState([]); // Part B
+  // PLAN GATING — the user's subscription + a shared upgrade modal.
+  const [subscription, setSubscription] = useState(null);
+  const [upgradeModal, setUpgradeModal] = useState(null); // null | { requiredPlan, message }
+  const userPlan = subscription?.plan || 'free';
+  function showUpgradeModal(requiredPlan = 'pro', message) { setUpgradeModal({ requiredPlan, message }); }
+  // Defensive: if a locked premium view is somehow reached (command palette,
+  // deep link), bounce back to the dashboard and prompt to upgrade.
+  useEffect(() => {
+    const lock = NAV_LOCK[appStep];
+    if (lock && subscription !== null && !hasFeature(userPlan, lock.feature)) {
+      setAppStep('DASHBOARD');
+      showUpgradeModal(lock.requiredPlan, `That’s a ${lock.requiredPlan === 'max' ? 'Max' : 'Pro'} feature.`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appStep, userPlan, subscription]);
   const [sequenceEnrollments, setSequenceEnrollments] = useState([]);
   const [newSeqName, setNewSeqName] = useState('');
   const [newSeqTrigger, setNewSeqTrigger] = useState('manual');
@@ -2615,6 +2616,8 @@ export default function App() {
       fetchCareerData(session.user.id),
       fetchProposals(session.user.id),
       fetchAutomationTriggers(session.user.id), // Part B
+      supabase.from('subscriptions').select('plan, provider, status, current_period_end').eq('user_id', session.user.id).maybeSingle()
+        .then(({ data }) => setSubscription(data || null)), // plan gating
 
       // V3 F75/F77 — MFA state + audit trail
       supabase.auth.mfa.listFactors().then(({ data }) => setMfaFactors(data?.totp || [])),
@@ -5405,6 +5408,16 @@ export default function App() {
     e.preventDefault();
     if (!name || !clientEmail) return;
     if (duplicateWarning && !forceSaveDuplicate) return; // FEATURE 14: blocked until "Save anyway"
+
+    // Plan gating — free plan caps at 25 contacts.
+    const limit = contactLimit(userPlan);
+    if (Number.isFinite(limit)) {
+      const { count } = await supabase.from('clients').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
+      if ((count || 0) >= limit) {
+        showUpgradeModal('pro', `You've reached the ${limit} contact limit on the free plan. Upgrade to Pro for unlimited contacts.`);
+        return;
+      }
+    }
     setCrmErrorMessage('');
 
     const { data, error } = await supabase.from('clients').insert([{
@@ -6683,10 +6696,15 @@ export default function App() {
               ['SETTINGS', 'Settings'],
             ].map(([step, label]) => {
               const active = appStep === step;
+              const lock = NAV_LOCK[step];
+              const locked = lock && !hasFeature(userPlan, lock.feature);
               return (
-                <button key={step} onClick={() => setAppStep(step)} className={`relative text-left px-3 h-9 flex items-center ${R.ctl} ${T.small} font-medium transition-all duration-200 ${active ? 'bg-black/[0.04] dark:bg-white/[0.06] text-gray-900 dark:text-gray-100 font-semibold' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.03]'}`}>
+                <button key={step}
+                  onClick={() => locked ? showUpgradeModal(lock.requiredPlan, `${label} is a ${lock.requiredPlan === 'max' ? 'Max' : 'Pro'} feature.`) : setAppStep(step)}
+                  className={`relative text-left px-3 h-9 flex items-center gap-1.5 ${R.ctl} ${T.small} font-medium transition-all duration-200 ${active ? 'bg-black/[0.04] dark:bg-white/[0.06] text-gray-900 dark:text-gray-100 font-semibold' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-black/[0.02] dark:hover:bg-white/[0.03]'}`}>
                   {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full bg-gray-900 dark:bg-gray-100" />}
-                  {label}
+                  <span className={locked ? 'text-gray-400' : ''}>{label}</span>
+                  {locked && <span className="ml-auto text-[11px]" title={`${lock.requiredPlan === 'max' ? 'Max' : 'Pro'} plan`}>🔒</span>}
                 </button>
               );
             })}
@@ -6787,9 +6805,13 @@ export default function App() {
                     ['CALENDAR', 'Calendar'],
                     ['REPORTS', 'Reports'],
                     ['SETTINGS', 'Settings'],
-                  ].map(([step, label]) => (
-                    <button key={step} onClick={() => setAppStep(step)} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${appStep === step ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>{label}</button>
-                  ))}
+                  ].map(([step, label]) => {
+                    const lock = NAV_LOCK[step];
+                    const locked = lock && !hasFeature(userPlan, lock.feature);
+                    return (
+                    <button key={step} onClick={() => locked ? showUpgradeModal(lock.requiredPlan, `${label} is a ${lock.requiredPlan === 'max' ? 'Max' : 'Pro'} feature.`) : setAppStep(step)} className={`px-3 py-1.5 rounded-md text-[13px] font-medium transition-all ${appStep === step ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>{label}{locked && ' 🔒'}</button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -6890,9 +6912,13 @@ export default function App() {
                 ['CALENDAR', 'Calendar'],
                 ['REPORTS', 'Reports'],
                 ['SETTINGS', 'Settings'],
-              ].map(([step, label]) => (
-                <button key={step} onClick={() => { setAppStep(step); setMobileMenuOpen(false); }} className={`text-left px-3 py-2.5 min-h-[44px] rounded-md text-[13px] font-medium transition-all ${appStep === step ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>{label}</button>
-              ))}
+              ].map(([step, label]) => {
+                const lock = NAV_LOCK[step];
+                const locked = lock && !hasFeature(userPlan, lock.feature);
+                return (
+                <button key={step} onClick={() => { if (locked) { showUpgradeModal(lock.requiredPlan, `${label} is a ${lock.requiredPlan === 'max' ? 'Max' : 'Pro'} feature.`); } else { setAppStep(step); } setMobileMenuOpen(false); }} className={`text-left px-3 py-2.5 min-h-[44px] rounded-md text-[13px] font-medium transition-all ${appStep === step ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/50'}`}>{label}{locked && ' 🔒'}</button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -13857,6 +13883,15 @@ export default function App() {
       )}
 
       {/* TOAST NOTIFICATIONS — bottom-right stack, countdown bar, Undo (F6) */}
+      {/* PLAN GATING — shared upgrade modal */}
+      {upgradeModal && (
+        <UpgradeModal
+          requiredPlan={upgradeModal.requiredPlan}
+          message={upgradeModal.message}
+          onClose={() => setUpgradeModal(null)}
+        />
+      )}
+
       {toasts.slice(-4).map((toast, i) => (
         <Toast
           key={toast.id}

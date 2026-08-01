@@ -1608,3 +1608,102 @@ PRODUCTION FIX (any user — required for public launch):
   rAF); it plays for a focused user.
 
 Build: `npx next build` — compiled successfully; 17/17 pages generated.
+
+---
+
+# Pre-launch: Floating-icon landing + plan locking + $7/$10 pricing
+
+Branch: `feat/landing-redesign-prelaunch`
+
+## Part A — Floating-icon landing hero (teamworkgraph-inspired)
+- New `src/components/landing/FloatingIconsHero.js`: 14 CRM tool icons scattered
+  at the exact hardcoded positions, each drifting on its own slow CSS keyframe
+  (8–15s, unique phase), depth-of-field blur + opacity by `depth`, hover
+  sharpens + indigo glow, staggered spring-in on mount (60ms each). Frosted-glass
+  nav on scroll. Background is the exact `linear-gradient(160deg,#0E1117,
+  #12101F,#0E1A14)` — not black, not space. Honors reduced-motion.
+- New `src/components/landing/LandingFeatureSections.js`: 3 scroll-reveal feature
+  rows via IntersectionObserver (no framer-motion).
+- `LandingPage` in `page.js` now renders `<FloatingIconsHero>` +
+  `<LandingFeatureSections>` + a dark footer with **Privacy / Terms / Pricing**
+  links. Removed the orbit hero, the light `--land-*` hero, `MarketingNav`,
+  `MarketingFooter`, and the lazy `LandingBelowFold`. No WebGL/Three.js on the
+  landing. **Verified live in the browser.**
+
+## Part B — Feature locking by plan
+- `src/constants/plans.js`: `PLAN_FEATURES` (free/pro/max) + `hasFeature` +
+  `contactLimit`. `src/app/components/FeatureGate.js`: `UpgradeModal` (shows Pro
+  $7 / Max $10), plus overlay/block gate variants.
+- App now fetches the user's `subscriptions` row into `subscription` state on
+  load and derives `userPlan`. **Owner has plan='max' so `hasFeature` returns
+  true for everything — no locks appear.** (Owner row untouched.)
+- Premium nav items (Email Automation → `emailSequences`, Network Map →
+  `networkGraph`, Smart Automations → `birthdayAutomation`) show a 🔒 for
+  free/insufficient plans and open the upgrade modal on click instead of
+  navigating — in all three nav lists (sidebar, top bar, mobile drawer). Items
+  are never hidden, so users see the feature exists.
+- Defensive guard: if a locked view is reached another way (command palette,
+  deep link), the app bounces to Dashboard and shows the upgrade modal.
+- `handleAddClient` enforces the free 25-contact limit — the 26th add shows the
+  upgrade modal ("25 contact limit — upgrade to Pro for unlimited") and aborts.
+
+## Part C — Pricing $7 / $10 (USD)
+- `PricingClient` TIERS: Free $0, Pro $7/mo ($70/yr), Max $10/mo ($100/yr).
+  Annual = 2 months free (yearly = monthly × 10); the toggle and FAQ say so; the
+  card shows the per-month equivalent + the yearly total. No VND on the public
+  page. Feature lists + comparison table updated (25 free contacts).
+  **Verified live: $0 / $7 / $70 / $10 / $100 render.**
+
+## Part D — Gmail OAuth help
+- `GmailOAuthHelp` (built earlier) is shown below the Connect Gmail button in
+  both the settings panel and the in-app Gmail card — the "Access blocked?" note
+  with the Cloud Console fix. Human steps below.
+
+## Part E — Pre-launch fixes (in code)
+- `/privacy` and `/terms` pages (`(marketing)/privacy`, `(marketing)/terms`),
+  linked in the landing footer. Both indexable. **Verified /privacy loads.**
+- `.env.example` at repo root (variable names only, no values).
+- `src/app/not-found.js` 404 page.
+- `robots: { index: true, follow: true }` on the root, privacy, and terms
+  metadata.
+- Audited `console.log` and hardcoded secrets across `src/` — **zero of each.**
+
+## REQUIRED HUMAN ACTION — Google OAuth (before sharing with friends)
+The Gmail connection is in TESTING mode. To let 20 friends connect their Gmail:
+1. Go to https://console.cloud.google.com/
+2. Select the project linked to this Supabase app
+3. APIs & Services → OAuth consent screen
+4. Scroll to "Test users" → "+ Add users"
+5. Add all 20 email addresses → Save
+
+Test users can connect immediately without "Access blocked" (100-user limit in testing).
+
+FOR PUBLIC LAUNCH (any user can connect):
+- Click "Publish app" on the OAuth consent screen
+- gmail.send is a sensitive scope → Google requires verification (1–6 weeks)
+- You'll need: Privacy Policy URL (/privacy), Terms URL (/terms), and a demo video
+- Until verified, users see a warning but can proceed via Advanced → Go to [app]
+
+## PRE-LAUNCH CHECKLIST — Human actions required
+
+### REQUIRED before any friend uses the app:
+[ ] Google Cloud Console: add all 20 friend emails to OAuth test users (above)
+[ ] Supabase Dashboard: verify "Confirm email" is enabled (Auth → Email → Confirm email)
+[ ] MoMo config: add your MoMo phone number in Settings → Manual Payment Settings
+[ ] Vercel: confirm all env vars from .env.example are set
+
+### REQUIRED before public launch (any stranger can sign up):
+[ ] Google OAuth verification: publish the app + submit for review (needs /privacy, /terms, demo video)
+[ ] Stripe: replace test keys with live keys; create real Price IDs and set STRIPE_PRICE_* vars
+[ ] Custom domain: replace the vercel.app subdomain in Vercel settings
+[ ] Email sending domain: add SPF/DKIM/DMARC (Settings → Domain Health)
+[ ] Rate limiting: add Upstash Redis rate limiting to /api/* routes
+
+### NICE TO HAVE:
+[ ] Error monitoring: Sentry (free tier)
+[ ] Analytics: PostHog or Umami
+[ ] Backup: enable Supabase daily backups
+[ ] Load test: sign up 5 friends simultaneously to verify the auth flow
+
+Build: `npx next build` — compiled successfully; 19/19 pages (incl. /privacy, /terms).
+Owner subscription (plan=max, provider=owner) confirmed untouched.

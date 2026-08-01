@@ -13,40 +13,40 @@ import { supabase } from '../../../lib/supabase';
 const EASE = [0.22, 1, 0.36, 1];
 const GlobeScene = dynamic(() => import('@/components/marketing/GlobeScene'), { ssr: false, loading: () => null });
 
+// Prices in USD. Annual = 2 months free (yearly total = monthly × 10):
+// Pro $7/mo → $70/yr, Max $10/mo → $100/yr.
 const TIERS = [
   {
-    key: 'free', name: 'Free', price: 0,
-    tagline: 'For students and small networks.',
-    features: ['50 relationships', 'Manual email sending', 'Deals pipeline', 'Basic reporting', 'Calendar view'],
-    cta: 'Start Free',
+    key: 'free', name: 'Free', price: 0, annualPrice: 0,
+    tagline: 'For getting started.',
+    features: ['Up to 25 contacts', 'Deal pipeline (5 deals)', 'Career suite', 'Basic tasks', 'Community templates'],
+    cta: 'Get started free',
   },
   {
-    key: 'pro', name: 'Pro', price: 19, recommended: true,
-    tagline: 'For serious networkers doing real outreach.',
+    key: 'pro', name: 'Pro', price: 7, annualPrice: 70, recommended: true,
+    tagline: 'For serious networkers.',
     features: [
-      'Unlimited relationships', 'Automatic multi-step sequences',
-      'Cold contacts + CSV import', 'AI relationship summaries',
-      'LinkedIn + Email multichannel', 'Open & click tracking',
-      'Advanced reporting', 'Email templates',
+      'Unlimited contacts', 'Email automation & sequences', 'Email inbox',
+      'Network graph', 'Lead generation', 'Birthday auto-send',
+      'Calendar booking', 'Cold outreach', 'API access',
     ],
-    cta: 'Start Pro — 14 day trial',
+    cta: 'Start Pro',
   },
   {
-    key: 'max', name: 'Max', price: 49,
-    tagline: 'For teams scaling their entire pipeline.',
+    key: 'max', name: 'Max', price: 10, annualPrice: 100,
+    tagline: 'For teams and power users.',
     features: [
-      'Everything in Pro', 'Team workspace with roles',
-      'Webhooks & API access', 'Automation rules engine',
-      'Custom pipeline stages', 'Priority support',
-      'White-label branding', 'Audit logging',
+      'Everything in Pro', 'Video messages', 'WebRTC calling',
+      'Team workspace', 'White-label mode', 'Usage dashboard',
+      'Referral program', 'Priority support',
     ],
-    cta: 'Start Max — 14 day trial',
+    cta: 'Start Max',
   },
 ];
 
 const COMPARISON = [
   { category: 'Relationships', rows: [
-    ['Contacts', '50', 'Unlimited', 'Unlimited'],
+    ['Contacts', '25', 'Unlimited', 'Unlimited'],
     ['Custom fields', true, true, true],
     ['Lead scoring', false, true, true],
     ['AI summaries', false, true, true],
@@ -68,11 +68,11 @@ const COMPARISON = [
 ];
 
 const FAQ = [
-  { q: 'Is the Free plan really free forever?', a: 'Yes. 50 relationships, the deals pipeline, and manual sending are free with no time limit — it only asks for an upgrade when your network outgrows it.' },
+  { q: 'Is the Free plan really free forever?', a: 'Yes. Up to 25 contacts, the deals pipeline, and the career suite are free with no time limit — it only asks for an upgrade when your network outgrows it.' },
   { q: 'What happens when a sequence gets a reply?', a: 'The enrollment stops immediately. Nobody gets a “just following up” email after they already answered you.' },
   { q: 'Do I need my own email server?', a: 'No. Connect Gmail and campaigns send from your own address, with open, click, and reply tracking handled for you.' },
   { q: 'Can I import my existing contacts?', a: 'Pro and Max include CSV import with validation — duplicates and malformed rows are flagged before anything is created.' },
-  { q: 'How does annual billing work?', a: 'Pay for a year up front and the monthly price drops 15%. You can switch between monthly and annual at any time.' },
+  { q: 'How does annual billing work?', a: 'Pay for a year up front and get 2 months free (Pro is $70/year, Max is $100/year). You can switch between monthly and annual at any time.' },
   { q: 'Can I cancel anytime?', a: 'Yes — downgrades take effect at the end of the billing period and your data stays exportable on every plan.' },
 ];
 
@@ -87,7 +87,7 @@ function BillingToggle({ annual, onToggle }) {
           transition={{ type: 'spring', stiffness: 500, damping: 30 }} />
       </button>
       <span className={`text-[13px] font-medium ${annual ? 'text-white' : 'text-white/35'}`}>
-        Annual <span className="text-emerald-400 text-[11px] font-semibold">−15%</span>
+        Annual <span className="text-emerald-400 text-[11px] font-semibold">2 months free</span>
       </span>
     </div>
   );
@@ -96,7 +96,9 @@ function BillingToggle({ annual, onToggle }) {
 function PricingCard({ tier, annual, onChoose, owner }) {
   // Part C5 — Apple hover: a clean upward lift + precise shadow, no tilt.
   const [hovered, setHovered] = useState(false);
-  const price = annual ? Math.round(tier.price * 0.85) : tier.price;
+  // Annual = 2 months free. Show the per-month equivalent + the yearly total.
+  const perMonth = annual ? (tier.annualPrice / 12) : tier.price;
+  const priceLabel = tier.price === 0 ? '0' : (annual ? perMonth.toFixed(1).replace(/\.0$/, '') : String(tier.price));
 
   return (
     <motion.div
@@ -123,10 +125,14 @@ function PricingCard({ tier, annual, onChoose, owner }) {
         <motion.p key={annual ? 'annual' : 'monthly'}
           initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: EASE }}
           className="text-[42px] font-bold tracking-[-0.03em] mb-1 tabular-nums" style={{ fontFamily: 'var(--font-space-grotesk)' }}>
-          ${price}<span className="text-[14px] font-normal text-white/30">/mo</span>
+          ${priceLabel}<span className="text-[14px] font-normal text-white/30">/mo</span>
         </motion.p>
-        {annual && tier.price > 0 ? (
-          <p className="text-[11px] text-emerald-400 mb-5">Save ${(tier.price - price) * 12}/year</p>
+        {tier.price > 0 ? (
+          annual ? (
+            <p className="text-[11px] text-emerald-400 mb-5">${tier.annualPrice}/year · 2 months free</p>
+          ) : (
+            <p className="text-[11px] text-white/35 mb-5">${tier.annualPrice}/year if billed annually</p>
+          )
         ) : <div className="mb-5" />}
 
         <ul className="space-y-2.5 mb-7">

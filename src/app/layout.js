@@ -27,6 +27,7 @@ const urbanist = Urbanist({
 export const metadata = {
   title: 'Relationship CRM — Your Network, Supercharged',
   description: 'Build, track, and automate your professional relationships with AI-powered outreach.',
+  robots: { index: true, follow: true },
   icons: { icon: [{ url: '/favicon.png', type: 'image/png' }] },
   manifest: '/manifest.json', // V3 F81 — installable PWA
 };
