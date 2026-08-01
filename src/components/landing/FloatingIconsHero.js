@@ -42,8 +42,17 @@ const ICON_POSITIONS = [
 function FloatingIcon({ icon, position, index }) {
   const duration = 8 + (index * 1.7) % 7;    // 8–15s, different per icon
   const delay    = -((index * 2.3) % duration); // negative = start mid-cycle
-  const xRange   = 8 + (index * 3.1) % 12;    // 8–20px horizontal drift
-  const yRange   = 10 + (index * 2.7) % 15;   // 10–25px vertical drift
+  // Each icon wanders around its own position on a small ellipse — different
+  // radius, direction, and rotation per icon so they float AROUND (not all up).
+  const rx  = 14 + (index * 3.1) % 16;   // 14–30px horizontal radius
+  const ry  = 12 + (index * 2.7) % 14;   // 12–26px vertical radius
+  const dir = index % 2 === 0 ? 1 : -1;  // half orbit clockwise, half counter
+  const rot = ((index % 3) - 1) * 2;     // gentle -2°/0°/+2° sway
+  // Quarter points of the ellipse. dir flips the vertical order to reverse spin.
+  const q1 = `${rx}px, 0px`;
+  const q2 = dir > 0 ? `0px, ${ry}px` : `0px, ${-ry}px`;
+  const q3 = `${-rx}px, 0px`;
+  const q4 = dir > 0 ? `0px, ${-ry}px` : `0px, ${ry}px`;
 
   const blurAmount = icon.depth < 0.7 ? 1.5 : icon.depth < 0.85 ? 0.5 : 0;
   const opacity    = 0.5 + icon.depth * 0.5;  // 0.5–1.0
@@ -54,11 +63,11 @@ function FloatingIcon({ icon, position, index }) {
     <>
       <style>{`
         @keyframes ${animName} {
-          0%   { transform: translate(0px, 0px) rotate(0deg); }
-          25%  { transform: translate(${xRange * 0.6}px, ${-yRange * 0.8}px) rotate(${(index % 2 === 0 ? 1 : -1) * 1.5}deg); }
-          50%  { transform: translate(${xRange}px, ${yRange * 0.4}px) rotate(0deg); }
-          75%  { transform: translate(${xRange * 0.3}px, ${yRange}px) rotate(${(index % 2 === 0 ? -1 : 1) * 1}deg); }
-          100% { transform: translate(0px, 0px) rotate(0deg); }
+          0%   { transform: translate(${q1}) rotate(0deg); }
+          25%  { transform: translate(${q2}) rotate(${rot}deg); }
+          50%  { transform: translate(${q3}) rotate(0deg); }
+          75%  { transform: translate(${q4}) rotate(${-rot}deg); }
+          100% { transform: translate(${q1}) rotate(0deg); }
         }
         @media (prefers-reduced-motion: reduce) { .fih-${icon.id} { animation: none !important; } }
       `}</style>
