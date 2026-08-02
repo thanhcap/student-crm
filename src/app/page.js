@@ -2098,6 +2098,20 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appStep, userPlan, subscription]);
+  // Subscription celebration — reuses the existing "deal won" confetti moment.
+  // Fires once per activation (keyed by plan + period end in localStorage), the
+  // first time the app loads after the plan becomes active.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (subscription?.status !== 'active') return;
+    if (!['pro', 'max'].includes(subscription.plan)) return;
+    const celebrateKey = `sub_celebrated_${subscription.plan}_${subscription.current_period_end}`;
+    if (localStorage.getItem(celebrateKey)) return;
+    localStorage.setItem(celebrateKey, '1');
+    setCelebration({ label: `Welcome to ${subscription.plan === 'max' ? 'Max' : 'Pro'}! 🎉` });
+    setTimeout(() => setCelebration(null), 4200);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subscription]);
   const [sequenceEnrollments, setSequenceEnrollments] = useState([]);
   const [newSeqName, setNewSeqName] = useState('');
   const [newSeqTrigger, setNewSeqTrigger] = useState('manual');
