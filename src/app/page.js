@@ -2651,8 +2651,24 @@ export default function App() {
     // G1 — post-OAuth landing feedback
     const qp = new URLSearchParams(window.location.search);
     if (qp.get('gmail') === 'connected') {
-      showToast('Gmail connected. Your campaigns can now send automatically.', 'success');
-      fetchGmailConn(session.user.id); // re-fetch so the banner flips green immediately
+      // Re-fetch so the connection card flips to connected (hides Connect Gmail).
+      await fetchGmailConn(session.user.id);
+      // Turn auto-send ON so campaigns actually send — the whole point of
+      // connecting. (Previously it stayed OFF, contradicting this toast.)
+      const { data: curEs } = await supabase.from('email_settings').select('*').eq('user_id', session.user.id).maybeSingle();
+      const nextEs = {
+        user_id: session.user.id,
+        auto_send_enabled: true,
+        daily_send_cap: curEs?.daily_send_cap ?? 50,
+        send_days: curEs?.send_days ?? [1, 2, 3, 4, 5],
+        send_window_start: curEs?.send_window_start ?? 9,
+        send_window_end: curEs?.send_window_end ?? 17,
+        send_tz_offset: curEs?.send_tz_offset ?? -new Date().getTimezoneOffset(),
+        linkedin_daily_cap: curEs?.linkedin_daily_cap ?? 20,
+      };
+      const { data: savedEs } = await supabase.from('email_settings').upsert([nextEs], { onConflict: 'user_id' }).select();
+      if (savedEs?.[0]) setEmailSettings(savedEs[0]);
+      showToast('Gmail connected — auto-send is on. Campaigns will send on your schedule.', 'success');
       window.history.replaceState({}, '', window.location.pathname);
     } else if (qp.get('gmail_error')) {
       const err = qp.get('gmail_error');
